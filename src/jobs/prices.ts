@@ -9,7 +9,7 @@
  * le même jour, la tâche remplace le prix du jour. Le guide et la liste ne sont retéléchargés que si
  * le guide a changé depuis le dernier passage (`sources`, qui donne aussi leur ETag aux réponses
  * tirées des prix). L'API lit les prix des seules cartes demandées (`readPrices` :
- * `/v1/prices/collection`, `/v1/prices/selection`).
+ * `/v1/prices`).
  */
 
 import type { Database } from 'bun:sqlite'

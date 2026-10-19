@@ -40,7 +40,7 @@ describe('le token', () => {
       '/v1/status',
       '/v1/species',
       '/v1/catalog/sets',
-      '/v1/prices/collection?ids=1',
+      '/v1/prices?ids=1',
       '/v1/histories?ids=1',
       '/v1/wants?ids=1',
       '/v1/images/species/1.png',

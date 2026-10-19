@@ -28,7 +28,7 @@ sont dans `API_TOKENS` (le `.env`), un par client : `nom:token,…` ; aujourd'hu
 | `GET /v1/species`, `/v1/species/details` | Les 1 025 espèces ; ce qu'en montre leur fiche |
 | `GET /v1/catalog/species/:id` | Les cartes japonaises d'un Pokémon |
 | `GET /v1/catalog/sets`, `/v1/catalog/sets/:code` | Les séries ; toutes les cartes d'une série |
-| `GET /v1/prices/collection?ids=…`, `/v1/prices/selection?ids=…` | Les prix du jour des cartes demandées (ids Cardmarket) |
+| `GET /v1/prices?ids=…` | Les prix du jour des cartes demandées (ids Cardmarket) |
 | `GET /v1/prices/:id`, `/v1/histories?ids=…` | L'historique d'une carte ; de plusieurs |
 | `GET /v1/wants?ids=…` | La ligne de chaque carte pour la liste de souhaits Cardmarket |
 | `GET /v1/status` | Chaque tâche : son rythme (ou « à la demande »), son état, ses dates ; le jour des prix |

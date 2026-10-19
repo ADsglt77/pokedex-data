@@ -170,8 +170,8 @@ export interface ServerStatus {
 export type CardPriceRow = [price: number, low: number | null, monthAgo: number | null]
 
 /**
- * `/v1/prices/collection?ids=…` et `/v1/prices/selection?ids=…` : les prix Cardmarket du jour des
- * cartes demandées ; 404 tant que le guide n'a jamais été lu.
+ * `/v1/prices?ids=…` : les prix Cardmarket du jour des cartes demandées ; 404 tant que le guide
+ * n'a jamais été lu.
  */
 export interface PriceFile {
   /** Jour du guide des prix (YYYY-MM-DD). */

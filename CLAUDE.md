@@ -26,8 +26,8 @@ bun run format         # Prettier sur src/ et tests/
   les fonctions ; on ne contrôle que ce qui vient de l'extérieur (les paramètres des routes, par
   leurs schémas ; le token ; les pages et fichiers des sources).
 - **Le contrat** (`src/contract.ts`) : la forme de chaque réponse. Le site en garde une copie
-  (`src/types.ts`) : une réponse qui change de forme change `API_FORMAT` (`src/config/api.ts`),
-  dans les deux dépôts.
+  (`src/types.ts`) : une réponse qui change de forme change `API_FORMAT` (`src/config/api.ts`, dans
+  ses ETag), et la copie du site avec elle.
 - **Anonyme** : les chemins des images ne nomment aucune source (`lib/paths.ts`) ; seule la table
   `UPSTREAMS` (`images.ts`) connaît leurs adresses d'origine. Rien de ce que rend l'API ne nomme
   une source (le site ne cite aucune source, à la demande de l'utilisateur).

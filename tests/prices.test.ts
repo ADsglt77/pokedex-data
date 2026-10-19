@@ -1,6 +1,6 @@
 /**
  * Les prix, que lisent la liste d'achats et le plan du site : l'API ne rend que ceux des cartes
- * demandées (`/v1/prices/collection`, `/v1/prices/selection`), une clé pour chacune (`null` sans
+ * demandées (`/v1/prices`), une clé pour chacune (`null` sans
  * prix : aucun prix n'est inventé, jamais celui d'une autre carte), avec un ETag qui change avec
  * eux. L'écriture quotidienne du guide des prix, et de l'historique (irremplaçable : Cardmarket
  * n'en garde pas).
@@ -37,50 +37,48 @@ function writePrices(stamp = 'lundi', date = '2026-10-12') {
   writeSource(data, 'cardmarket', { stamp, date })
 }
 
-describe('/v1/prices/collection et /v1/prices/selection', () => {
+describe('/v1/prices', () => {
   const api = new Elysia().group('/v1', (group) => group.use(referenceRoutes(data)))
   const get = (path: string, headers: Record<string, string> = {}) =>
-    api.handle(new Request(`http://localhost/v1/prices/${path}`, { headers }))
+    api.handle(new Request(`http://localhost/v1/prices${path}`, { headers }))
 
   test('tant que les prix n’ont jamais été lus : 404', async () => {
     reset()
-    expect((await get('collection?ids=719445')).status).toBe(404)
+    expect((await get('?ids=719445')).status).toBe(404)
   })
 
   test('les prix des seules cartes demandées, une clé chacune (`null` sans prix), jamais ceux d’une autre', async () => {
     reset()
     writePrices()
-    for (const path of ['collection', 'selection']) {
-      const response = await get(`${path}?ids=719446,1,719445,719445`)
-      expect(response.status).toBe(200)
-      expect((await response.json()) as PriceFile).toEqual({
-        date: '2026-10-12',
-        cards: { '719445': [6.87, 5, 7.2], '719446': [99, null, null], '1': null },
-      })
-    }
+    const response = await get('?ids=719446,1,719445,719445')
+    expect(response.status).toBe(200)
+    expect((await response.json()) as PriceFile).toEqual({
+      date: '2026-10-12',
+      cards: { '719445': [6.87, 5, 7.2], '719446': [99, null, null], '1': null },
+    })
   })
 
   test('un ETag : 304 tant que les prix n’ont pas changé, puis les nouveaux', async () => {
     reset()
     writePrices()
-    const first = await get('collection?ids=719445')
+    const first = await get('?ids=719445')
     const etag = first.headers.get('etag')!
-    expect((await get('collection?ids=719445', { 'If-None-Match': etag })).status).toBe(304)
+    expect((await get('?ids=719445', { 'If-None-Match': etag })).status).toBe(304)
     // Affaibli par un relais (Cloudflare) : le même.
-    expect((await get('collection?ids=719445', { 'If-None-Match': `W/${etag}` })).status).toBe(304)
+    expect((await get('?ids=719445', { 'If-None-Match': `W/${etag}` })).status).toBe(304)
     // D'autres cartes : une autre réponse.
-    expect((await get('collection?ids=719446', { 'If-None-Match': etag })).status).toBe(200)
+    expect((await get('?ids=719446', { 'If-None-Match': etag })).status).toBe(200)
     // Le passage suivant de la tâche : de nouveaux prix, un autre ETag.
     data.query('UPDATE cardmarket_prices SET price = 7.1 WHERE id = 719445').run()
     writeSource(data, 'cardmarket', { stamp: 'mardi', date: '2026-10-13' })
-    const next = await get('collection?ids=719445', { 'If-None-Match': etag })
+    const next = await get('?ids=719445', { 'If-None-Match': etag })
     expect(next.status).toBe(200)
     expect(((await next.json()) as PriceFile).cards['719445']![0]).toBe(7.1)
   })
 
   test('des ids mal écrits : refusés', async () => {
-    expect((await get('collection?ids=719445,abc')).status).toBe(422)
-    expect((await get('selection?ids=0719445')).status).toBe(422)
+    expect((await get('?ids=719445,abc')).status).toBe(422)
+    expect((await get('?ids=0719445')).status).toBe(422)
   })
 })
 

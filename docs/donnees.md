@@ -97,9 +97,8 @@ seulement les cartes à l'unité (catégorie 51) :
   prix d'avant (le format du guide a changé), rien n'est écrit et la tâche échoue. L'écriture,
   séparée du téléchargement (`savePriceGuide`), est testée. Rien n'est retéléchargé (29 Mo) tant
   que le guide n'a pas changé (`sources` : son `Last-Modified`).
-- Les réponses : `/v1/prices/collection?ids=…` et `/v1/prices/selection?ids=…` (la même réponse,
-  `readPrices` : le jour, et une clé par carte demandée, `[prix, plus bas, prix d'il y a 30 jours]`
-  ou `null` sans prix ; deux chemins pour le service worker du site ; 404 tant que le guide n'a
+- Les réponses : `/v1/prices?ids=…` (`readPrices` : le jour, et une clé par carte demandée,
+  `[prix, plus bas, prix d'il y a 30 jours]` ou `null` sans prix ; 404 tant que le guide n'a
   jamais été lu) ; `/v1/prices/<id>` (l'historique d'une carte) et `/v1/histories?ids=…` (ceux de
   plusieurs, une clé par id, `null` sans historique). Les ids : des entiers de 1 à 9 chiffres sans
   zéro devant, 1 025 au plus (422 sinon). Leur ETag est tiré du passage de la tâche `prices` et de

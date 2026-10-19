@@ -4,11 +4,9 @@
  * - `GET /catalog/species/:id` : les cartes Pokémon japonaises d'un Pokémon (la fenêtre d'ajout) ;
  *   `GET /catalog/sets` : les séries du catalogue ; `GET /catalog/sets/:id` : toutes les cartes
  *   d'une série, dresseurs et énergies compris (la page Catalogue) ;
- * - `GET /prices/collection?ids=…` et `GET /prices/selection?ids=…` : les prix Cardmarket du jour
- *   des cartes demandées, dans la forme de `readPrices` (deux chemins pour la même réponse : le
- *   service worker du site garde une copie par chemin, celle de la collection n'est pas remplacée
- *   par celle d'une extension du catalogue) ; `GET /prices/:id` : l'historique d'une carte
- *   Cardmarket, par son id produit (la fiche) ;
+ * - `GET /prices?ids=…` : les prix Cardmarket du jour des cartes demandées, dans la forme de
+ *   `readPrices` ; `GET /prices/:id` : l'historique d'une carte Cardmarket, par son id produit (la
+ *   fiche) ;
  * - `GET /histories?ids=719621,719654` : l'historique de chaque carte Cardmarket demandée, `null`
  *   sans historique, en une demande (la courbe de la valeur de la collection, page Valeur) ;
  *   ces trois-là ont un ETag tiré du passage de la tâche `prices` et de l'avancée de la tâche
@@ -111,11 +109,6 @@ export function referenceRoutes(data: Database) {
       const tag = pricesTag(what)
       return tag ? serveTagged(request, tag, read) : notFound()
     })()
-  /** Les prix du jour des cartes `ids`, avec leur ETag. */
-  function pricesOf({ query, request }: { query: { ids: string }; request: Request }) {
-    const ids = [...new Set(query.ids.split(','))]
-    return pricesAnswer(request, `prices:${ids.join()}`, () => readPrices(data, ids.map(Number)))
-  }
   /** Une réponse calculée en fin de tâche. */
   const snapshot =
     (name: string) =>
@@ -149,16 +142,20 @@ export function referenceRoutes(data: Database) {
         ...doc('Toutes les cartes d’une série du catalogue'),
       },
     )
-    .get('/prices/collection', pricesOf, {
-      // Une carte par Pokémon au plus.
-      query: t.Object({ ids: t.String({ pattern: idsPattern(TOTAL_SPECIES) }) }),
-      ...doc('Les prix du jour des cartes de la collection'),
-    })
-    .get('/prices/selection', pricesOf, {
-      // Une extension du catalogue, les cartes d'un Pokémon : moins d'un millier.
-      query: t.Object({ ids: t.String({ pattern: idsPattern(TOTAL_SPECIES) }) }),
-      ...doc('Les prix du jour de quelques cartes'),
-    })
+    .get(
+      '/prices',
+      ({ query, request }) => {
+        const ids = [...new Set(query.ids.split(','))]
+        return pricesAnswer(request, `prices:${ids.join()}`, () =>
+          readPrices(data, ids.map(Number)),
+        )
+      },
+      {
+        // Une collection (une carte par Pokémon), une extension du catalogue : 1 025 au plus.
+        query: t.Object({ ids: t.String({ pattern: idsPattern(TOTAL_SPECIES) }) }),
+        ...doc('Les prix du jour de cartes Cardmarket'),
+      },
+    )
     .get(
       '/prices/:id',
       // Pas de 404 retenu : la carte peut avoir un prix au prochain passage.
