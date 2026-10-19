@@ -61,45 +61,45 @@ function reader(data: Database) {
 
 export function statusRoutes(data: Database) {
   const read = reader(data)
-  return new Elysia({ name: 'status' }).get(
-    '/status',
-    ({ set }): ServerStatus => {
-      set.headers['cache-control'] = 'no-cache'
-      const { runs, pricesDate, now } = read()
-      return {
-        jobs: INGEST_JOB_NAMES.map((job) => ({
-          job,
-          label: INGEST_JOBS[job].label,
-          every: INGEST_JOBS[job].every,
-          state: stateOf(job, runs.get(job), pricesDate, now),
-          lastSuccess: runs.get(job)?.lastSuccess ?? null,
-          lastRun: runs.get(job)?.lastRun ?? null,
-        })),
-        pricesDate,
-      }
-    },
-    { detail: { summary: 'Les tâches d’ingestion', tags: ['État'] } },
-  )
-}
-
-/** `/v1/health`, sans token : seulement 200 ou 503, et les tâches en retard. */
-export function healthRoutes(data: Database) {
-  const read = reader(data)
-  return new Elysia({ name: 'health' }).get(
-    '/health',
-    ({ set }) => {
-      set.headers['cache-control'] = 'no-store'
-      const { runs, pricesDate, now } = read()
-      const late = INGEST_JOB_NAMES.filter(
-        (job) =>
-          overdue(job, runs.get(job)?.lastSuccess ?? null, now) ||
-          (job === 'prices' && pricesFrozen(pricesDate, now)),
-      )
-      if (late.length > 0) set.status = 503
-      return { ok: late.length === 0, late }
-    },
-    {
-      detail: { summary: 'Pour une surveillance : 503 si une tâche est en retard', tags: ['État'] },
-    },
-  )
+  return new Elysia({ name: 'status' })
+    .get(
+      '/status',
+      ({ set }): ServerStatus => {
+        set.headers['cache-control'] = 'no-cache'
+        const { runs, pricesDate, now } = read()
+        return {
+          jobs: INGEST_JOB_NAMES.map((job) => ({
+            job,
+            label: INGEST_JOBS[job].label,
+            every: INGEST_JOBS[job].every,
+            state: stateOf(job, runs.get(job), pricesDate, now),
+            lastSuccess: runs.get(job)?.lastSuccess ?? null,
+            lastRun: runs.get(job)?.lastRun ?? null,
+          })),
+          pricesDate,
+        }
+      },
+      { detail: { summary: 'Les tâches d’ingestion', tags: ['État'] } },
+    )
+    .get(
+      // Sans token (`auth.ts`) : seulement 200 ou 503, et les tâches en retard.
+      '/health',
+      ({ set }) => {
+        set.headers['cache-control'] = 'no-store'
+        const { runs, pricesDate, now } = read()
+        const late = INGEST_JOB_NAMES.filter(
+          (job) =>
+            overdue(job, runs.get(job)?.lastSuccess ?? null, now) ||
+            (job === 'prices' && pricesFrozen(pricesDate, now)),
+        )
+        if (late.length > 0) set.status = 503
+        return { ok: late.length === 0, late }
+      },
+      {
+        detail: {
+          summary: 'Pour une surveillance : 503 si une tâche est en retard',
+          tags: ['État'],
+        },
+      },
+    )
 }

@@ -19,9 +19,6 @@ import { DATA_DIR } from '../db'
 
 const BACKUP_DIR = process.env.BACKUP_DIR ?? join(DATA_DIR, 'backups')
 
-/** Le fichier d'une copie en cours d'écriture : jamais pris pour une sauvegarde. */
-const temporary = (name: string) => join(BACKUP_DIR, `tmp-${name}`)
-
 /** Une copie lisible et saine ; sinon une erreur (la tâche échoue, `/v1/status` le dit). */
 function check(file: string) {
   const db = new Database(file, { readonly: true })
@@ -35,25 +32,7 @@ function check(file: string) {
   }
 }
 
-/** Copie une base, ouverte en lecture seule, dans `file` (temporaire), puis la vérifie. */
-async function copy(name: string, file: string) {
-  await rm(file, { force: true })
-  const db = new Database(join(DATA_DIR, name), { readonly: true })
-  try {
-    db.run(`VACUUM INTO '${file.replaceAll("'", "''")}'`)
-  } finally {
-    db.close()
-  }
-  check(file)
-}
-
-/** Ne garde que les `count` copies les plus récentes de ce préfixe (leur nom porte leur jour). */
-async function prune(prefix: string, count: number) {
-  const files = (await readdir(BACKUP_DIR)).filter((file) => file.startsWith(prefix)).sort()
-  for (const file of files.slice(0, -count)) await rm(join(BACKUP_DIR, file))
-}
-
-export async function backups() {
+export async function backups(db: Database) {
   const day = new Date().toISOString().slice(0, 10)
   await mkdir(BACKUP_DIR, { recursive: true })
   // Les restes d'une copie interrompue (redémarrage pendant l'écriture).
@@ -62,9 +41,11 @@ export async function backups() {
   }
 
   const name = `data-${day}.db`
-  const plain = temporary(name)
+  // En cours d'écriture : jamais pris pour une sauvegarde.
+  const plain = join(BACKUP_DIR, `tmp-${name}`)
   try {
-    await copy('data.db', plain)
+    db.run(`VACUUM INTO '${plain.replaceAll("'", "''")}'`)
+    check(plain)
     // En flux : la base grossit avec l'historique, elle ne passe pas entière en mémoire.
     await pipeline(createReadStream(plain), createGzip(), createWriteStream(`${plain}.gz`))
     await rename(`${plain}.gz`, join(BACKUP_DIR, `${name}.gz`))
@@ -72,6 +53,7 @@ export async function backups() {
     await rm(plain, { force: true })
     await rm(`${plain}.gz`, { force: true })
   }
-  await prune('data-', 7)
-  console.log(`Sauvegarde du ${day} dans ${BACKUP_DIR}`)
+  // Les 7 plus récentes (leur nom porte leur jour).
+  const kept = (await readdir(BACKUP_DIR)).filter((file) => file.startsWith('data-')).sort()
+  for (const file of kept.slice(0, -7)) await rm(join(BACKUP_DIR, file))
 }

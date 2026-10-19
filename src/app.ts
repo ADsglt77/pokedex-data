@@ -14,7 +14,7 @@ import { serveImage } from './images'
 import { journal } from './journal'
 import { referenceRoutes } from './reference'
 import { notFound } from './snapshots'
-import { healthRoutes, statusRoutes } from './status'
+import { statusRoutes } from './status'
 
 const DEV = process.env.NODE_ENV !== 'production'
 
@@ -59,7 +59,6 @@ export function createApp(data: Database, clients: Clients) {
       })
       .group('/v1', (api) =>
         api
-          .use(healthRoutes(data))
           .use(statusRoutes(data))
           .use(referenceRoutes(data))
           .get('/images/*', ({ request }) => serveImage(data, request), {

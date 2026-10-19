@@ -334,14 +334,8 @@ export function writeSource(db: Database, name: string, { stamp, date }: Source)
  * connexion refuse toute écriture.
  */
 export function openData({ readonly = false } = {}) {
-  const db = open('data.db', DATA_STEPS)
-  if (readonly) db.run('PRAGMA query_only = ON')
-  return db
-}
-
-function open(name: string, steps: string[]) {
   mkdirSync(DATA_DIR, { recursive: true })
-  const db = new Database(join(DATA_DIR, name), { create: true, strict: true })
+  const db = new Database(join(DATA_DIR, 'data.db'), { create: true, strict: true })
   // Avant le passage en WAL : à la création de la base, l'autre processus qui démarre en même
   // temps la verrouille un instant, et ce passage échouerait tout de suite.
   db.run('PRAGMA busy_timeout = 5000')
@@ -350,6 +344,7 @@ function open(name: string, steps: string[]) {
   db.run('PRAGMA foreign_keys = ON')
   // Le journal WAL retombe à 64 Mo après une grosse écriture (l'historique des prix du jour).
   db.run('PRAGMA journal_size_limit = 67108864')
-  migrate(db, name, steps)
+  migrate(db, 'data.db', DATA_STEPS)
+  if (readonly) db.run('PRAGMA query_only = ON')
   return db
 }

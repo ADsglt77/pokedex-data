@@ -34,7 +34,7 @@ exclusivités d'autres pays d'Asie (bloc « Asia Exclusive » de son menu, `asia
   séries connues sans cartes : la tâche échoue) ; une carte qu'une lecture de sa série ne voit plus
   est retirée. Tant qu'aucune carte n'a été lue, les réponses du catalogue répondent 404.
 - Les réponses, recalculées au début et en fin de tâche (`saveCatalog`, `snapshots.ts` : gardées en
-  gzip et en Brotli, une réponse inchangée n'est pas recompressée) :
+  gzip, une réponse inchangée n'est pas recompressée) :
   - `/v1/catalog/species/<n°>` : les cartes Pokémon d'un Pokémon (une réponse pour chacun des
     1 025, même sans carte), des plus récentes aux plus anciennes : `[série, numéro (sans numéro
     imprimé : sort), id Cardmarket (0 : aucun), nom français, numéro de son image (0 : aucune),

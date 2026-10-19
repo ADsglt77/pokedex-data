@@ -36,8 +36,7 @@ sont dans `API_TOKENS` (le `.env`), un par client : `nom:token,…` ; aujourd'hu
 | `GET /v1/health` | **Sans token** : 200, ou 503 si une tâche à rythme est en retard |
 
 La forme de chaque réponse : `src/contract.ts`, dont le site garde une copie. Les grosses
-réponses portent un ETag (304 tant qu'elles n'ont pas changé) et arrivent compressées (Brotli ou
-gzip). En développement, la documentation (OpenAPI) est à `http://127.0.0.1:3001/docs`.
+réponses portent un ETag (304 tant qu'elles n'ont pas changé) et arrivent compressées (gzip). En développement, la documentation (OpenAPI) est à `http://127.0.0.1:3001/docs`.
 
 Les chemins des images ne nomment aucune source : `/v1/images/cards/<série>/<n>-<md|hd>.webp`,
 `/v1/images/sets/<série>-<md|hd>.webp`, `/v1/images/types/<n>.webp`,

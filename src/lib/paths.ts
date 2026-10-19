@@ -8,9 +8,6 @@
 export const cardScan = (set: string, rank: number | string, size: 'md' | 'hd') =>
   `/images/cards/${set}/${rank}-${size}.webp`
 
-/** Le chemin du scan d'une carte : sa série, son rang, sa taille. */
-export const CARD_SCAN = /^\/images\/cards\/([A-Z0-9_-]+)\/(\d{1,4})-(md|hd)\.webp$/
-
 /** Le logo japonais d'une série, en deux tailles : `md` pour la liste, `hd` en tête de page. */
 export const setLogo = (set: string, size: 'md' | 'hd') => `/images/sets/${set}-${size}.webp`
 

@@ -13,7 +13,6 @@ import { mkdir, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { CARD_TYPES } from '@/config/catalog'
 import { TOTAL_SPECIES } from '@/config/pokedex'
-import { CARD_SCAN } from '@/lib/paths'
 import { WEEK } from '@/lib/time'
 import { DATA_DIR } from './db'
 import { journal } from './journal'
@@ -44,7 +43,8 @@ const UPSTREAMS: {
   plausible: (data: Database, ...parts: string[]) => boolean
 }[] = [
   {
-    path: CARD_SCAN,
+    // Le scan d'une carte (`cardScan`, `lib/paths.ts`) : sa série, son rang, sa taille.
+    path: /^\/images\/cards\/([A-Z0-9_-]+)\/(\d{1,4})-(md|hd)\.webp$/,
     url: (set, number, size) => `${SCANS}/${set}/${number}.jpg?class=${size}`,
     plausible: (data, set, number) => {
       const { max } = data
@@ -92,13 +92,6 @@ function upstreamOf(path: string) {
   return null
 }
 
-/** L'adresse d'origine d'un chemin local ; une erreur s'il n'en est pas un (un appelant à revoir). */
-function upstreamUrl(path: string) {
-  const known = upstreamOf(path)
-  if (!known) throw new Error(`Chemin d’image inconnu : ${path}`)
-  return known.upstream.url(...known.parts)
-}
-
 /** Le fichier d'un chemin local (`/images/cards/…` → `IMAGES_DIR/cards/…`). */
 const imageFile = (path: string) => join(IMAGES_DIR, path.slice('/images/'.length))
 
@@ -112,7 +105,10 @@ const imageFile = (path: string) => join(IMAGES_DIR, path.slice('/images/'.lengt
 export async function mirror(path: string, { quick = false } = {}): Promise<boolean> {
   const file = imageFile(path)
   if (await Bun.file(file).exists()) return true
-  const url = upstreamUrl(path)
+  // Un chemin inconnu : une erreur (un appelant à revoir).
+  const known = upstreamOf(path)
+  if (!known) throw new Error(`Chemin d’image inconnu : ${path}`)
+  const url = known.upstream.url(...known.parts)
   const response = quick ? await quickFetch(url) : await politeFetch(url)
   if (response.status === 404) return false
   if (!response.ok) throw new Error(`HTTP ${response.status} pour ${url}`)
@@ -143,8 +139,8 @@ const misses = new Map<string, number>()
 const copies = new Map<string, Promise<boolean>>()
 
 /**
- * Les copies à la demande menées en même temps, au plus : nginx les laisse toutes passer d'un coup
- * (`nodelay`), le serveur n'en télécharge que 4 à la fois ; les autres attendent leur tour. Une
+ * Les copies à la demande menées en même temps, au plus : l'API n'en télécharge que 4 à la fois ;
+ * les autres attendent leur tour. Une
  * place libérée passe directement à la suivante qui attend : une nouvelle demande ne peut pas la
  * prendre entre-temps (on en mènerait 5).
  */

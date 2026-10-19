@@ -26,8 +26,8 @@ bun run format         # Prettier sur src/ et tests/
   les fonctions ; on ne contrôle que ce qui vient de l'extérieur (les paramètres des routes, par
   leurs schémas ; le token ; les pages et fichiers des sources).
 - **Le contrat** (`src/contract.ts`) : la forme de chaque réponse. Le site en garde une copie
-  (`src/types.ts`) : une réponse qui change de forme change `API_FORMAT` (`src/config/api.ts`, dans
-  ses ETag), et la copie du site avec elle.
+  (`src/types.ts`) : une réponse qui change de forme change `FORMAT` (`src/snapshots.ts`, dans ses
+  ETag), et la copie du site avec elle.
 - **Anonyme** : les chemins des images ne nomment aucune source (`lib/paths.ts`) ; seule la table
   `UPSTREAMS` (`images.ts`) connaît leurs adresses d'origine. Rien de ce que rend l'API ne nomme
   une source (le site ne cite aucune source, à la demande de l'utilisateur).
@@ -61,14 +61,14 @@ bun run format         # Prettier sur src/ et tests/
 | `status.ts` | `/v1/status` (chaque tâche : rythme, état, dates) et `/v1/health` |
 | `reference.ts` | Espèces, catalogue, prix, historiques, liste de souhaits ; ETag des réponses tirées des prix (`pricesTag`) |
 | `images.ts` | Les images copiées (`IMAGES_DIR`), leurs adresses d'origine (`UPSTREAMS`), la copie à la demande |
-| `snapshots.ts` | Les grosses réponses, calculées en fin de tâche, gardées en gzip et Brotli ; `serveTagged` |
+| `snapshots.ts` | Les grosses réponses, calculées en fin de tâche, gardées en gzip ; `serveTagged` et la forme des réponses (`FORMAT`) |
 | `history.ts` | L'historique des prix, une ligne par carte et par année |
 | `db.ts` | `data.db` dans `DATA_DIR`, schéma par étapes |
 | `journal.ts` | Le journal, une ligne par évènement |
 | `ingest.ts`, `jobs/*` | Les tâches d'ingestion, une à la demande, `cards`, ou `--loop` |
 | `lib/net.ts`, `lib/pokecardex.ts` | Requêtes identifiées et cache de PokéAPI ; les pages de Pokécardex, déchiffrées, une toutes les 3 s |
 | `lib/paths.ts`, `lib/wants.ts` | Les chemins neutres des images ; la ligne d'une carte pour la liste de souhaits |
-| `contract.ts`, `config/*` | Le contrat ; les tâches, les types de cartes, le Pokédex, `API_FORMAT` |
+| `contract.ts`, `config/*` | Le contrat ; les tâches, les types de cartes, le Pokédex |
 
 Le détail de chaque domaine : `docs/donnees.md` (à lire avant d'y toucher, et à tenir à jour).
 Déploiement : README (même VPS que le site, réseau Docker `pokedex-net`, aucun port publié ;

@@ -1,7 +1,7 @@
 /**
  * Le contrat de l'API : la forme de chacune de ses réponses (`/v1/…`). Le site en garde une copie
- * (`src/types.ts` du Pokédex) : une réponse qui change de forme change aussi `API_FORMAT`
- * (`config/api.ts`), et la copie du site avec elle.
+ * (`src/types.ts` du Pokédex) : une réponse qui change de forme change aussi `FORMAT`
+ * (`snapshots.ts`), et la copie du site avec elle.
  */
 
 /* Les espèces (PokéAPI) : `/v1/species`, `/v1/species/details` */

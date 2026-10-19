@@ -4,18 +4,24 @@
 # Les volumes portent des données irremplaçables (l'historique des prix) : jamais `down -v`.
 # Les journaux de chaque service : 3 fichiers de 10 Mo au plus (`ingest` tourne en boucle).
 # Aucun service ne peut gagner de droits en cours de route (`no-new-privileges`), et ils n'en
-# gardent aucun (`cap_drop`), sans droits d'administrateur (Dockerfile).
+# gardent aucun (`cap_drop`), sans droits d'administrateur (Dockerfile). Les deux services partagent
+# une seule image (`pokedex-data`) et ces réglages (`x-bun`).
+x-bun: &bun
+  build: .
+  image: pokedex-data
+  restart: unless-stopped
+  # Un vrai processus 1 devant Bun : l'arrêt d'un déploiement lui parvient, sans 10 s d'attente.
+  init: true
+  security_opt: ['no-new-privileges:true']
+  cap_drop: [ALL]
+  logging: { options: { max-size: 10m, max-file: '3' } }
+
 services:
   # L'API (`src/index.ts`) : elle lit la base que remplit `ingest`, et copie à la demande une image
   # qui manque. Ses tokens (`API_TOKENS`) viennent du fichier `.env` du clone (README) : sans eux,
   # docker compose refuse de démarrer. Son état (`docker compose ps`) : sain tant qu'elle répond.
   api:
-    build: .
-    restart: unless-stopped
-    # Un vrai processus 1 devant Bun : l'arrêt d'un déploiement lui parvient, sans 10 s d'attente.
-    init: true
-    security_opt: ['no-new-privileges:true']
-    cap_drop: [ALL]
+    <<: *bun
     healthcheck:
       test:
         - CMD
@@ -26,7 +32,6 @@ services:
       timeout: 10s
       start_period: 30s
       retries: 3
-    logging: { options: { max-size: 10m, max-file: '3' } }
     environment:
       API_TOKENS: ${API_TOKENS:?les tokens des clients, dans .env (voir le README)}
     volumes:
@@ -42,12 +47,7 @@ services:
   # jusqu'à 6 h. Les autres, à la demande, avec la même image :
   #   docker compose run --rm ingest bun src/ingest.ts cards
   ingest:
-    build: .
-    restart: unless-stopped
-    init: true
-    security_opt: ['no-new-privileges:true']
-    cap_drop: [ALL]
-    logging: { options: { max-size: 10m, max-file: '3' } }
+    <<: *bun
     command: ['bun', 'src/ingest.ts', '--loop']
     volumes:
       - data:/data
