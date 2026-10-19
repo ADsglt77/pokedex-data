@@ -1,0 +1,7 @@
+node_modules
+# Les bases, le cache des téléchargements et les images copiées (`DATA_DIR`) : jamais dans le dépôt.
+/.data
+# Les secrets : les tokens des clients (`API_TOKENS`).
+.env*
+!.env.example
+*.log

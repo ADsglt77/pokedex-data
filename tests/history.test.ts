@@ -1,0 +1,254 @@
+/**
+ * L'historique des prix (`src/history.ts`) : irremplaçable, Cardmarket n'en garde pas. La tâche
+ * `prices` y ajoute chaque jour le prix du jour (`withPrice`) et lit celui d'il y a 30 jours
+ * (`priceBefore`), la tâche `history` y reprend celui de Pokécardex des 180 derniers jours
+ * (`mainHistory`, `mergePrices` : jamais celui d'une autre version, jamais le relevé du jour
+ * remplacé), la base le range par année, l'API le rend d'un seul tenant (`joinYears`,
+ * `historyReader`), pour une carte comme pour toute la collection : aucun prix ne doit se perdre,
+ * changer de jour en route, ni passer d'une carte à une autre.
+ */
+
+import { Database } from 'bun:sqlite'
+import { describe, expect, test } from 'bun:test'
+import {
+  historyReader,
+  historyStore,
+  joinYears,
+  mergePrices,
+  priceBefore,
+  withPrice,
+  yearDay,
+  type HistoryYear,
+} from '../src/history'
+import { mainHistory } from '../src/jobs/history'
+import type { PokecardexHistory } from '../src/lib/pokecardex'
+
+describe('jour de l’année', () => {
+  test('le 1er janvier est le jour 0, les années bissextiles ont un jour de plus', () => {
+    expect(yearDay('2026-01-01')).toEqual([2026, 0])
+    expect(yearDay('2026-10-14')).toEqual([2026, 286])
+    expect(yearDay('2025-12-31')).toEqual([2025, 364])
+    expect(yearDay('2024-12-31')).toEqual([2024, 365])
+  })
+})
+
+describe('prix du jour ajouté à une année', () => {
+  const known: HistoryYear = { year: 2026, first: 10, prices: [5, 6] }
+
+  test('le même prix le même jour : rien à réécrire', () => {
+    expect(withPrice(known, 2026, 11, 6)).toBe(known)
+  })
+
+  test('relancée le même jour, la tâche remplace le prix du jour', () => {
+    expect(withPrice(known, 2026, 11, 7)).toEqual({ year: 2026, first: 10, prices: [5, 7] })
+  })
+
+  test('des jours sans prix entre deux relevés restent vides', () => {
+    expect(withPrice(known, 2026, 14, 8)).toEqual({
+      year: 2026,
+      first: 10,
+      prices: [5, 6, null, null, 8],
+    })
+  })
+
+  test('un prix avant le premier jour connu le devance, sans décaler les autres', () => {
+    expect(withPrice(known, 2026, 8, 4)).toEqual({ year: 2026, first: 8, prices: [4, null, 5, 6] })
+  })
+
+  test('l’année reçue n’est jamais modifiée', () => {
+    withPrice(known, 2026, 14, 8)
+    withPrice(known, 2026, 8, 4)
+    expect(known).toEqual({ year: 2026, first: 10, prices: [5, 6] })
+  })
+})
+
+describe('historique rangé par année, puis relu', () => {
+  test('à cheval sur deux années : chaque prix garde son jour', () => {
+    const years = [
+      { year: 2025, first: 363, prices: [1] },
+      { year: 2026, first: 0, prices: [2, 3] },
+    ]
+    expect(joinYears(years)).toEqual({ from: '2025-12-30', prices: [1, null, 2, 3] })
+  })
+
+  test('une année entière sans prix : les jours vides reviennent tels quels', () => {
+    const years = [
+      { year: 2024, first: 365, prices: [1] },
+      { year: 2026, first: 0, prices: [2] },
+    ]
+    expect(joinYears(years)).toEqual({
+      from: '2024-12-31',
+      prices: [1, ...Array<null>(365).fill(null), 2],
+    })
+  })
+
+  test('l’historique part du premier jour avec un prix', () => {
+    expect(joinYears([{ year: 2026, first: 2, prices: [5] }])).toEqual({
+      from: '2026-01-03',
+      prices: [5],
+    })
+  })
+
+  test('jour après jour, la tâche et la relecture s’accordent', () => {
+    // Trois relevés, dont un oublié et un passage au 1er janvier.
+    let years: HistoryYear[] = []
+    for (const [date, price] of [
+      ['2025-12-30', 10],
+      ['2026-01-01', 12],
+      ['2026-01-02', 11],
+    ] as const) {
+      const [year, day] = yearDay(date)
+      const known = years.find((row) => row.year === year)
+      const next = withPrice(known, year, day, price)
+      years = [...years.filter((row) => row.year !== year), next].sort((a, b) => a.year - b.year)
+    }
+    expect(joinYears(years)).toEqual({ from: '2025-12-30', prices: [10, null, 12, 11] })
+  })
+
+  test('sans aucun prix : pas d’historique', () => {
+    expect(joinYears([])).toBeNull()
+  })
+})
+
+describe('historyReader', () => {
+  // Les seules colonnes que lit l'API (le schéma complet : `src/db.ts`).
+  const db = new Database(':memory:')
+  db.run(`CREATE TABLE cardmarket_products (id INTEGER PRIMARY KEY, name TEXT NOT NULL)`)
+  db.run(`CREATE TABLE cardmarket_history (
+    id INTEGER NOT NULL, year INTEGER NOT NULL, first INTEGER NOT NULL, prices TEXT NOT NULL,
+    PRIMARY KEY (id, year))`)
+  const year = db.query('INSERT INTO cardmarket_history VALUES (?, ?, ?, ?)')
+  year.run(719621, 2026, 0, '[2,3]')
+  year.run(719621, 2025, 363, '[1]')
+  year.run(719446, 2026, 286, '[7]')
+  db.run(`INSERT INTO cardmarket_products VALUES (719621, 'Charmander [Blazing Destruction]')`)
+  const read = historyReader(db)
+
+  test('chaque carte son historique, ses années dans l’ordre, avec son nom', () => {
+    expect(read(719621)).toEqual({
+      name: 'Charmander [Blazing Destruction]',
+      from: '2025-12-30',
+      prices: [1, null, 2, 3],
+    })
+    expect(read(719446)).toEqual({ name: null, from: '2026-10-14', prices: [7] })
+  })
+
+  test('une carte sans historique : rien, jamais celui d’une autre', () => {
+    expect(read(1)).toBeNull()
+  })
+})
+
+describe('le prix d’il y a 30 jours', () => {
+  const years: HistoryYear[] = [
+    { year: 2025, first: 360, prices: [1, null, 2] },
+    { year: 2026, first: 280, prices: [3, null, 4] },
+  ]
+
+  test('le jour même, sinon le jour avec un prix le plus proche avant, une semaine au plus', () => {
+    // 30 jours avant le 7 novembre 2026 (jour 310) : le 8 octobre, jour 280.
+    expect(priceBefore(years, '2026-11-07')).toBe(3)
+    // 30 jours avant le 8 novembre : le 9 octobre, sans prix ; le 8, oui.
+    expect(priceBefore(years, '2026-11-08')).toBe(3)
+    // D'une année sur l'autre : 30 jours avant le 31 janvier 2026, le 1er janvier sans prix, ni
+    // les 31 et 30 décembre 2025 ; le 29 (jour 362), oui.
+    expect(priceBefore(years, '2026-01-31')).toBe(2)
+    // Rien dans la semaine : pas de prix.
+    expect(priceBefore(years, '2026-06-01')).toBeNull()
+  })
+})
+
+describe('mergePrices : des prix repris d’ailleurs (Pokécardex)', () => {
+  const db = new Database(':memory:')
+  db.run(`CREATE TABLE cardmarket_history (
+    id INTEGER NOT NULL, year INTEGER NOT NULL, first INTEGER NOT NULL, prices TEXT NOT NULL,
+    PRIMARY KEY (id, year))`)
+  const store = historyStore(db)
+
+  test('chaque jour avant le dernier relevé prend son prix ; celui-là et les suivants restent', () => {
+    // Le relevé : le 14 octobre (jour 286), puis le 15.
+    store.save(1, { year: 2026, first: 286, prices: [10, 11] })
+    const written = mergePrices(
+      db,
+      1,
+      [
+        ['2025-12-31', 5],
+        ['2026-10-12', 8],
+        ['2026-10-14', 9],
+        ['2026-10-15', 9],
+      ],
+      '2026-10-14',
+    )
+    expect(written).toBe(2)
+    expect(store.year(1, 2025)).toEqual({ year: 2025, first: 364, prices: [5] })
+    expect(store.year(1, 2026)).toEqual({ year: 2026, first: 284, prices: [8, null, 10, 11] })
+  })
+
+  test('un jour déjà au même prix : rien de réécrit ; une autre carte : intacte', () => {
+    store.save(2, { year: 2026, first: 280, prices: [4] })
+    store.save(3, { year: 2026, first: 280, prices: [7] })
+    expect(mergePrices(db, 2, [['2026-10-08', 4]], null)).toBe(0)
+    expect(store.year(3, 2026)).toEqual({ year: 2026, first: 280, prices: [7] })
+  })
+})
+
+describe('mainHistory : la courbe de la carte dans sa page Pokécardex', () => {
+  /** Une page de carte, réduite à ce qu'on en lit (la forme de Pokécardex, octobre 2026). */
+  const page = (main: string, periods: Record<string, PokecardexHistory['points']>) => ({
+    carte: {
+      cardmarketPrices: [
+        { id_cardmarket: main, id_version: null },
+        { id_cardmarket: '837231', id_version: 104 },
+      ],
+      priceHistory: {
+        cardmarket: Object.fromEntries(
+          Object.entries(periods).map(([days, points]) => [
+            days,
+            {
+              series: [
+                {
+                  id: 'v_null_normale_avg30',
+                  versionId: null,
+                  variant: 'normale',
+                  metric: 'avg30',
+                },
+                {
+                  id: 'v_null_reverse_avg30',
+                  versionId: null,
+                  variant: 'reverse',
+                  metric: 'avg30',
+                },
+                { id: 'v_104_normale_avg30', versionId: 104, variant: 'normale', metric: 'avg30' },
+              ],
+              points,
+            },
+          ]),
+        ),
+      },
+    },
+  })
+  const points: PokecardexHistory['points'] = [
+    {
+      date: '2026-04-22',
+      v_null_normale_avg30: 1.944,
+      v_null_reverse_avg30: 6.54,
+      v_104_normale_avg30: 26,
+    },
+    { date: '2026-04-23', v_null_reverse_avg30: 6.54, v_104_normale_avg30: 26 },
+    { date: '2026-04-24', v_null_normale_avg30: 0, v_104_normale_avg30: 26 },
+    { date: '2026-04-25', v_null_normale_avg30: 2.49 },
+  ]
+
+  test('la plus longue période, la carte elle-même : ni sa variante ni ses versions', () => {
+    const read = mainHistory(page('719442', { '15': points.slice(3), '180': points }), 719442)
+    expect(read).toEqual([
+      ['2026-04-22', 1.94],
+      ['2026-04-25', 2.49],
+    ])
+  })
+
+  test('un autre produit Cardmarket que celui du catalogue, ou pas d’historique : rien', () => {
+    expect(mainHistory(page('719443', { '180': points }), 719442)).toBeNull()
+    expect(mainHistory(page('719442', {}), 719442)).toBeNull()
+    expect(mainHistory({ carte: {} }, 719442)).toBeNull()
+  })
+})
