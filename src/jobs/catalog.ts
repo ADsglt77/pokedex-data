@@ -140,12 +140,17 @@ export function saveCatalog(db: Database) {
     if (list) list.push(card)
     else bySet.set(card.set, [card])
   }
-  const catalog = catalogResponse(sets, cards, rarities)
+  const byId = new Map(sets.map((set) => [set.id, set]))
+  const bySpecies = cardsBySpecies(cards, byId)
   db.transaction(() => {
     // Chaque Pokémon, même sans carte : la fenêtre d'ajout dit alors qu'il n'en a pas (404 :
     // catalogue pas disponible).
     for (let dexId = 1; dexId <= TOTAL_SPECIES; dexId++) {
-      saveSnapshot(db, `${SPECIES_SNAPSHOT}${dexId}`, speciesResponse(catalog, dexId))
+      saveSnapshot(
+        db,
+        `${SPECIES_SNAPSHOT}${dexId}`,
+        speciesResponse(dexId, bySpecies[dexId] ?? [], byId, rarities),
+      )
     }
     saveSnapshot(db, 'catalog/sets', setsResponse(sets, bySet))
     for (const set of sets) {
@@ -175,64 +180,58 @@ const raritiesOf = (cards: CardRecord[], rarities: Map<number, RarityRecord>) =>
  */
 const imageOf = (card: CardRecord) => (card.image === 'none' ? 0 : card.sort)
 
-/** Les cartes Pokémon de toutes les séries, par Pokémon, avec leurs séries et leurs raretés. */
-function catalogResponse(
-  sets: SetRecord[],
-  cards: CardRecord[],
-  rarities: Map<number, RarityRecord>,
-): CatalogFile {
-  const released = new Map(sets.map((set) => [set.id, set.released]))
-  const pokemon = cards
-    .map((card) => ({ ...card, list: JSON.parse(card.dexIds) as number[] }))
-    .filter((card) => card.list.length > 0)
-    // Des plus récentes aux plus anciennes ; dans une série, de la dernière carte à la première.
-    .sort(
-      (a, b) =>
-        released.get(b.set)!.localeCompare(released.get(a.set)!) ||
-        a.set.localeCompare(b.set) ||
-        b.sort - a.sort,
-    )
-  // Des clés numériques : l'objet les garde dans l'ordre des numéros du Pokédex.
-  const bySpecies: CatalogFile['cards'] = {}
-  for (const card of pokemon) {
-    const row: CatalogRow = [
-      card.set,
-      card.number || String(card.sort),
-      card.cardmarket,
-      card.name,
-      imageOf(card),
-      card.rarity ?? 0,
-      card.type ?? 0,
-    ]
-    if (card.list.length > 1) row.push(card.list)
-    for (const dexId of card.list) (bySpecies[dexId] ??= []).push(row)
+/**
+ * Les cartes Pokémon de chaque Pokémon, des plus récentes aux plus anciennes ; dans une série, de
+ * la dernière carte à la première.
+ */
+function cardsBySpecies(cards: CardRecord[], sets: Map<string, SetRecord>) {
+  const released = (card: CardRecord) => sets.get(card.set)!.released
+  const sorted = cards.toSorted(
+    (a, b) =>
+      released(b).localeCompare(released(a)) || a.set.localeCompare(b.set) || b.sort - a.sort,
+  )
+  const bySpecies: Record<number, CardRecord[]> = {}
+  for (const card of sorted) {
+    for (const dexId of JSON.parse(card.dexIds) as number[]) (bySpecies[dexId] ??= []).push(card)
   }
-  const withPokemon = new Set(pokemon.map((card) => card.set))
-  return {
-    sets: Object.fromEntries(
-      sets
-        .filter((set) => withPokemon.has(set.id))
-        .map(({ id, name, released: date, logo }) => [id, [name, date, logo === 'none' ? 0 : 1]]),
-    ),
-    cards: bySpecies,
-    rarities: raritiesOf(pokemon, rarities),
-  }
+  return bySpecies
+}
+
+/** Une carte Pokémon, telle que la donne `/v1/catalog/species/<n°>`. */
+function catalogRow(card: CardRecord): CatalogRow {
+  const dexIds = JSON.parse(card.dexIds) as number[]
+  const row: CatalogRow = [
+    card.set,
+    card.number || String(card.sort),
+    card.cardmarket,
+    card.name,
+    imageOf(card),
+    card.rarity ?? 0,
+    card.type ?? 0,
+  ]
+  if (dexIds.length > 1) row.push(dexIds)
+  return row
 }
 
 /**
- * `/v1/catalog/species/<n°>` : les cartes d'un Pokémon (la fenêtre d'ajout d'une carte), dans la
- * forme du catalogue entier réduit à lui, avec les seules séries et raretés de ses cartes.
+ * `/v1/catalog/species/<n°>` : les cartes d'un Pokémon (`cardsBySpecies` : la fenêtre d'ajout d'une
+ * carte), avec leurs seules séries, dans l'ordre de ses cartes, et leurs raretés.
  */
-function speciesResponse(catalog: CatalogFile, dexId: number): CatalogFile {
-  const rows = catalog.cards[dexId] ?? []
-  const sets = new Set(rows.map((row) => row[0]))
-  const rarities = new Set(rows.map((row) => String(row[5])))
+function speciesResponse(
+  dexId: number,
+  cards: CardRecord[],
+  sets: Map<string, SetRecord>,
+  rarities: Map<number, RarityRecord>,
+): CatalogFile {
   return {
-    sets: Object.fromEntries(Object.entries(catalog.sets).filter(([id]) => sets.has(id))),
-    cards: rows.length ? { [dexId]: rows } : {},
-    rarities: Object.fromEntries(
-      Object.entries(catalog.rarities).filter(([id]) => rarities.has(id)),
+    sets: Object.fromEntries(
+      [...new Set(cards.map((card) => card.set))].map((id) => {
+        const { name, released, logo } = sets.get(id)!
+        return [id, [name, released, logo === 'none' ? 0 : 1]]
+      }),
     ),
+    cards: cards.length ? { [dexId]: cards.map(catalogRow) } : {},
+    rarities: raritiesOf(cards, rarities),
   }
 }
 
