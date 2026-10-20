@@ -21,9 +21,8 @@
 import type { Database } from 'bun:sqlite'
 import { CARD_TYPES } from '@/config/catalog'
 import { SPECIES_IDS, TOTAL_SPECIES } from '@/config/pokedex'
-import { artworkUrl, cardScan, rarityIcon, setLogo, spriteUrl, typeIcon } from '@/lib/paths'
 import { WEEK } from '@/lib/time'
-import { mirror } from '../images'
+import { artworkUrl, cardScan, mirror, rarityIcon, setLogo, spriteUrl, typeIcon } from '../images'
 import { mapPool } from '../lib/net'
 import { saveCatalog } from './catalog'
 

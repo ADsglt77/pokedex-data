@@ -53,7 +53,7 @@ exclusivités d'autres pays d'Asie (bloc « Asia Exclusive » de son menu, `asia
 
 Copiées chez nous (`IMAGES_DIR`), condition de Pokécardex ; servies à `/v1/images/…`, gardées un
 an par les clients (`immutable` : `mirror` ne réécrit jamais un fichier qui existe). Les chemins
-sont neutres (`lib/paths.ts`) ; leur adresse d'origine n'est que dans `UPSTREAMS` :
+sont neutres (`cardScan`…, `images.ts`) ; leur adresse d'origine n'est que dans `UPSTREAMS` :
 
 | Chemin | Origine |
 |---|---|

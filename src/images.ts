@@ -3,7 +3,7 @@
  * `/v1/images/…` (le site les rend à `/images/…`, gardées en cache par son nginx) : chez Pokécardex
  * (avec son accord, qui demande de les héberger chez nous), les cartes, le logo japonais de chaque
  * série et les icônes des types et des raretés ; chez PokéAPI, les sprites et illustrations des
- * Pokémon. Leurs chemins sont neutres (`lib/paths.ts`) : seule la table `UPSTREAMS` connaît
+ * Pokémon. Leurs chemins sont neutres (`cardScan`…) : seule la table `UPSTREAMS` connaît
  * l'adresse d'origine de chacun. Seuls ces chemins-là sont copiés : l'API n'est pas un relais
  * ouvert.
  */
@@ -27,6 +27,28 @@ const SCANS = 'https://pokecardex-scans.b-cdn.net/sets_jp'
 /** Les images du site de Pokécardex, en WebP (`class`) : logos, icônes. */
 const ASSETS = 'https://pokecardex.b-cdn.net/assets/images'
 
+/* Les chemins des images (le site les rend à son adresse, `/images/…`) : sans nom de source */
+
+/**
+ * Le scan d'une carte : le code de sa série et son rang (celui du catalogue), en deux tailles, `md`
+ * pour les grilles, `hd` pour la fiche.
+ */
+export const cardScan = (set: string, rank: number | string, size: 'md' | 'hd') =>
+  `/images/cards/${set}/${rank}-${size}.webp`
+
+/** Le logo japonais d'une série, en deux tailles : `md` pour la liste, `hd` en tête de page. */
+export const setLogo = (set: string, size: 'md' | 'hd') => `/images/sets/${set}-${size}.webp`
+
+/** L'icône d'un type de carte (`CARD_TYPES`). */
+export const typeIcon = (type: number) => `/images/types/${type}.webp`
+
+/** L'icône d'une rareté (« SAR », ●…). */
+export const rarityIcon = (rarity: number) => `/images/rarities/${rarity}.webp`
+
+/** Le sprite et l'illustration officielle d'un Pokémon. */
+export const spriteUrl = (id: number) => `/images/species/${id}.png`
+export const artworkUrl = (id: number) => `/images/species/artwork/${id}.png`
+
 /** Un nombre lu dans un chemin. */
 const within = (value: string, min: number, max: number) =>
   Number(value) >= min && Number(value) <= max
@@ -43,7 +65,7 @@ const UPSTREAMS: {
   plausible: (data: Database, ...parts: string[]) => boolean
 }[] = [
   {
-    // Le scan d'une carte (`cardScan`, `lib/paths.ts`) : sa série, son rang, sa taille.
+    // Le scan d'une carte (`cardScan`) : sa série, son rang, sa taille.
     path: /^\/images\/cards\/([A-Z0-9_-]+)\/(\d{1,4})-(md|hd)\.webp$/,
     url: (set, number, size) => `${SCANS}/${set}/${number}.jpg?class=${size}`,
     plausible: (data, set, number) => {
@@ -105,10 +127,9 @@ const imageFile = (path: string) => join(IMAGES_DIR, path.slice('/images/'.lengt
 export async function mirror(path: string, { quick = false } = {}): Promise<boolean> {
   const file = imageFile(path)
   if (await Bun.file(file).exists()) return true
-  // Un chemin inconnu : une erreur (un appelant à revoir).
-  const known = upstreamOf(path)
-  if (!known) throw new Error(`Chemin d’image inconnu : ${path}`)
-  const url = known.upstream.url(...known.parts)
+  // Toujours un chemin connu : bâti par `cardScan`… (tâche `images`), ou reconnu par `serveImage`.
+  const { upstream, parts } = upstreamOf(path)!
+  const url = upstream.url(...parts)
   const response = quick ? await quickFetch(url) : await politeFetch(url)
   if (response.status === 404) return false
   if (!response.ok) throw new Error(`HTTP ${response.status} pour ${url}`)
