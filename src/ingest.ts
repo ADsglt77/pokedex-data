@@ -18,7 +18,7 @@
 
 import type { Database } from 'bun:sqlite'
 import { INGEST_JOB_NAMES, INGEST_JOBS, type IngestJob } from '@/config/jobs'
-import { DAY, HOUR } from '@/lib/time'
+import { DAY, HOUR, MINUTE } from '@/lib/time'
 import { openData } from './db'
 import { backups } from './jobs/backups'
 import { catalog, saveCatalog } from './jobs/catalog'
@@ -94,7 +94,7 @@ function isDue(db: Database, name: IngestJob, every: number) {
   // Les échecs d'affilée : les passages avant la dernière réussite.
   const lastSuccess = runs.findIndex((run) => run.ok === 1)
   const streak = lastSuccess < 0 ? runs.length : lastSuccess
-  const wait = streak ? Math.min(600_000 * 2 ** (streak - 1), 6 * HOUR) : every
+  const wait = streak ? Math.min(10 * MINUTE * 2 ** (streak - 1), 6 * HOUR) : every
   return Date.now() - Date.parse(last.finished_at) >= wait
 }
 
@@ -122,7 +122,7 @@ if (arg === '--loop') {
     for (const name of SCHEDULED) {
       if (isDue(db, name, INGEST_JOBS[name].every!)) await runJob(db, name)
     }
-    await Bun.sleep(60_000)
+    await Bun.sleep(MINUTE)
   }
 } else if (arg === 'cards') {
   // Toutes les trois, même après un échec (quelques pages ou images en erreur) : chacune fait ce

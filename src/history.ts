@@ -42,12 +42,15 @@ export function withPrice(
   return { year, first, prices }
 }
 
+/** Le prix d'il y a un mois (`monthAgo`) : celui d'il y a 30 jours. */
+const MONTH_AGO = 30
+
 /**
- * Le prix d'il y a `days` jours avant `date` dans ces années, ou, ce jour-là sans prix, celui du
- * jour le plus proche avant lui, une semaine plus tôt au plus ; `null` sans.
+ * Le prix d'il y a 30 jours avant `date` dans ces années, ou, ce jour-là sans prix, celui du jour
+ * le plus proche avant lui, une semaine plus tôt au plus ; `null` sans.
  */
-export function priceBefore(years: HistoryYear[], date: string, days = 30): number | null {
-  for (let back = days; back <= days + 7; back++) {
+export function priceBefore(years: HistoryYear[], date: string): number | null {
+  for (let back = MONTH_AGO; back <= MONTH_AGO + 7; back++) {
     const [year, day] = yearDay(addDays(date, -back))
     const row = years.find((known) => known.year === year)
     const price = row?.prices[day - row.first]
