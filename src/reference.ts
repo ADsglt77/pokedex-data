@@ -27,10 +27,14 @@ import { readSource } from './db'
 import { notFound, serveSnapshot, serveTagged } from './snapshots'
 
 /**
- * Des ids Cardmarket séparés par des virgules : `max` au plus, de 1 à 9 chiffres chacun, sans zéro
- * devant (un id n'a qu'une écriture : sa clé dans la réponse).
+ * `?ids=` (`/prices`, `/histories`, `/wants`) : des ids Cardmarket séparés par des virgules, de 1 à
+ * 9 chiffres chacun, sans zéro devant (un id n'a qu'une écriture : sa clé dans la réponse) ; 1 025
+ * au plus, une carte par Pokémon (une collection, une commande, une extension du catalogue), et une
+ * adresse que nginx accepte.
  */
-const idsPattern = (max: number) => `^[1-9]\\d{0,8}(,[1-9]\\d{0,8}){0,${max - 1}}$`
+const IDS = t.Object({
+  ids: t.String({ pattern: `^[1-9]\\d{0,8}(,[1-9]\\d{0,8}){0,${TOTAL_SPECIES - 1}}$` }),
+})
 
 /** La réponse de chaque id demandé, une clé par id : chacun n'est lu qu'une fois, même répété. */
 const eachId = <T>(ids: string, read: (id: number) => T) =>
@@ -172,8 +176,7 @@ export function referenceRoutes(data: Database) {
         )
       },
       {
-        // Une collection (une carte par Pokémon), une extension du catalogue : 1 025 au plus.
-        query: t.Object({ ids: t.String({ pattern: idsPattern(TOTAL_SPECIES) }) }),
+        query: IDS,
         ...doc('Les prix du jour de cartes Cardmarket'),
       },
     )
@@ -194,8 +197,7 @@ export function referenceRoutes(data: Database) {
           eachId(query.ids, readHistory),
         ),
       {
-        // Les historiques d'une collection : une carte par Pokémon au plus.
-        query: t.Object({ ids: t.String({ pattern: idsPattern(TOTAL_SPECIES) }) }),
+        query: IDS,
         ...doc('Les historiques des prix de plusieurs cartes Cardmarket'),
       },
     )
@@ -210,8 +212,7 @@ export function referenceRoutes(data: Database) {
         return eachId(query.ids, (id) => wantsLineOf(id, known))
       },
       {
-        // Les cartes d'une commande : une par Pokémon au plus (et une adresse que nginx accepte).
-        query: t.Object({ ids: t.String({ pattern: idsPattern(TOTAL_SPECIES) }) }),
+        query: IDS,
         ...doc('Les lignes de cartes Cardmarket pour une liste de souhaits Cardmarket'),
       },
     )
