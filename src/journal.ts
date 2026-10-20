@@ -3,7 +3,7 @@
  * `bun run dev`) : une ligne par évènement, alignée, à l'heure de Paris, son niveau en symbole de
  * couleur, son thème, un message court et ses détails en `clé=valeur` :
  *
- *   16/10 14:03:12  ✖  accès       Token refusé                  route="GET /v1/prices"
+ *   16/10 14:03:12  ▲  accès       Token refusé                  route="GET /v1/prices"
  *
  * - `accès` : une demande sans token valide (`auth.ts`) ;
  * - `images` : une image que sa source n'a pas donnée (`images.ts`) ;
@@ -15,13 +15,13 @@
 
 type JournalTopic = 'accès' | 'images' | 'serveur'
 
-/** Réussi, simple information, à surveiller, refusé ou en erreur. */
-type JournalLevel = 'ok' | 'info' | 'warn' | 'error'
+/** À surveiller (un token refusé, une image non copiée), ou en erreur. */
+type JournalLevel = 'warn' | 'error'
 
 interface JournalEntry {
   topic: JournalTopic
-  level?: JournalLevel
-  /** Court : ce qui s'est passé (« Token refusé »). */
+  level: JournalLevel
+  /** Court, une constante, écrite telle quelle : ce qui s'est passé (« Token refusé »). */
   message: string
   /** Le reste, en `clé=valeur` ; une valeur absente n'est pas écrite. */
   details?: Record<string, string | number | undefined>
@@ -34,14 +34,11 @@ const paint = (code: string) => (text: string) => (COLOR ? `\x1b[${code}m${text}
 const dim = paint('2')
 const bold = paint('1')
 const red = paint('31')
-const green = paint('32')
 const yellow = paint('33')
 const blue = paint('34')
 const cyan = paint('36')
 
 const LEVELS: Record<JournalLevel, string> = {
-  ok: green('✔'),
-  info: cyan('•'),
   warn: yellow('▲'),
   error: red('✖'),
 }
@@ -68,16 +65,13 @@ const MAX_VALUE = 200
 /** Coupé au-delà de `MAX_VALUE` caractères (« … » à la fin). */
 const cut = (text: string) => (text.length > MAX_VALUE ? `${text.slice(0, MAX_VALUE)}…` : text)
 
-/** Les caractères de contrôle (C0, DEL, C1 dont le CSI `\x9b`) en `\u00xx`. */
+/**
+ * Les caractères de contrôle (C0, DEL, C1 dont le CSI `\x9b`) en `\u00xx` : dans un texte venu
+ * d'ailleurs, un retour à la ligne écrirait une fausse ligne du journal, un échappement ANSI
+ * piloterait le terminal.
+ */
 const escapeControls = (text: string) =>
   text.replace(/\p{Cc}/gu, (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`)
-
-/**
- * Un texte venu d'ailleurs, écrit tel quel mais sans danger : coupé et ses caractères de contrôle
- * échappés (un retour à la ligne lui ferait écrire une fausse ligne du journal, un échappement ANSI
- * piloter le terminal).
- */
-const safeText = (text: string) => escapeControls(cut(text))
 
 /**
  * `route="GET /v1/prices"` : entre guillemets, échappée comme en JSON, dès qu'il y a une espace, un
@@ -92,14 +86,14 @@ const detail = (key: string, value: string | number) => {
 /** La colonne du message : les détails commencent tous au même endroit. */
 const WIDTH = 32
 
-/** Écrit une ligne du journal (le message aussi rendu sans danger : `safeText`). */
-export function journal({ topic, level = 'info', message, details = {} }: JournalEntry) {
+/** Écrit une ligne du journal : le message tel quel, les détails sans danger (`detail`). */
+export function journal({ topic, level, message, details = {} }: JournalEntry) {
   const rest = Object.entries(details)
     .filter((entry): entry is [string, string | number] => entry[1] !== undefined)
     .map(([key, value]) => detail(key, value))
     .join(' ')
   const head = `${dim(TIME.format(new Date()))}  ${LEVELS[level]}  ${TOPICS[topic](topic.padEnd(10))}`
-  console.log(`${head}  ${safeText(message).padEnd(WIDTH)} ${rest}`.trimEnd())
+  console.log(`${head}  ${message.padEnd(WIDTH)} ${rest}`.trimEnd())
 }
 
 /** Les lignes de `journalOnce` : leur clé, l'heure de la dernière écrite, celles tues depuis. */
@@ -116,8 +110,6 @@ export function journalOnce(key: string, entry: JournalEntry, windowMs: number) 
     known.silenced++
     return
   }
-  // Une liste bornée : les clés possibles sont peu nombreuses (une route, une raison).
-  if (noted.size > 1000) noted.clear()
   noted.set(key, { at: now, silenced: 0 })
   journal({ ...entry, details: { ...entry.details, tues: known?.silenced || undefined } })
 }
