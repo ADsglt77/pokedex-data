@@ -20,11 +20,10 @@
 import type { Database } from 'bun:sqlite'
 import { Elysia, t } from 'elysia'
 import { TOTAL_SPECIES } from '@/config/pokedex'
-import type { PriceHistories, WantsLines } from '@/contract'
+import type { PriceFile, PriceHistories, WantsLines } from '@/contract'
 import { wantsLine, type ExpansionName } from '@/lib/wants'
 import { historyReader } from './history'
 import { readSource } from './db'
-import { readPrices } from './jobs/prices'
 import { notFound, serveSnapshot, serveTagged } from './snapshots'
 
 /**
@@ -36,6 +35,28 @@ const idsPattern = (max: number) => `^[1-9]\\d{0,8}(,[1-9]\\d{0,8}){0,${max - 1}
 /** La réponse de chaque id demandé, une clé par id : chacun n'est lu qu'une fois, même répété. */
 const eachId = <T>(ids: string, read: (id: number) => T) =>
   Object.fromEntries([...new Set(ids.split(','))].map((id) => [id, read(Number(id))]))
+
+/**
+ * Les prix Cardmarket du jour des cartes `ids`, d'après la base : une clé par carte, `null` sans
+ * prix ce jour (le navigateur sait ainsi qu'elle a eu sa réponse). Lus dans la transaction de
+ * `pricesAnswer`, qui répond 404 tant que le guide n'a jamais été lu.
+ */
+function readPrices(db: Database, ids: readonly number[]): PriceFile {
+  const rows = db
+    .query(
+      `SELECT id, price, low, month_ago AS monthAgo FROM cardmarket_prices
+       WHERE id IN (SELECT value FROM json_each(?))`,
+    )
+    .all(JSON.stringify(ids)) as {
+    id: number
+    price: number
+    low: number | null
+    monthAgo: number | null
+  }[]
+  const cards: PriceFile['cards'] = Object.fromEntries(ids.map((id) => [id, null]))
+  for (const { id, price, low, monthAgo } of rows) cards[id] = [price, low, monthAgo]
+  return { date: readSource(db, 'cardmarket')!.date, cards }
+}
 
 export function referenceRoutes(data: Database) {
   const readHistory = historyReader(data)

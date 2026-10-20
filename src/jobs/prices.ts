@@ -8,12 +8,11 @@
  * d'après l'historique) et s'ajoute à l'historique de la carte (`cardmarket_history`) ; relancée
  * le même jour, la tâche remplace le prix du jour. Le guide et la liste ne sont retéléchargés que si
  * le guide a changé depuis le dernier passage (`sources`, qui donne aussi leur ETag aux réponses
- * tirées des prix). L'API lit les prix des seules cartes demandées (`readPrices` :
+ * tirées des prix). L'API lit les prix des seules cartes demandées (`readPrices`, `reference.ts` :
  * `/v1/prices`).
  */
 
 import type { Database } from 'bun:sqlite'
-import type { PriceFile } from '@/contract'
 import { addDays } from '@/lib/time'
 import { readSource, writeSource } from '../db'
 import { historyStore, withPrice, yearDay } from '../history'
@@ -78,30 +77,6 @@ const amount = (value: number | null) => (value ? Math.round(value * 100) / 100 
 function guidePrice(row: PriceGuide['priceGuides'][number], recent: boolean) {
   const average = amount(row.avg30) ?? amount(row.avg7) ?? amount(row.avg1)
   return recent ? (amount(row.trend) ?? average) : average
-}
-
-/**
- * Les prix Cardmarket du jour des cartes `ids`, d'après la base : une clé par carte, `null` sans
- * prix ce jour (le navigateur sait ainsi qu'elle a eu sa réponse) ; `null` tant que le guide n'a
- * jamais été lu.
- */
-export function readPrices(db: Database, ids: readonly number[]): PriceFile | null {
-  const cardmarket = readSource(db, 'cardmarket')
-  if (!cardmarket) return null
-  const rows = db
-    .query(
-      `SELECT id, price, low, month_ago AS monthAgo FROM cardmarket_prices
-       WHERE id IN (SELECT value FROM json_each(?))`,
-    )
-    .all(JSON.stringify(ids)) as {
-    id: number
-    price: number
-    low: number | null
-    monthAgo: number | null
-  }[]
-  const cards: PriceFile['cards'] = Object.fromEntries(ids.map((id) => [id, null]))
-  for (const { id, price, low, monthAgo } of rows) cards[id] = [price, low, monthAgo]
-  return { date: cardmarket.date, cards }
 }
 
 export async function prices(db: Database) {
