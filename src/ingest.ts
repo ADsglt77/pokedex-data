@@ -13,7 +13,8 @@
  * (`INGEST_JOBS`) ; après un échec (source indisponible…), 10 min plus tard, puis 20, 40… jusqu'à
  * 6 h : une panne qui dure ne fait pas solliciter la source toutes les 10 min. Les tâches à la
  * demande (`catalog`, `images`, `history`) n'y passent jamais. Chaque passage est noté dans `runs`
- * (lu par `/v1/status`) ; arrêté (Ctrl+C, `docker compose stop`), il est noté interrompu.
+ * (lu par `/v1/status`), avec la cause d'un échec (`message`, aussi dans la sortie) ; arrêté
+ * (Ctrl+C, `docker compose stop`), il est noté interrompu.
  */
 
 import type { Database } from 'bun:sqlite'

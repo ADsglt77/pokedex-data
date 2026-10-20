@@ -20,7 +20,7 @@ export const INGEST_JOBS: Record<
   species: { label: 'Espèces', every: 30 * DAY },
   // De nouvelles cartes quelques fois par mois (une page par série, toutes les 3 s).
   catalog: { label: 'Catalogue', every: null },
-  // Les images des nouvelles cartes ; le serveur copie aussi à la demande celles qu'on lui demande.
+  // Les images des nouvelles cartes ; l'API copie aussi à la demande celles qu'on lui demande.
   images: { label: 'Images copiées', every: null },
   // Le guide change une fois par jour ; la tâche ne retélécharge que ce qui a changé.
   prices: { label: 'Prix', every: 6 * HOUR },

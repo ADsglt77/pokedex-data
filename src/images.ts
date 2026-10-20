@@ -120,7 +120,8 @@ const imageFile = (path: string) => join(IMAGES_DIR, path.slice('/images/'.lengt
 /**
  * Copie chez nous l'image d'un chemin local : `true` si elle y est (déjà, ou maintenant), `false`
  * si la source ne l'a pas (404). Une autre erreur (panne, réponse qui n'est pas une image) est
- * levée : réessayer plus tard. Écrite d'un coup : nginx ne sert jamais une image à moitié écrite.
+ * levée : réessayer plus tard. Écrite d'un coup : l'API (`serveImage`) ne sert jamais une image à
+ * moitié écrite, que le nginx du site garderait ensuite (90 jours sans demande).
  * `quick` : une page l'attend (copie à la demande), sans la pause de la tâche `images`, 15 s au
  * plus.
  */

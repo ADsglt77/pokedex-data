@@ -158,7 +158,11 @@ export interface JobStatus {
 }
 
 export interface ServerStatus {
-  /** Chaque tâche, dans l'ordre de `INGEST_JOBS`. La cause d'un échec : le journal de l'API. */
+  /**
+   * Chaque tâche, dans l'ordre de `INGEST_JOBS`. La cause d'un échec n'est pas rendue : elle est
+   * dans la sortie de l'ingestion (le journal du service `ingest`, ou le terminal d'une tâche à la
+   * demande) et dans `runs.message`.
+   */
   jobs: JobStatus[]
   /** Le jour du guide des prix Cardmarket en base ; `null` sans prix. */
   pricesDate: string | null
