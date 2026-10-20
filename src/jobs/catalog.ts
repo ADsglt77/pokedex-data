@@ -40,6 +40,7 @@ import {
   type PokecardexSeries,
 } from '../lib/pokecardex'
 import { saveSnapshot } from '../snapshots'
+import { TerminalProgress } from '../terminal-progress'
 
 /**
  * Un numéro comparable : `017` et `17` sont la même carte, `tg01` et `TG01` aussi (la même règle
@@ -445,8 +446,13 @@ export async function catalog(db: Database) {
   // les raretés, que chaque page donne toutes.
   let asian = new Set<string>()
   let menu: PokecardexSeries | null = null
+  let interrupted = false
+  const progress = new TerminalProgress('Séries du catalogue', due.length)
   for (const [index, code] of due.entries()) {
-    if (asian.has(code)) continue
+    if (asian.has(code)) {
+      progress.update(index + 1)
+      continue
+    }
     try {
       const page = await readSeries(code)
       if (!menu) {
@@ -462,7 +468,9 @@ export async function catalog(db: Database) {
       if (!page.cartes?.length) {
         if (known) {
           knownEmpty++
+          progress.clear()
           console.warn(`  ${code} : page sans cartes, les ${known} d’avant restent`)
+          progress.redraw()
         }
         continue
       }
@@ -471,14 +479,20 @@ export async function catalog(db: Database) {
       inARow = 0
     } catch (error) {
       failed.push(code)
+      progress.clear()
       console.warn(`  ${code} :`, error instanceof Error ? error.message : error)
       if (++inARow >= MAX_FAILURES_IN_A_ROW) {
         console.warn(`  ${inARow} séries en échec d’affilée : la lecture s’arrête là.`)
+        interrupted = true
         break
       }
+      progress.redraw()
+    } finally {
+      progress.update(index + 1)
     }
-    if ((index + 1) % 50 === 0) console.log(`  ${index + 1} / ${due.length} séries`)
   }
+  if (interrupted) progress.stop()
+  else progress.finish()
   // Celles qu'un passage d'avant aurait gardées : retirées.
   for (const code of asian) writer.remove(code)
   // Le bloc de chaque série, les nouvelles comprises (enregistrées depuis).

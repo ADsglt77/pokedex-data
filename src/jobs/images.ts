@@ -25,24 +25,28 @@ import { WEEK } from '@/lib/time'
 import { artworkUrl, cardScan, mirror, rarityIcon, setLogo, spriteUrl, typeIcon } from '../images'
 import { mapPool } from '../lib/net'
 import { saveCatalog } from './catalog'
+import { TerminalProgress } from '../terminal-progress'
 
 /** À la 20e erreur, la source est sans doute en panne : on ne la sollicite pas davantage. */
 const MAX_FAILURES = 20
 
 export async function images(db: Database) {
   const failed: string[] = []
+  let active: TerminalProgress | null = null
   /** Copie une image : `true`, `false` si la source ne l'a pas, `null` en erreur. */
   const copy = async (path: string) => {
     try {
       return await mirror(path)
     } catch (error) {
       failed.push(path)
+      active?.clear()
       console.warn(`  ${path} :`, error instanceof Error ? error.message : error)
       if (failed.length >= MAX_FAILURES) {
         throw new Error(`${failed.length} images en erreur : la source est sans doute en panne`, {
           cause: error,
         })
       }
+      active?.redraw()
       return null
     }
   }
@@ -57,25 +61,36 @@ export async function images(db: Database) {
       )
       .all(weekAgo) as { id: string }[]
     const writeLogo = db.query('UPDATE sets SET logo = ?, logo_checked = ? WHERE id = ?')
+    let logosDone = 0
+    active = new TerminalProgress('Logos des séries', sets.length)
     await mapPool(sets, 2, async ({ id }) => {
       const copied = (await copy(setLogo(id, 'md'))) && (await copy(setLogo(id, 'hd')))
       if (copied !== null)
         writeLogo.run(copied ? 'pokecardex' : 'none', new Date().toISOString(), id)
+      active?.update(++logosDone)
     })
+    active.finish()
     const rarities = db
       .query('SELECT id FROM rarities WHERE id IN (SELECT rarity FROM cards)')
       .all() as { id: number }[]
     const icons = [...CARD_TYPES].map(typeIcon).concat(rarities.map(({ id }) => rarityIcon(id)))
-    await mapPool(icons, 2, copy)
-    console.log(
-      `Logos de ${sets.length} séries cherchés, icônes des types et des raretés vérifiées`,
-    )
+    let iconsDone = 0
+    active = new TerminalProgress('Icônes', icons.length)
+    await mapPool(icons, 2, async (path) => {
+      const result = await copy(path)
+      active?.update(++iconsDone)
+      return result
+    })
+    active.finish()
 
+    let speciesDone = 0
+    active = new TerminalProgress('Images des Pokémon', TOTAL_SPECIES)
     await mapPool(SPECIES_IDS, 2, async (id) => {
       await copy(spriteUrl(id))
       await copy(artworkUrl(id))
+      active?.update(++speciesDone)
     })
-    console.log(`Images des ${TOTAL_SPECIES} Pokémon : vérifiées`)
+    active.finish()
 
     // Les cartes jamais cherchées, et celles sans scan cherché il y a plus d'une semaine.
     const cards = db
@@ -87,6 +102,7 @@ export async function images(db: Database) {
     const write = db.query('UPDATE cards SET image = ?, image_checked = ? WHERE id = ?')
     let found = 0
     let done = 0
+    active = new TerminalProgress('Scans des cartes', cards.length)
     await mapPool(cards, 2, async ({ id, set, sort }) => {
       const copied =
         (await copy(cardScan(set, sort, 'md'))) && (await copy(cardScan(set, sort, 'hd')))
@@ -94,10 +110,13 @@ export async function images(db: Database) {
       // rien n'est noté : la carte est cherchée de nouveau au prochain passage.
       if (copied !== null) write.run(copied ? 'pokecardex' : 'none', new Date().toISOString(), id)
       if (copied) found++
-      if (++done % 500 === 0) console.log(`  ${done} / ${cards.length} cartes`)
+      active?.update(++done)
     })
+    active.finish()
+    active = null
     console.log(`Images de ${cards.length} cartes cherchées : ${found} chez Pokécardex`)
   } finally {
+    active?.stop()
     saveCatalog(db)
   }
   if (failed.length) {

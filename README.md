@@ -8,6 +8,7 @@ historique. Elle les relit à son rythme, les range dans une base SQLite et les 
 ```sh
 bun install
 bun run dev            # l'API, sur http://127.0.0.1:3001 (relancée à chaque modification)
+bun run setup          # première installation complète, avec progression
 bun run ingest <tâche> # une tâche d'ingestion, tout de suite (plus bas)
 bun run ingest cards   # les nouvelles cartes : catalogue, puis leurs images et leur historique
 bun test               # tests (prix, historique, liste de souhaits, schéma, accès)
@@ -67,10 +68,11 @@ Un fichier `.env` (ignoré par git), sur le modèle de `.env.example` :
 echo "API_TOKENS=pokedex:$(openssl rand -hex 32)" > .env
 ```
 
-Le même token va dans le `.env` du site (`DATA_API_TOKEN`). La base vit dans `.data/` ; la
-remplir une fois : `bun run ingest species`, `bun run ingest prices`, puis `bun run ingest cards`
-(l'historique prend environ 23 h : il s'arrête et reprend à volonté). Les images n'ont pas besoin
-d'être toutes copiées : l'API copie à la demande celles qu'on lui demande.
+Le même token va dans le `.env` du site (`DATA_API_TOKEN`). La base vit dans `.data/` ; la remplir
+une fois avec `bun run setup`, qui enchaîne les espèces, les prix, le catalogue, les images et
+l'historique avec une progression visible (environ 23 h la première fois ; il s'arrête et reprend
+à volonté). Les images n'ont pas besoin d'être toutes copiées : l'API copie à la demande celles
+qu'on lui demande.
 
 **Le journal** : une ligne par évènement, alignée, à l'heure de Paris (pas les requêtes une à
 une) : un token refusé (une ligne par minute au plus, jamais le token), une image que sa source
@@ -98,15 +100,22 @@ publié** : le site la joint par un réseau Docker commun, `pokedex-net`, à l'a
    ```sh
    echo "API_TOKENS=pokedex:$(openssl rand -hex 32)" > .env
    chmod 600 .env
-   docker compose up -d --build
+   docker compose build --pull
+   docker compose up -d api
    ```
-4. Remplir la base : les espèces et les prix passent seuls au démarrage du service `ingest` ; les
-   cartes, une fois (le catalogue, les images, puis l'historique : un jour environ) :
+4. Remplir toute la base, sans garder la connexion SSH ouverte (l'historique peut prendre un jour) :
    ```sh
-   docker compose run --rm ingest bun src/ingest.ts cards
+   docker compose run -d --name pokedex-data-setup ingest bun src/ingest.ts setup
+   docker logs -f pokedex-data-setup
    ```
-   Pour la lancer sans garder le terminal ouvert : `docker compose run -d --name cartes ingest bun
-   src/ingest.ts cards`, puis `docker logs -f cartes`.
+   La progression reprend automatiquement après une interruption. Quand le journal indique que tout
+   est terminé, vérifier que le code de sortie vaut `0`, retirer ce conteneur ponctuel, puis lancer
+   les tâches périodiques :
+   ```sh
+   docker inspect pokedex-data-setup --format '{{.State.ExitCode}}'
+   docker rm pokedex-data-setup
+   docker compose up -d ingest
+   ```
 
 **Ensuite, à chaque déploiement** (`.github/workflows/deploy.yml`, lancé à la main depuis l'onglet
 Actions) : GitHub se connecte au VPS en SSH, fait `git pull` et lance `deploy/deploy.sh`. La

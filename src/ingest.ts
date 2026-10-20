@@ -4,6 +4,7 @@
  *   bun src/ingest.ts <tâche>     une tâche, tout de suite (`bun run ingest prices`)
  *   bun src/ingest.ts cards       les nouvelles cartes : catalogue, puis leurs images et leur
  *                                 historique (les trois tâches à la demande, l'une après l'autre)
+ *   bun src/ingest.ts setup       l'initialisation complète : espèces, prix, puis `cards`
  *   bun src/ingest.ts --loop      service `ingest` : chaque tâche à rythme, à son rythme
  *
  * En boucle, au démarrage : les réponses calculées de l'API (`snapshots`) sont refaites (leur
@@ -27,6 +28,7 @@ import { history } from './jobs/history'
 import { images } from './jobs/images'
 import { prices } from './jobs/prices'
 import { species } from './jobs/species'
+import { duration, failure, muted, strong, success } from './terminal-progress'
 
 const RUNS: Record<IngestJob, (db: Database) => Promise<void>> = {
   species,
@@ -40,13 +42,20 @@ const RUNS: Record<IngestJob, (db: Database) => Promise<void>> = {
 /** Les tâches de `cards`, dans l'ordre : les images et l'historique suivent le catalogue. */
 const CARDS: IngestJob[] = ['catalog', 'images', 'history']
 
+/** Toutes les données nécessaires à une première installation. */
+const SETUP: IngestJob[] = ['species', 'prices', ...CARDS]
+
 /** Celles de la boucle, chacune à son rythme. */
 const SCHEDULED = INGEST_JOB_NAMES.filter((name) => INGEST_JOBS[name].every !== null)
 
 /** Le passage en cours dans ce processus : noté interrompu si on l'arrête. */
 let current: number | null = null
 
-async function runJob(db: Database, name: IngestJob) {
+async function runJob(db: Database, name: IngestJob, step?: { current: number; total: number }) {
+  const started = Date.now()
+  if (step) {
+    console.log(`\n${muted(`[${step.current}/${step.total}]`)} ${strong(INGEST_JOBS[name].label)}`)
+  }
   // Déjà en cours dans un autre processus (une tâche lancée deux fois) : deux à la fois
   // doubleraient le rythme des requêtes. Au-delà de 2 jours (l'historique en prend un la première
   // fois), un reste d'arrêt brutal.
@@ -55,6 +64,7 @@ async function runJob(db: Database, name: IngestJob) {
     .get(name, new Date(Date.now() - 2 * DAY).toISOString())
   if (running) {
     console.warn(`Tâche ${name} déjà en cours dans un autre processus : rien de lancé.`)
+    if (step) console.log(`${failure('✗')} Étape ignorée`)
     return false
   }
   const { id } = db
@@ -64,14 +74,32 @@ async function runJob(db: Database, name: IngestJob) {
   try {
     await RUNS[name](db)
     finish(db, id, true, null)
+    if (step) console.log(`${success('✓')} Terminée en ${duration(Date.now() - started)}`)
     return true
   } catch (error) {
     console.error(`Tâche ${name} en échec :`, error)
     finish(db, id, false, error instanceof Error ? error.message : String(error))
+    if (step) console.log(`${failure('✗')} Échec après ${duration(Date.now() - started)}`)
     return false
   } finally {
     current = null
   }
+}
+
+/** Plusieurs tâches, avec leur étape et un bilan. Les suivantes passent même si l'une échoue. */
+async function runSequence(db: Database, title: string, jobs: IngestJob[]) {
+  const started = Date.now()
+  console.log(`\n${strong(title)}`)
+  console.log(muted(`${jobs.length} étapes · Ctrl+C pour interrompre, la reprise est automatique`))
+  let ok = true
+  for (const [index, name] of jobs.entries()) {
+    ok = (await runJob(db, name, { current: index + 1, total: jobs.length })) && ok
+  }
+  console.log(
+    `\n${ok ? success('✓') : failure('✗')} ${title} ${ok ? 'terminée' : 'terminée avec des erreurs'} ` +
+      muted(`en ${duration(Date.now() - started)}`),
+  )
+  return ok
 }
 
 function finish(db: Database, id: number, ok: boolean, message: string | null) {
@@ -126,14 +154,13 @@ if (arg === '--loop') {
     await Bun.sleep(MINUTE)
   }
 } else if (arg === 'cards') {
-  // Toutes les trois, même après un échec (quelques pages ou images en erreur) : chacune fait ce
-  // qu'elle peut de ce qui est là.
-  let ok = true
-  for (const name of CARDS) ok = (await runJob(db, name)) && ok
-  if (!ok) process.exit(1)
+  if (!(await runSequence(db, 'Mise à jour des cartes', CARDS))) process.exit(1)
+} else if (arg === 'setup') {
+  if (!(await runSequence(db, 'Initialisation des données', SETUP))) process.exit(1)
 } else if (INGEST_JOB_NAMES.includes(arg as IngestJob)) {
-  if (!(await runJob(db, arg as IngestJob))) process.exit(1)
+  if (!(await runSequence(db, INGEST_JOBS[arg as IngestJob].label, [arg as IngestJob])))
+    process.exit(1)
 } else {
-  console.error(`Tâches : ${INGEST_JOB_NAMES.join(', ')} ; cards ; ou --loop`)
+  console.error(`Tâches : ${INGEST_JOB_NAMES.join(', ')} ; cards ; setup ; ou --loop`)
   process.exit(1)
 }

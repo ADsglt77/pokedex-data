@@ -18,6 +18,7 @@ import type { Database } from 'bun:sqlite'
 import { readSource, writeSource } from '../db'
 import { historyStore, mergePrices } from '../history'
 import { MAX_FAILURES_IN_A_ROW, readCard, type PokecardexCardPage } from '../lib/pokecardex'
+import { TerminalProgress } from '../terminal-progress'
 
 /**
  * Les prix de la carte elle-même dans sa page (testé) : sa plus longue période, la série de son
@@ -71,26 +72,37 @@ export async function history(db: Database) {
   let days = 0
   let inARow = 0
   let failed = 0
-  for (const card of todo) {
-    try {
-      const points = mainHistory(await readCard(card.id), card.cardmarket)
-      if (points) {
-        days += mergePrices(db, card.cardmarket, points, until)
-        if (until) writeMonthAgo.run(store.monthAgo(card.cardmarket, until), card.cardmarket)
-      }
-      done.run(card.id, new Date().toISOString())
-      read++
-      inARow = 0
-      if (read % 100 === 0) progress()
-    } catch (error) {
-      console.warn(`  carte ${card.id} :`, error instanceof Error ? error.message : error)
-      failed++
-      if (++inARow >= MAX_FAILURES_IN_A_ROW) {
-        throw new Error(`${inARow} pages en échec d’affilée : la lecture s’arrête là`, {
-          cause: error,
-        })
+  const bar = new TerminalProgress('Historique des prix', todo.length)
+  try {
+    for (const [index, card] of todo.entries()) {
+      try {
+        const points = mainHistory(await readCard(card.id), card.cardmarket)
+        if (points) {
+          days += mergePrices(db, card.cardmarket, points, until)
+          if (until) writeMonthAgo.run(store.monthAgo(card.cardmarket, until), card.cardmarket)
+        }
+        done.run(card.id, new Date().toISOString())
+        read++
+        inARow = 0
+        if (read % 100 === 0) progress()
+      } catch (error) {
+        bar.clear()
+        console.warn(`  carte ${card.id} :`, error instanceof Error ? error.message : error)
+        failed++
+        if (++inARow >= MAX_FAILURES_IN_A_ROW) {
+          throw new Error(`${inARow} pages en échec d’affilée : la lecture s’arrête là`, {
+            cause: error,
+          })
+        }
+        bar.redraw()
+      } finally {
+        bar.update(index + 1)
       }
     }
+    bar.finish()
+  } catch (error) {
+    bar.stop()
+    throw error
   }
   progress()
   console.log(`Historique (Pokécardex) : ${read} cartes lues, ${days} jours écrits`)

@@ -16,6 +16,7 @@ import type {
 } from '@/contract'
 import { fetchJson, mapPool } from '../lib/net'
 import { saveSnapshot } from '../snapshots'
+import { TerminalProgress } from '../terminal-progress'
 
 const API = 'https://pokeapi.co/api/v2'
 
@@ -107,14 +108,24 @@ function normalize(species: RawSpecies, pokemon: RawPokemon) {
 }
 
 export async function species(db: Database) {
-  console.log(`Lecture des ${TOTAL_SPECIES} espèces sur PokéAPI…`)
-  const rows = await mapPool(SPECIES_IDS, 8, async (id) => {
-    const [raw, pokemon] = await Promise.all([
-      fetchJson<RawSpecies>(`${API}/pokemon-species/${id}`),
-      fetchJson<RawPokemon>(`${API}/pokemon/${id}`),
-    ])
-    return normalize(raw, pokemon)
-  })
+  const progress = new TerminalProgress('Espèces PokéAPI', TOTAL_SPECIES)
+  let done = 0
+  let rows: ReturnType<typeof normalize>[]
+  try {
+    rows = await mapPool(SPECIES_IDS, 8, async (id) => {
+      const [raw, pokemon] = await Promise.all([
+        fetchJson<RawSpecies>(`${API}/pokemon-species/${id}`),
+        fetchJson<RawPokemon>(`${API}/pokemon/${id}`),
+      ])
+      const row = normalize(raw, pokemon)
+      progress.update(++done)
+      return row
+    })
+    progress.finish()
+  } catch (error) {
+    progress.stop()
+    throw error
+  }
 
   // Ensemble : la liste et les détails restent d'accord. Dans la forme que lit l'app (`satisfies`) :
   // une clé renommée ne passerait pas la compilation.

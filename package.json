@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "bun --watch src/index.ts",
     "ingest": "bun src/ingest.ts",
+    "setup": "bun src/ingest.ts setup",
     "typecheck": "tsc",
     "lint": "eslint . && knip",
     "knip": "knip",
