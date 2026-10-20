@@ -80,7 +80,7 @@ describe('l’état des tâches', () => {
   const stateOf = (current: ServerStatus, job: string) =>
     current.jobs.find((row) => row.job === job)!.state
 
-  test('chaque tâche, son rythme ou « à la demande », son état', async () => {
+  test('chaque tâche et son état, sans les détails internes', async () => {
     runs(
       ['prices', 1, HOUR],
       ['species', 1, 61 * DAY],
@@ -96,13 +96,25 @@ describe('l’état des tâches', () => {
       'history',
       'backups',
     ])
-    expect(current.jobs.find((row) => row.job === 'catalog')!.every).toBeNull()
+    expect(current.jobs.find((row) => row.job === 'catalog')).toEqual({
+      job: 'catalog',
+      label: 'Catalogue',
+      state: 'ok',
+    })
     expect(stateOf(current, 'prices')).toBe('ok')
     expect(stateOf(current, 'species')).toBe('late')
     // À la demande : jamais en retard, même passée il y a longtemps.
     expect(stateOf(current, 'catalog')).toBe('ok')
     expect(stateOf(current, 'images')).toBe('never')
     expect(stateOf(current, 'backups')).toBe('failed')
+  })
+
+  test('une tâche planifiée jamais passée est en retard', async () => {
+    runs(['prices', 1, HOUR], ['backups', 1, HOUR])
+    const current = await status()
+    expect(stateOf(current, 'catalog')).toBe('never')
+    expect(stateOf(current, 'images')).toBe('never')
+    expect(stateOf(current, 'species')).toBe('late')
   })
 
   test('des prix figés : la tâche réussit, mais le guide a plus de deux jours', async () => {

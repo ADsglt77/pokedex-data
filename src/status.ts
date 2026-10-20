@@ -1,7 +1,7 @@
 /**
  * Où en sont les tâches d'ingestion, d'après leurs passages (`runs`, notés par `ingest.ts`) :
- * - `GET /v1/status` : chaque tâche, son rythme, son état et ses dates, et le jour des prix en base
- *   (la page Données du site le montre) ; la cause d'un échec reste dans le journal de l'ingestion ;
+ * - `GET /v1/status` : l'identité et l'état de chaque tâche (le site n'affiche que les problèmes) ;
+ *   la cause d'un échec reste dans le journal de l'ingestion ;
  * - `GET /v1/health`, sans token : pour une surveillance (UptimeRobot…), 200 si chaque tâche à
  *   rythme a réussi récemment (deux intervalles au plus) et que les prix ne sont pas figés, 503
  *   sinon, avec les tâches en retard. Les tâches à la demande n'y comptent pas.
@@ -10,7 +10,7 @@
 import type { Database } from 'bun:sqlite'
 import { Elysia } from 'elysia'
 import { INGEST_JOB_NAMES, INGEST_JOBS, type IngestJob } from '@/config/jobs'
-import type { JobState, ServerStatus } from '@/contract'
+import type { ServerStatus } from '@/contract'
 import { DAY } from '@/lib/time'
 import { readSource } from './db'
 
@@ -37,12 +37,11 @@ const pricesFrozen = (pricesDate: string | null, now: number) =>
   pricesDate !== null && now - Date.parse(pricesDate) > 2 * DAY
 
 function stateOf(job: IngestJob, runs: Runs | undefined, pricesDate: string | null, now: number) {
-  let state: JobState = 'ok'
-  if (!runs?.lastRun) state = 'never'
-  else if (runs.lastRun !== runs.lastSuccess) state = 'failed'
-  else if (overdue(job, runs.lastSuccess, now)) state = 'late'
-  else if (job === 'prices' && pricesFrozen(pricesDate, now)) state = 'frozen'
-  return state
+  if (!runs?.lastRun) return INGEST_JOBS[job].every === null ? 'never' : 'late'
+  if (runs.lastRun !== runs.lastSuccess) return 'failed'
+  if (overdue(job, runs.lastSuccess, now)) return 'late'
+  if (job === 'prices' && pricesFrozen(pricesDate, now)) return 'frozen'
+  return 'ok'
 }
 
 /** Les passages de chaque tâche et le jour des prix, lus à chaque demande. */
@@ -71,12 +70,8 @@ export function statusRoutes(data: Database) {
           jobs: INGEST_JOB_NAMES.map((job) => ({
             job,
             label: INGEST_JOBS[job].label,
-            every: INGEST_JOBS[job].every,
             state: stateOf(job, runs.get(job), pricesDate, now),
-            lastSuccess: runs.get(job)?.lastSuccess ?? null,
-            lastRun: runs.get(job)?.lastRun ?? null,
           })),
-          pricesDate,
         }
       },
       { detail: { summary: 'Les tâches d’ingestion', tags: ['État'] } },

@@ -143,29 +143,13 @@ export interface CatalogSetFile {
  */
 export type JobState = 'ok' | 'late' | 'failed' | 'never' | 'frozen'
 
-export interface JobStatus {
-  /** Son nom de commande (`bun run ingest prices`). */
-  job: string
-  /** Son nom affiché (« Prix »). */
-  label: string
-  /** Son rythme, en ms ; `null` : à la demande. */
-  every: number | null
-  state: JobState
-  /** La fin du dernier passage réussi (ISO) ; `null` s'il n'y en a pas eu. */
-  lastSuccess: string | null
-  /** La fin du dernier passage, réussi ou non (ISO) : après `lastSuccess`, il a échoué. */
-  lastRun: string | null
-}
-
 export interface ServerStatus {
   /**
    * Chaque tâche, dans l'ordre de `INGEST_JOBS`. La cause d'un échec n'est pas rendue : elle est
    * dans la sortie de l'ingestion (le journal du service `ingest`, ou le terminal d'une tâche à la
    * demande) et dans `runs.message`.
    */
-  jobs: JobStatus[]
-  /** Le jour du guide des prix Cardmarket en base ; `null` sans prix. */
-  pricesDate: string | null
+  jobs: { job: string; label: string; state: JobState }[]
 }
 
 /* Les prix : `/v1/prices/…`, `/v1/histories`, `/v1/wants` (tâches `prices` et `history`) */

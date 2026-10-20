@@ -148,8 +148,9 @@ Le produit 719621 donne `1x Charmander Blazing Destruction Steady Firebreathing 
 
 `runs` note chaque passage (`ingest.ts`) : son début, sa fin, s'il a réussi, et la cause d'un
 échec (`message` : celui de l'erreur, ou « interrompue » pour un passage arrêté). `/v1/status` rend
-chaque tâche dans l'ordre d'`INGEST_JOBS` : son nom, son rythme (`null` : à la demande), son état
-et ses dates. Les états : `never` (jamais passée), `failed` (le dernier passage ; sa cause n'est
+seulement le nom, le libellé et l'état de chaque tâche, dans l'ordre d'`INGEST_JOBS`. Les détails
+de calcul restent internes à l'API. Les états : `never` (tâche à la demande jamais passée),
+`failed` (le dernier passage ; sa cause n'est
 pas rendue : elle est dans `runs.message` et dans la sortie de l'ingestion, le journal du service
 `ingest` ou le terminal d'une tâche à la demande), `late` (deux intervalles sans réussite ; jamais
 pour une tâche à la demande), `frozen` (les prix : le guide inchangé depuis plus de deux jours,
