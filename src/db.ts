@@ -252,6 +252,10 @@ export const DATA_STEPS = [
   -- \`history\` reprend là où elle s'est arrêtée.
   CREATE TABLE history_imports (card INTEGER PRIMARY KEY, read_at TEXT NOT NULL) WITHOUT ROWID;
   `,
+  `
+  -- La seconde compression des réponses (Brotli), retirée : sa colonne, restée vide, aussi.
+  ALTER TABLE snapshots DROP COLUMN brotli;
+  `,
 ]
 
 const userVersion = (db: Database) =>

@@ -19,7 +19,7 @@ const FORMAT = 3
 
 /**
  * Enregistre la réponse, avec son ETag, qui ne change qu'avec son contenu : inchangée (même ETag),
- * rien n'est recompressé. La colonne `brotli` (une seconde compression, retirée) reste vide.
+ * rien n'est recompressé.
  */
 export function saveSnapshot(db: Database, name: string, data: unknown) {
   const text = JSON.stringify(data)
@@ -27,7 +27,7 @@ export function saveSnapshot(db: Database, name: string, data: unknown) {
   if (db.query('SELECT 1 FROM snapshots WHERE name = ? AND etag = ?').get(name, etag)) return
   db.query(
     `INSERT INTO snapshots (name, etag, body) VALUES (?, ?, ?)
-     ON CONFLICT (name) DO UPDATE SET etag = excluded.etag, body = excluded.body, brotli = NULL`,
+     ON CONFLICT (name) DO UPDATE SET etag = excluded.etag, body = excluded.body`,
   ).run(name, etag, Bun.gzipSync(text, { level: 9 }))
 }
 
