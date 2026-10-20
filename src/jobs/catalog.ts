@@ -33,6 +33,7 @@ import { refresh } from '../lib/net'
 import {
   asiaExclusive,
   japaneseSeries,
+  MAX_FAILURES_IN_A_ROW,
   menuBlocks,
   readSeries,
   type PokecardexCard,
@@ -46,12 +47,6 @@ import { saveSnapshot } from '../snapshots'
  */
 const numberKey = (number: string) =>
   /^\d+$/.test(number) ? String(Number(number)) : number.toUpperCase()
-
-/**
- * Autant de pages en échec d'affilée : le site a changé (clé introuvable, défi anti-robot…), on ne
- * le sollicite pas davantage ; la tâche est relancée plus tard.
- */
-const MAX_FAILURES_IN_A_ROW = 10
 
 /** Un texte de Pokécardex ; '' pour un tiret seul, qu'il écrit pour « inconnu » (« — »). */
 const stated = (text: string | null) => (/^[\s—–-]*$/.test(text ?? '') ? '' : text!.trim())

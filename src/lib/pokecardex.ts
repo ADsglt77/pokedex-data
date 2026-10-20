@@ -14,6 +14,13 @@ const SITE = 'https://www.pokecardex.com'
 /** Une requête toutes les 3 s au plus. */
 const PACE = 3000
 
+/**
+ * Autant de pages en échec d'affilée (tâches `catalog` et `history`) : le site a changé (clé
+ * introuvable, défi anti-robot…), on ne le sollicite pas davantage ; la tâche est relancée plus
+ * tard.
+ */
+export const MAX_FAILURES_IN_A_ROW = 10
+
 /** Une carte d'une série, telle que Pokécardex la donne (ce qu'on en lit). */
 export interface PokecardexCard {
   id_card: number

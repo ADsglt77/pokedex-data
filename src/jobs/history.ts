@@ -17,10 +17,7 @@
 import type { Database } from 'bun:sqlite'
 import { readSource, writeSource } from '../db'
 import { historyStore, mergePrices } from '../history'
-import { readCard, type PokecardexCardPage } from '../lib/pokecardex'
-
-/** Autant de pages en échec d'affilée : le site a changé, on ne le sollicite pas davantage. */
-const MAX_FAILURES_IN_A_ROW = 10
+import { MAX_FAILURES_IN_A_ROW, readCard, type PokecardexCardPage } from '../lib/pokecardex'
 
 /**
  * Les prix de la carte elle-même dans sa page (testé) : sa plus longue période, la série de son
