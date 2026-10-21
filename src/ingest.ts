@@ -14,13 +14,15 @@
  * (`INGEST_JOBS`) ; après un échec (source indisponible…), 10 min plus tard, puis 20, 40… jusqu'à
  * 6 h : une panne qui dure ne fait pas solliciter la source toutes les 10 min. Les tâches à la
  * demande (`catalog`, `images`, `history`) n'y passent jamais. Chaque passage est noté dans `runs`
- * (lu par `/v1/status`), avec la cause d'un échec (`message`, aussi dans la sortie) ; arrêté
- * (Ctrl+C, `docker compose stop`), il est noté interrompu.
+ * (`runs.ts`, lu par `/v1/status`), avec la cause d'un échec (`message`, aussi dans la sortie) ;
+ * arrêté (Ctrl+C, `docker compose stop`), il est noté interrompu. Il donne signe de vie chaque
+ * minute : arrêté net (conteneur tué, machine redémarrée), il est noté interrompu au passage
+ * suivant de sa tâche, qui n'attend que 5 min.
  */
 
 import type { Database } from 'bun:sqlite'
 import { INGEST_JOB_NAMES, INGEST_JOBS, type IngestJob } from '@/config/jobs'
-import { DAY, HOUR, MINUTE } from '@/lib/time'
+import { HOUR, MINUTE } from '@/lib/time'
 import { openData } from './db'
 import { backups } from './jobs/backups'
 import { catalog, saveCatalog } from './jobs/catalog'
@@ -28,6 +30,7 @@ import { history } from './jobs/history'
 import { images } from './jobs/images'
 import { prices } from './jobs/prices'
 import { species } from './jobs/species'
+import { finishRun, keepAlive, startRun } from './runs'
 import { duration, failure, muted, strong, success } from './terminal-progress'
 
 const RUNS: Record<IngestJob, (db: Database) => Promise<void>> = {
@@ -56,32 +59,28 @@ async function runJob(db: Database, name: IngestJob, step?: { current: number; t
   if (step) {
     console.log(`\n${muted(`[${step.current}/${step.total}]`)} ${strong(INGEST_JOBS[name].label)}`)
   }
-  // Déjà en cours dans un autre processus (une tâche lancée deux fois) : deux à la fois
-  // doubleraient le rythme des requêtes. Au-delà de 2 jours (l'historique en prend un la première
-  // fois), un reste d'arrêt brutal.
-  const running = db
-    .query('SELECT 1 FROM runs WHERE job = ? AND finished_at IS NULL AND started_at > ?')
-    .get(name, new Date(Date.now() - 2 * DAY).toISOString())
-  if (running) {
+  // Déjà en cours dans un autre processus, en vie (une tâche lancée deux fois) : deux à la fois
+  // doubleraient le rythme des requêtes. Un passage arrêté net ne compte plus (`startRun`).
+  const id = startRun(db, name)
+  if (id === null) {
     console.warn(`Tâche ${name} déjà en cours dans un autre processus : rien de lancé.`)
     if (step) console.log(`${failure('✗')} Étape ignorée`)
     return false
   }
-  const { id } = db
-    .query('INSERT INTO runs (job, started_at) VALUES (?, ?) RETURNING id')
-    .get(name, new Date().toISOString()) as { id: number }
   current = id
+  const stopBeating = keepAlive(db, id)
   try {
     await RUNS[name](db)
-    finish(db, id, true, null)
+    finishRun(db, id, true, null)
     if (step) console.log(`${success('✓')} Terminée en ${duration(Date.now() - started)}`)
     return true
   } catch (error) {
     console.error(`Tâche ${name} en échec :`, error)
-    finish(db, id, false, error instanceof Error ? error.message : String(error))
+    finishRun(db, id, false, error instanceof Error ? error.message : String(error))
     if (step) console.log(`${failure('✗')} Échec après ${duration(Date.now() - started)}`)
     return false
   } finally {
+    stopBeating()
     current = null
   }
 }
@@ -100,15 +99,6 @@ async function runSequence(db: Database, title: string, jobs: IngestJob[]) {
       muted(`en ${duration(Date.now() - started)}`),
   )
   return ok
-}
-
-function finish(db: Database, id: number, ok: boolean, message: string | null) {
-  db.query('UPDATE runs SET finished_at = ?, ok = ?, message = ? WHERE id = ?').run(
-    new Date().toISOString(),
-    ok ? 1 : 0,
-    message,
-    id,
-  )
 }
 
 /** La tâche est-elle à relancer : jamais passée, intervalle écoulé, ou délai après un échec. */
@@ -132,18 +122,12 @@ const [arg] = process.argv.slice(2)
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.on(signal, () => {
-    if (current !== null) finish(db, current, false, 'interrompue')
+    if (current !== null) finishRun(db, current, false, 'interrompue')
     process.exit(130)
   })
 }
 
 if (arg === '--loop') {
-  // Un passage arrêté net (machine redémarrée) reste « en cours » : il ne l'est plus. Seulement
-  // ceux de la boucle : une tâche à la demande tourne peut-être dans un autre conteneur.
-  db.query(
-    `UPDATE runs SET finished_at = ?, ok = 0, message = 'interrompue'
-     WHERE finished_at IS NULL AND job IN (SELECT value FROM json_each(?))`,
-  ).run(new Date().toISOString(), JSON.stringify(SCHEDULED))
   saveCatalog(db)
   // Les espèces sont enregistrées telles que les lit le code : repassées avec le code déployé.
   await runJob(db, 'species')

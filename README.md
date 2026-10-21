@@ -131,7 +131,9 @@ docker compose run --rm ingest bun src/ingest.ts cards
 docker compose run --rm ingest bun src/ingest.ts catalog --refresh
 ```
 
-Une tâche déjà en cours ailleurs n'est pas doublée. **La surveillance** : `/v1/health` (par le
+Une tâche déjà en cours ailleurs n'est pas doublée ; arrêtée net (conteneur tué, VPS redémarré),
+elle ne bloque plus sa relance au bout de 5 min (elle donne signe de vie chaque minute).
+**La surveillance** : `/v1/health` (par le
 site : `https://votre-domaine/api/health`) répond 200 quand chaque tâche à rythme a réussi
 récemment (deux intervalles au plus : les prix en 12 h, les sauvegardes en 2 jours, les espèces en
 60 jours) et que le guide des prix n'est pas figé, 503 sinon, avec les tâches en retard. Un trou

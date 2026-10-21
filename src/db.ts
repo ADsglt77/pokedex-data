@@ -256,6 +256,14 @@ export const DATA_STEPS = [
   -- La seconde compression des réponses (Brotli), retirée : sa colonne, restée vide, aussi.
   ALTER TABLE snapshots DROP COLUMN brotli;
   `,
+  `
+  -- Le dernier signe de vie de chaque passage en cours (\`runs.ts\`, chaque minute) : un passage
+  -- ouvert qui n'en donne plus depuis 5 min a été arrêté net (conteneur tué, machine redémarrée),
+  -- il ne bloque plus sa tâche. Ceux déjà ouverts reçoivent leur début : arrêtés, sauf s'ils
+  -- viennent de commencer.
+  ALTER TABLE runs ADD COLUMN alive_at TEXT;
+  UPDATE runs SET alive_at = started_at WHERE finished_at IS NULL;
+  `,
 ]
 
 const userVersion = (db: Database) =>

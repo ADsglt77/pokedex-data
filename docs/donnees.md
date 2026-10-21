@@ -146,13 +146,19 @@ Le produit 719621 donne `1x Charmander Blazing Destruction Steady Firebreathing 
 
 ## État des tâches (`status.ts`)
 
-`runs` note chaque passage (`ingest.ts`) : son début, sa fin, s'il a réussi, et la cause d'un
-échec (`message` : celui de l'erreur, ou « interrompue » pour un passage arrêté). `/v1/status` rend
-seulement le nom, le libellé et l'état de chaque tâche, dans l'ordre d'`INGEST_JOBS`. Les détails
-de calcul restent internes à l'API. Les états : `never` (tâche à la demande jamais passée),
-`failed` (le dernier passage ; sa cause n'est
-pas rendue : elle est dans `runs.message` et dans la sortie de l'ingestion, le journal du service
-`ingest` ou le terminal d'une tâche à la demande), `late` (deux intervalles sans réussite ; jamais
-pour une tâche à la demande), `frozen` (les prix : le guide inchangé depuis plus de deux jours,
-chaque jour perdu manque pour toujours à l'historique), `ok`. `/v1/health`, sans token : 503 si
-une tâche à rythme est en retard ou les prix figés.
+`runs` note chaque passage (`runs.ts`, `ingest.ts`) : son début, sa fin, s'il a réussi, et la
+cause d'un échec (`message` : celui de l'erreur, ou « interrompue » pour un passage arrêté).
+Pendant qu'il tourne, il donne signe de vie chaque minute (`alive_at`) : une tâche n'est pas lancée
+deux fois à la fois (deux processus doubleraient le rythme des requêtes), mais un passage sans
+signe de vie depuis 5 min a été arrêté net (conteneur tué, mémoire épuisée, machine redémarrée) :
+il ne bloque plus sa tâche, et il est noté interrompu à son passage suivant (testé).
+
+`/v1/status` rend seulement le nom, le libellé et l'état de chaque tâche, dans l'ordre
+d'`INGEST_JOBS`. Les détails de calcul restent internes à l'API. Un passage en cours ne compte pas
+encore : l'état reste celui du passage d'avant. Les états : `never` (tâche à la demande jamais
+passée), `failed` (le dernier passage, ou un passage arrêté net ; sa cause n'est pas rendue : elle
+est dans `runs.message` et dans la sortie de l'ingestion, le journal du service `ingest` ou celui
+du conteneur d'une tâche à la demande), `late` (deux intervalles sans réussite ; jamais pour une
+tâche à la demande), `frozen` (les prix : le guide inchangé depuis plus de deux jours, chaque jour
+perdu manque pour toujours à l'historique), `ok`. `/v1/health`, sans token : 503 si une tâche à
+rythme est en retard ou les prix figés.

@@ -1,14 +1,15 @@
 /**
  * L'accès à l'API : sans token, aucune donnée (`auth.ts`) ; seul `/v1/health` passe sans. Et l'état
  * des tâches (`status.ts`), que montre la page Données du site : une tâche à la demande n'est
- * jamais en retard, et la surveillance ne compte que celles à rythme.
+ * jamais en retard, un passage arrêté net est un échec, et la surveillance ne compte que celles à
+ * rythme.
  */
 
 import { describe, expect, test } from 'bun:test'
 import { readClients } from '../src/auth'
 import { createApp } from '../src/app'
 import type { ServerStatus } from '../src/contract'
-import { DAY, HOUR } from '../src/lib/time'
+import { DAY, HOUR, MINUTE } from '../src/lib/time'
 import { testData } from './server'
 
 const TOKEN = 'token-d-essai-de-32-caracteres-au-moins'
@@ -115,6 +116,19 @@ describe('l’état des tâches', () => {
     expect(stateOf(current, 'catalog')).toBe('never')
     expect(stateOf(current, 'images')).toBe('never')
     expect(stateOf(current, 'species')).toBe('late')
+  })
+
+  test('un passage arrêté net (sans signe de vie depuis 5 min) : en échec ; un en cours : l’état d’avant', async () => {
+    runs(['catalog', 1, DAY])
+    const open = data.query('INSERT INTO runs (job, started_at, alive_at) VALUES (?, ?, ?)')
+    const ago = (ms: number) => new Date(Date.now() - ms).toISOString()
+    open.run('history', ago(DAY), ago(10 * MINUTE))
+    open.run('catalog', ago(HOUR), ago(MINUTE))
+    open.run('images', ago(HOUR), ago(MINUTE))
+    const current = await status()
+    expect(stateOf(current, 'history')).toBe('failed')
+    expect(stateOf(current, 'catalog')).toBe('ok')
+    expect(stateOf(current, 'images')).toBe('never')
   })
 
   test('des prix figés : la tâche réussit, mais le guide a plus de deux jours', async () => {

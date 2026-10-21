@@ -1,7 +1,8 @@
 /**
  * Où en sont les tâches d'ingestion, d'après leurs passages (`runs`, notés par `ingest.ts`) :
  * - `GET /v1/status` : l'identité et l'état de chaque tâche (le site n'affiche que les problèmes) ;
- *   la cause d'un échec reste dans le journal de l'ingestion ;
+ *   la cause d'un échec reste dans le journal de l'ingestion ; un passage arrêté net (sans signe
+ *   de vie, `runs.ts`) est un échec ;
  * - `GET /v1/health`, sans token : pour une surveillance (UptimeRobot…), 200 si chaque tâche à
  *   rythme a réussi récemment (deux intervalles au plus) et que les prix ne sont pas figés, 503
  *   sinon, avec les tâches en retard. Les tâches à la demande n'y comptent pas.
@@ -13,6 +14,7 @@ import { INGEST_JOB_NAMES, INGEST_JOBS, type IngestJob } from '@/config/jobs'
 import type { ServerStatus } from '@/contract'
 import { DAY } from '@/lib/time'
 import { readSource } from './db'
+import { aliveSince } from './runs'
 
 interface Runs {
   lastSuccess: string | null
@@ -44,18 +46,26 @@ function stateOf(job: IngestJob, runs: Runs | undefined, pricesDate: string | nu
   return 'ok'
 }
 
-/** Les passages de chaque tâche et le jour des prix, lus à chaque demande. */
+/**
+ * Les passages de chaque tâche et le jour des prix, lus à chaque demande. Un passage en cours ne
+ * compte pas encore (l'état reste celui du passage d'avant) ; un passage ouvert sans signe de vie
+ * (`runs.ts`), arrêté net, compte comme un échec, terminé à son dernier signe de vie.
+ */
 function reader(data: Database) {
   const runs = data.query(
     `SELECT job, MAX(CASE WHEN ok = 1 THEN finished_at END) AS lastSuccess,
-            MAX(finished_at) AS lastRun
+            MAX(COALESCE(finished_at, CASE WHEN alive_at < ? THEN alive_at END)) AS lastRun
      FROM runs GROUP BY job`,
   )
-  return () => ({
-    runs: new Map((runs.all() as ({ job: string } & Runs)[]).map(({ job, ...row }) => [job, row])),
-    pricesDate: readSource(data, 'cardmarket')?.date ?? null,
-    now: Date.now(),
-  })
+  return () => {
+    const now = Date.now()
+    const rows = runs.all(aliveSince(now)) as ({ job: string } & Runs)[]
+    return {
+      runs: new Map(rows.map(({ job, ...row }) => [job, row])),
+      pricesDate: readSource(data, 'cardmarket')?.date ?? null,
+      now,
+    }
+  }
 }
 
 export function statusRoutes(data: Database) {

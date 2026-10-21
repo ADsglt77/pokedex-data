@@ -67,6 +67,7 @@ bun run format         # Prettier sur src/ et tests/
 | `db.ts` | `data.db` dans `DATA_DIR`, schéma par étapes |
 | `journal.ts` | Le journal, une ligne par évènement |
 | `ingest.ts`, `jobs/*` | Les tâches d'ingestion, une à la demande, `cards`, ou `--loop` |
+| `runs.ts` | Les passages des tâches (`runs`) : une tâche à la fois, un signe de vie chaque minute |
 | `lib/net.ts`, `lib/pokecardex.ts` | Requêtes identifiées et cache de PokéAPI ; les pages de Pokécardex, déchiffrées, une toutes les 3 s |
 | `lib/wants.ts` | La ligne d'une carte pour la liste de souhaits |
 | `contract.ts`, `config/*` | Le contrat ; les tâches, les types de cartes, le Pokédex |
