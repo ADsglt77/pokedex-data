@@ -94,9 +94,14 @@ nouveau VPS, à installer avant le site.
    ```sh
    docker network create pokedex-net
    ```
-2. Cloner le dépôt **en SSH**, avec une clé de déploiement en lecture seule (le dépôt est privé) :
+2. Cloner le dépôt **en SSH**, avec une clé de déploiement GitHub en lecture seule (le dépôt est
+   privé). GitHub n'accepte une clé de déploiement que sur un seul dépôt : pas celle du clone du
+   site, une autre, déclarée dans `~/.ssh/config` sous un autre nom de `github.com` :
    ```sh
-   git clone git@github.com:ADsglt77/pokedex-data.git
+   ssh-keygen -t ed25519 -N '' -C github-pokedex-data -f ~/.ssh/github-pokedex-data
+   printf 'Host github-pokedex-data\n  HostName github.com\n  IdentityFile ~/.ssh/github-pokedex-data\n  IdentitiesOnly yes\n' >> ~/.ssh/config
+   # ~/.ssh/github-pokedex-data.pub : dans Settings › Deploy keys du dépôt, en lecture seule
+   git clone git@github-pokedex-data:ADsglt77/pokedex-data.git
    cd pokedex-data
    ```
 3. Le fichier `.env` (ignoré par git ; sans lui, docker compose refuse de démarrer), avec le token
@@ -143,8 +148,26 @@ nouveau VPS, à installer avant le site.
 Actions) : GitHub se connecte au VPS en SSH, fait `git pull` et lance `deploy/deploy.sh`. La
 construction lance d'abord les tests, TypeScript, ESLint et knip ; si elle échoue, l'ancienne
 version reste en ligne. Une fois les conteneurs redémarrés, le script vérifie que l'API répond. Les
-secrets du dépôt : les mêmes que ceux du site (`VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`, `VPS_PORT`,
-`VPS_FINGERPRINT`), et `VPS_PATH`, le dossier de ce clone.
+secrets du dépôt (Settings › Secrets and variables › Actions) : `VPS_HOST`, `VPS_USER`, `VPS_PORT`
+et `VPS_FINGERPRINT`, les mêmes valeurs que pour le site ; `VPS_PATH`, le dossier de ce clone ; et
+`VPS_SSH_KEY`, **une clé propre à ce dépôt, jamais celle du site**.
+
+Chaque clé du déploiement est réservée à son dépôt dans `~/.ssh/authorized_keys` du VPS, par une
+commande imposée en tête de sa ligne : SSH lance alors cette commande-là, quoi que demande le
+workflow. La clé du site, imposée au déploiement du site, ne déploierait donc que le site. Une clé
+à part, tirée hors du VPS :
+
+```sh
+ssh-keygen -t ed25519 -N '' -C deploy-pokedex-data -f deploy-pokedex-data
+# deploy-pokedex-data : le secret VPS_SSH_KEY de ce dépôt (puis effacer le fichier)
+# deploy-pokedex-data.pub : sa ligne dans ~/.ssh/authorized_keys du VPS, précédée de sa commande
+```
+
+Sa ligne dans `~/.ssh/authorized_keys` (le dossier du clone à adapter), à côté de celle du site :
+
+```
+restrict,command="cd /chemin/du/clone/pokedex-data && git pull --ff-only && sh deploy/deploy.sh" ssh-ed25519 AAAA… deploy-pokedex-data
+```
 
 **Lancer une tâche à la main** (de nouvelles cartes, relire tout le catalogue…) ; une longue, comme
 plus haut, avec `-d --name …` au lieu de `--rm` :
