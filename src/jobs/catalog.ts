@@ -40,7 +40,7 @@ import {
   type PokecardexSeries,
 } from '../lib/pokecardex'
 import { saveSnapshot } from '../snapshots'
-import { TerminalProgress } from '../terminal-progress'
+import { plural, TerminalProgress } from '../terminal-progress'
 
 /**
  * Un numéro comparable : `017` et `17` sont la même carte, `tg01` et `TG01` aussi (la même règle
@@ -419,7 +419,8 @@ function logTotals(db: Database, read: number, cards: number) {
     )
     .get() as { cards: number; withoutCardmarket: number | null; otherNumber: number | null }
   console.log(
-    `Catalogue : ${read} séries relues (${cards} cartes) ; ` +
+    `Catalogue : ${plural(read, 'série relue', 'séries relues')} ` +
+      `(${plural(cards, 'carte', 'cartes')}) ; ` +
       `${totals.cards} cartes en tout, ${totals.withoutCardmarket ?? 0} sans id Cardmarket, ` +
       `${totals.otherNumber ?? 0} dont le numéro imprimé n’est pas le rang de l’image`,
   )
@@ -469,7 +470,7 @@ export async function catalog(db: Database) {
         if (known) {
           knownEmpty++
           progress.clear()
-          console.warn(`  ${code} : page sans cartes, les ${known} d’avant restent`)
+          console.warn(`  ${code} : page sans cartes, celles d’avant restent (${known})`)
           progress.redraw()
         }
         continue
@@ -501,14 +502,16 @@ export async function catalog(db: Database) {
   logTotals(db, read, cards)
   saveCatalog(db)
   if (failed.length) {
-    throw new Error(`${failed.length} séries illisibles (${failed.slice(0, 10).join(', ')})`)
+    throw new Error(
+      `${plural(failed.length, 'série illisible', 'séries illisibles')} (${failed.slice(0, 10).join(', ')})`,
+    )
   }
   // Plus de la moitié des séries déjà connues rendues sans cartes : le format des pages a changé
   // (le champ des cartes renommé), pas les séries. Leurs cartes d'avant restent ; la tâche échoue,
   // pour que la page Données et la surveillance le disent (sinon, un catalogue figé sans un mot).
   if (knownEmpty > 0 && knownEmpty * 2 > knownRead) {
     throw new Error(
-      `${knownEmpty} séries sur ${knownRead} déjà connues rendues sans cartes (format des pages changé ?)`,
+      `Séries déjà connues rendues sans cartes : ${knownEmpty} sur ${knownRead} (format des pages changé ?)`,
     )
   }
 }

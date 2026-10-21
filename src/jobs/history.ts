@@ -18,7 +18,7 @@ import type { Database } from 'bun:sqlite'
 import { readSource, writeSource } from '../db'
 import { historyStore, mergePrices } from '../history'
 import { MAX_FAILURES_IN_A_ROW, readCard, type PokecardexCardPage } from '../lib/pokecardex'
-import { TerminalProgress } from '../terminal-progress'
+import { plural, TerminalProgress } from '../terminal-progress'
 
 /**
  * Les prix de la carte elle-même dans sa page (testé) : sa plus longue période, la série de son
@@ -105,7 +105,14 @@ export async function history(db: Database) {
     throw error
   }
   progress()
-  console.log(`Historique (Pokécardex) : ${read} cartes lues, ${days} jours écrits`)
+  console.log(
+    `Historique (Pokécardex) : ${plural(read, 'carte lue', 'cartes lues')}, ` +
+      plural(days, 'jour écrit', 'jours écrits'),
+  )
   // Rien n'est noté pour elles : relues au prochain passage, qui ne lit qu'elles et les nouvelles.
-  if (failed) throw new Error(`${failed} cartes en échec, relues au prochain passage`)
+  if (failed) {
+    throw new Error(
+      `${plural(failed, 'carte en échec, relue', 'cartes en échec, relues')} au prochain passage`,
+    )
+  }
 }

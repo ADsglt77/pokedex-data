@@ -32,7 +32,7 @@ import { images } from './jobs/images'
 import { prices } from './jobs/prices'
 import { species } from './jobs/species'
 import { finishRun, keepAlive, startRun } from './runs'
-import { duration, failure, muted, strong, success } from './terminal-progress'
+import { duration, failure, muted, plural, strong, success } from './terminal-progress'
 
 const RUNS: Record<IngestJob, (db: Database) => Promise<void>> = {
   species,
@@ -94,13 +94,18 @@ async function runJob(db: Database, name: IngestJob, step?: { current: number; t
 async function runSequence(db: Database, title: string, jobs: IngestJob[]) {
   const started = Date.now()
   console.log(`\n${strong(title)}`)
-  console.log(muted(`${jobs.length} étapes · Ctrl+C pour interrompre, la reprise est automatique`))
+  console.log(
+    muted(
+      `${plural(jobs.length, 'étape', 'étapes')} · Ctrl+C pour interrompre ; relancée, la commande ne refait que ce qui manque`,
+    ),
+  )
   let ok = true
   for (const [index, name] of jobs.entries()) {
     ok = (await runJob(db, name, { current: index + 1, total: jobs.length })) && ok
   }
+  // « Prix : fini », « Espèces : fini » : le titre est celui d'une tâche ou d'une suite de tâches.
   console.log(
-    `\n${ok ? success('✓') : failure('✗')} ${title} ${ok ? 'terminée' : 'terminée avec des erreurs'} ` +
+    `\n${ok ? success('✓') : failure('✗')} ${title} : ${ok ? 'fini' : 'fini avec des erreurs'} ` +
       muted(`en ${duration(Date.now() - started)}`),
   )
   return ok

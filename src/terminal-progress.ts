@@ -14,6 +14,13 @@ export const muted = (text: string) => paint(90, text)
 export const success = (text: string) => paint(32, text)
 export const failure = (text: string) => paint(31, text)
 
+/**
+ * Un nombre et ce qu'il compte, accordé : `plural(1, 'carte lue', 'cartes lues')` → « 1 carte
+ * lue » (0 et 1 au singulier).
+ */
+export const plural = (count: number, one: string, many: string) =>
+  `${count} ${count > 1 ? many : one}`
+
 /** Une durée lisible, sans précision inutile. */
 export function duration(milliseconds: number) {
   const seconds = Math.max(0, Math.round(milliseconds / 1000))

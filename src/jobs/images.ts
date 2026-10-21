@@ -25,7 +25,7 @@ import { WEEK } from '@/lib/time'
 import { artworkUrl, cardScan, mirror, rarityIcon, setLogo, spriteUrl, typeIcon } from '../images'
 import { mapPool } from '../lib/net'
 import { saveCatalog } from './catalog'
-import { TerminalProgress } from '../terminal-progress'
+import { plural, TerminalProgress } from '../terminal-progress'
 
 /** À la 20e erreur, la source est sans doute en panne : on ne la sollicite pas davantage. */
 const MAX_FAILURES = 20
@@ -114,14 +114,16 @@ export async function images(db: Database) {
     })
     active.finish()
     active = null
-    console.log(`Images de ${cards.length} cartes cherchées : ${found} chez Pokécardex`)
+    console.log(
+      `Scans cherchés pour ${plural(cards.length, 'carte', 'cartes')} : ${found} chez Pokécardex`,
+    )
   } finally {
     active?.stop()
     saveCatalog(db)
   }
   if (failed.length) {
     throw new Error(
-      `${failed.length} images en erreur, redemandées au prochain passage (${failed.slice(0, 5).join(', ')})`,
+      `${plural(failed.length, 'image en erreur, redemandée', 'images en erreur, redemandées')} au prochain passage (${failed.slice(0, 5).join(', ')})`,
     )
   }
 }
