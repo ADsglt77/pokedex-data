@@ -293,7 +293,8 @@ function dueSeries(db: Database, codes: string[], now: number) {
     const set = known.get(code)
     if (!set) return true
     const recent = !set.released || now - Date.parse(set.released) < 90 * DAY
-    // Un peu moins qu'un jour et qu'une semaine : la tâche repasse toutes les 24 h.
+    // Un peu moins qu'un jour et qu'une semaine : relancée à la même heure (à la main, la tâche
+    // n'a pas de rythme), elle relit bien ce qui a un jour ou une semaine.
     return now - Date.parse(set.readAt) > (recent ? 20 * HOUR : 6 * DAY + 20 * HOUR)
   })
 }
