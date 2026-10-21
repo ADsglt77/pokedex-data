@@ -1,9 +1,10 @@
 # Pokédex · données
 
-L'API privée des données du Pokédex de cartes Pokémon japonaises : les espèces (PokéAPI), le
-catalogue des cartes japonaises et leurs images (Pokécardex), les prix Cardmarket du jour et leur
-historique. Elle les relit à son rythme, les range dans une base SQLite et les rend au site, et
-à lui seul : sans token, aucune donnée. Bun, Elysia, SQLite.
+L'API privée des données du Pokédex de cartes Pokémon japonaises (PokéCodex, en ligne à
+https://pokecodex.fr) : les espèces (PokéAPI), le catalogue des cartes japonaises et leurs images
+(Pokécardex), les prix Cardmarket du jour et leur historique. Elle les relit à son rythme, les
+range dans une base SQLite et les rend au site, et à lui seul : sans token, aucune donnée. Bun,
+Elysia, SQLite.
 
 ```sh
 bun install
@@ -11,7 +12,7 @@ bun run dev            # l'API, sur http://127.0.0.1:3001 (relancée à chaque m
 bun run setup          # première installation complète, avec progression
 bun run ingest <tâche> # une tâche d'ingestion, tout de suite (plus bas)
 bun run ingest cards   # les nouvelles cartes : catalogue, puis leurs images et leur historique
-bun test               # tests (prix, historique, liste de souhaits, schéma, accès)
+bun test               # tests (prix, historique, liste de souhaits, schéma, accès, tâches)
 bun run typecheck      # TypeScript
 bun run lint           # ESLint, puis knip (code mort)
 bun run format         # Prettier
@@ -34,7 +35,7 @@ sont dans `API_TOKENS` (le `.env`), un par client : `nom:token,…` ; aujourd'hu
 | `GET /v1/wants?ids=…` | La ligne de chaque carte pour la liste de souhaits Cardmarket |
 | `GET /v1/status` | Chaque tâche : son identifiant, son libellé et son état |
 | `GET /v1/images/…` | Une image copiée (copiée à la demande si elle manque) |
-| `GET /v1/health` | **Sans token** : 200, ou 503 si une tâche à rythme est en retard |
+| `GET /v1/health` | **Sans token** : 200, ou 503 si une tâche à rythme est en retard ou les prix figés |
 
 La forme de chaque réponse : `src/contract.ts`, dont le site garde une copie. Les grosses
 réponses portent un ETag (304 tant qu'elles n'ont pas changé) et arrivent compressées (gzip). En développement, la documentation (OpenAPI) est à `http://127.0.0.1:3001/docs`.
@@ -58,7 +59,8 @@ d'origine.
 Quand de nouvelles cartes sortent : `bun run ingest cards` enchaîne le catalogue, puis les images
 et l'historique (seulement ce qui manque : les nouvelles cartes). Chaque tâche reste lançable
 seule. Après un échec, une tâche à rythme repasse 10 min plus tard, puis 20, 40… jusqu'à 6 h.
-Arrêtée (Ctrl+C), une tâche est notée interrompue ; relancée, elle reprend où elle en était.
+Arrêtée (Ctrl+C, `docker compose stop`), une tâche est notée interrompue ; arrêtée net (conteneur
+tué, VPS redémarré), elle l'est à sa relance suivante. Relancée, elle reprend où elle en était.
 
 ## En développement
 
@@ -83,7 +85,8 @@ n'a pas donnée, une erreur de l'API. Sans couleurs avec `NO_COLOR=1`.
 
 L'API tourne sur le même VPS que le site, dans ses propres conteneurs, **sans aucun port
 publié** : le site la joint par un réseau Docker commun, `pokedex-net`, à l'adresse
-`http://data-api:3001`. À installer avant le site.
+`http://data-api:3001` (le public passe par Caddy, puis le nginx du site, puis elle). Sur un
+nouveau VPS, à installer avant le site.
 
 **Une fois, sur le VPS**
 
@@ -102,20 +105,38 @@ publié** : le site la joint par un réseau Docker commun, `pokedex-net`, à l'a
    echo "API_TOKENS=pokedex:$(openssl rand -hex 32)" > .env
    chmod 600 .env
    docker compose build --pull
-   docker compose up -d api
    ```
-4. Remplir toute la base, sans garder la connexion SSH ouverte (l'historique peut prendre un jour) :
+4. Sur une base vide, le catalogue d'abord (une vingtaine de minutes) : le prix d'une carte d'une
+   série récente en dépend, et un premier guide des prix lu sans lui resterait faux dans
+   l'historique.
    ```sh
-   docker compose run -d --name pokedex-data-setup ingest bun src/ingest.ts setup
-   docker logs -f pokedex-data-setup
+   docker compose run --rm ingest bun src/ingest.ts catalog
    ```
-   La progression reprend automatiquement après une interruption. Quand le journal indique que tout
-   est terminé, vérifier que le code de sortie vaut `0`, retirer ce conteneur ponctuel, puis lancer
-   les tâches périodiques :
+5. Puis, tout de suite, l'API et les tâches à rythme (le service `ingest` : les espèces, les prix
+   toutes les 6 h, la sauvegarde chaque jour). Elles n'attendent pas les cartes : un guide des
+   prix pas lu le jour même manque pour toujours à l'historique. Docker relance ces deux services
+   après un arrêt ou un redémarrage du VPS (`restart: unless-stopped`).
    ```sh
-   docker inspect pokedex-data-setup --format '{{.State.ExitCode}}'
-   docker rm pokedex-data-setup
-   docker compose up -d ingest
+   docker compose up -d
+   ```
+6. Le reste des cartes (leurs images, puis leur historique : environ 23 h la première fois), dans
+   un conteneur ponctuel, sans garder la connexion SSH ouverte :
+   ```sh
+   docker compose run -d --name pokedex-data-cards ingest bun src/ingest.ts cards
+   docker logs -f pokedex-data-cards
+   ```
+   Ce conteneur-là, Docker ne le relance pas (un `docker compose run` n'a pas de politique de
+   redémarrage) : après un redémarrage du VPS ou un arrêt brutal, relancer `cards` comme ci-dessous.
+   Quand le journal indique la fin, lire son code de sortie et retirer le conteneur :
+   ```sh
+   docker inspect pokedex-data-cards --format '{{.State.ExitCode}}'
+   docker rm pokedex-data-cards
+   ```
+   `0` : tout est là. `1` : une étape au moins a échoué (le journal dit laquelle ; une seule série,
+   image ou carte en échec suffit). Relancer `cards`, qui ne refait que ce qui manque (les séries
+   pas encore lues, les images absentes, l'historique des cartes pas encore lues), jusqu'à `0` :
+   ```sh
+   docker compose run -d --name pokedex-data-cards ingest bun src/ingest.ts cards
    ```
 
 **Ensuite, à chaque déploiement** (`.github/workflows/deploy.yml`, lancé à la main depuis l'onglet
@@ -125,7 +146,8 @@ version reste en ligne. Une fois les conteneurs redémarrés, le script vérifie
 secrets du dépôt : les mêmes que ceux du site (`VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`, `VPS_PORT`,
 `VPS_FINGERPRINT`), et `VPS_PATH`, le dossier de ce clone.
 
-**Lancer une tâche à la main** (de nouvelles cartes, relire tout le catalogue…) :
+**Lancer une tâche à la main** (de nouvelles cartes, relire tout le catalogue…) ; une longue, comme
+plus haut, avec `-d --name …` au lieu de `--rm` :
 
 ```sh
 docker compose run --rm ingest bun src/ingest.ts cards
@@ -135,7 +157,7 @@ docker compose run --rm ingest bun src/ingest.ts catalog --refresh
 Une tâche déjà en cours ailleurs n'est pas doublée ; arrêtée net (conteneur tué, VPS redémarré),
 elle ne bloque plus sa relance au bout de 5 min (elle donne signe de vie chaque minute).
 **La surveillance** : `/v1/health` (par le
-site : `https://votre-domaine/api/health`) répond 200 quand chaque tâche à rythme a réussi
+site : `https://pokecodex.fr/api/health`) répond 200 quand chaque tâche à rythme a réussi
 récemment (deux intervalles au plus : les prix en 12 h, les sauvegardes en 2 jours, les espèces en
 60 jours) et que le guide des prix n'est pas figé, 503 sinon, avec les tâches en retard. Un trou
 dans l'historique des prix ne se rattrape jamais (Cardmarket n'en garde pas).
