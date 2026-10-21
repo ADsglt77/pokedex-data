@@ -69,9 +69,10 @@ echo "API_TOKENS=pokedex:$(openssl rand -hex 32)" > .env
 ```
 
 Le même token va dans le `.env` du site (`DATA_API_TOKEN`). La base vit dans `.data/` ; la remplir
-une fois avec `bun run setup`, qui enchaîne les espèces, les prix, le catalogue, les images et
-l'historique avec une progression visible (environ 23 h la première fois ; il s'arrête et reprend
-à volonté). Les images n'ont pas besoin d'être toutes copiées : l'API copie à la demande celles
+une fois avec `bun run setup`, qui enchaîne les espèces, le catalogue, les prix (après le
+catalogue : le prix d'une carte d'une série récente en dépend), les images et l'historique avec une
+progression visible (environ 23 h la première fois ; arrêté, il reprend où il en était quand on le
+relance). Les images n'ont pas besoin d'être toutes copiées : l'API copie à la demande celles
 qu'on lui demande.
 
 **Le journal** : une ligne par évènement, alignée, à l'heure de Paris (pas les requêtes une à

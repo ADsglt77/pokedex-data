@@ -13,7 +13,7 @@ Bun est le gestionnaire de paquets (`bun.lock`).
 ```sh
 bun install
 bun run dev            # l'API sur le port 3001, `.env` : API_TOKENS
-bun run setup          # première installation : espèces, prix et cartes, avec progression
+bun run setup          # première installation : espèces, catalogue, prix, images, historique
 bun run ingest <tâche> # species, catalog, images, prices, history, backups ; `cards` : les trois à la demande
 bun test               # tests de tests/, relancés par le build Docker
 bun run typecheck      # tsc

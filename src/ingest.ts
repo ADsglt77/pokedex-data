@@ -4,7 +4,8 @@
  *   bun src/ingest.ts <tâche>     une tâche, tout de suite (`bun run ingest prices`)
  *   bun src/ingest.ts cards       les nouvelles cartes : catalogue, puis leurs images et leur
  *                                 historique (les trois tâches à la demande, l'une après l'autre)
- *   bun src/ingest.ts setup       l'initialisation complète : espèces, prix, puis `cards`
+ *   bun src/ingest.ts setup       l'initialisation complète : espèces, catalogue, prix, images,
+ *                                 historique
  *   bun src/ingest.ts --loop      service `ingest` : chaque tâche à rythme, à son rythme
  *
  * En boucle, au démarrage : les réponses calculées de l'API (`snapshots`) sont refaites (leur
@@ -45,8 +46,12 @@ const RUNS: Record<IngestJob, (db: Database) => Promise<void>> = {
 /** Les tâches de `cards`, dans l'ordre : les images et l'historique suivent le catalogue. */
 const CARDS: IngestJob[] = ['catalog', 'images', 'history']
 
-/** Toutes les données nécessaires à une première installation. */
-const SETUP: IngestJob[] = ['species', 'prices', ...CARDS]
+/**
+ * Toutes les données nécessaires à une première installation. Le catalogue avant les prix : le
+ * prix d'une carte d'une série récente est sa tendance (`guidePrice`, d'après le catalogue) ; lu
+ * sans lui, le prix du jour serait faux, et resterait faux dans l'historique.
+ */
+const SETUP: IngestJob[] = ['species', 'catalog', 'prices', 'images', 'history']
 
 /** Celles de la boucle, chacune à son rythme. */
 const SCHEDULED = INGEST_JOB_NAMES.filter((name) => INGEST_JOBS[name].every !== null)
