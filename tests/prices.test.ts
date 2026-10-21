@@ -64,7 +64,7 @@ describe('/v1/prices', () => {
     const first = await get('?ids=719445')
     const etag = first.headers.get('etag')!
     expect((await get('?ids=719445', { 'If-None-Match': etag })).status).toBe(304)
-    // Affaibli par un relais (Cloudflare) : le même.
+    // Affaibli par le nginx du site, qui compresse la réponse : le même.
     expect((await get('?ids=719445', { 'If-None-Match': `W/${etag}` })).status).toBe(304)
     // D'autres cartes : une autre réponse.
     expect((await get('?ids=719446', { 'If-None-Match': etag })).status).toBe(200)

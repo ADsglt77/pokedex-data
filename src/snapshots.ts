@@ -36,8 +36,8 @@ export const notFound = () =>
   new Response(null, { status: 404, headers: { 'Cache-Control': 'no-cache' } })
 
 /**
- * L'ETag que le client a déjà (`If-None-Match`) ; un relais (Cloudflare) peut l'affaiblir en
- * `W/"…"` : c'est le même.
+ * L'ETag que le client a déjà (`If-None-Match`) ; le nginx du site (entre Caddy et l'API)
+ * l'affaiblit en `W/"…"` quand il compresse la réponse : c'est le même.
  */
 const sentEtag = (request: Request) => request.headers.get('if-none-match')?.replace(/^W\//, '')
 

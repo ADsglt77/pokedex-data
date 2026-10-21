@@ -151,8 +151,8 @@ export async function mirror(path: string, { quick = false } = {}): Promise<bool
 }
 
 /**
- * Gardées un an par les navigateurs (et Cloudflare), sans redemande : une image copiée ne change
- * jamais (`mirror` ne réécrit pas un fichier qui existe).
+ * Gardées un an par les navigateurs (et par le nginx du site, `proxy_cache`), sans redemande : une
+ * image copiée ne change jamais (`mirror` ne réécrit pas un fichier qui existe).
  */
 const IMAGE_HEADERS = { 'Cache-Control': 'public, max-age=31536000, immutable' }
 /** Les images que la source n'a pas, et quand on l'a appris : pas redemandées avant une semaine. */
