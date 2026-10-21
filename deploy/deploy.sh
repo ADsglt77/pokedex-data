@@ -16,5 +16,8 @@ if ! docker compose up -d --remove-orphans --wait --wait-timeout 120; then
   exit 1
 fi
 
-# Les images d'avant restent une semaine : un retour arrière se reconstruit vite.
+# Les images d'avant restent une semaine : un retour arrière se reconstruit vite. Le cache de
+# construction aussi (l'étape des tests en laisse un à chaque déploiement) : au-delà, il remplirait
+# le disque, celui de la base et des images.
 docker image prune -f --filter until=168h
+docker builder prune -f --filter until=168h
