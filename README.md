@@ -192,19 +192,33 @@ l'historique des prix ; `backups` ; `images`).
 
 Chaque jour, le service `ingest` copie la base dans le volume `backups` : `data-AAAA-MM-JJ.db.gz`
 (7 gardées), vérifiée (`PRAGMA quick_check`) et écrite sous un nom provisoire avant de prendre sa
-place. Ce volume est sur le même disque que la base : copiez-le aussi ailleurs, par exemple
-chaque nuit avec `rclone` (dans la crontab de l'utilisateur du déploiement, le dossier du clone à
-adapter) :
+place (`tmp-…` tant qu'elle s'écrit). Ce volume est sur le même disque que la base : copiez-le
+aussi ailleurs. Pour en sortir les fichiers, dans `./sauvegardes` (que git ignore ; vidé d'abord,
+il ne garde que ce qu'a le volume, sans une copie en cours d'écriture), avec `docker compose cp`,
+qui les écrit au nom de l'utilisateur qui le lance. Les conteneurs ne le pourraient pas, même
+`--user root` : ils n'ont aucun droit (`cap_drop: ALL`), ni d'écrire dans un dossier du VPS qui
+ne leur appartient pas, ni de changer un propriétaire.
 
 ```sh
-45 4 * * * cd /home/moi/pokedex-data && rm -rf sauvegardes && mkdir sauvegardes && docker compose run --rm --no-deps --user root -v "$PWD/sauvegardes:/out" ingest sh -c 'cp /backups/data-* /out/' && rclone copy sauvegardes distant:pokedex-data-sauvegardes && rclone delete --min-age 90d distant:pokedex-data-sauvegardes
+rm -rf sauvegardes && mkdir sauvegardes
+docker compose cp ingest:/backups/. sauvegardes/ && rm -f sauvegardes/tmp-*
 ```
 
-**Restaurer une sauvegarde** : arrêter l'API et les tâches, remettre la copie à la place de la
-base, sans les fichiers `-wal` et `-shm` de l'ancienne, puis redémarrer :
+Chaque nuit, hors du VPS, avec `rclone` (configuré une fois, `rclone config`) : dans la crontab de
+l'utilisateur du déploiement (`crontab -e`), ici à 4 h 45, le dossier du clone à adapter. Le
+stockage distant garde 90 jours :
+
+```sh
+45 4 * * * cd /chemin/du/clone/pokedex-data && rm -rf sauvegardes && mkdir sauvegardes && docker compose cp ingest:/backups/. sauvegardes/ && rm -f sauvegardes/tmp-* && rclone copy sauvegardes distant:pokedex-data-sauvegardes && rclone delete --min-age 90d distant:pokedex-data-sauvegardes
+```
+
+**Restaurer une sauvegarde** : arrêter l'API et les tâches (une tâche lancée à la main aussi :
+`docker stop pokedex-data-cards`), remettre la copie à la place de la base, sans les fichiers
+`-wal` et `-shm` de l'ancienne, puis redémarrer. En tant que `bun`, l'utilisateur des conteneurs,
+à qui appartiennent la base et son dossier (pas de `chown`) :
 
 ```sh
 docker compose stop api ingest
-docker compose run --rm --no-deps --user root -v "$PWD/sauvegardes:/restore:ro" api sh -c 'rm -f /data/data.db-wal /data/data.db-shm && gunzip -c /restore/data-AAAA-MM-JJ.db.gz > /data/data.db && chown bun:bun /data/data.db'
+docker compose run --rm --no-deps -v "$PWD/sauvegardes:/restore:ro" api sh -c 'rm -f /data/data.db-wal /data/data.db-shm && gunzip -c /restore/data-AAAA-MM-JJ.db.gz > /data/data.db'
 docker compose up -d
 ```
