@@ -13,28 +13,50 @@ espèces d'avant restent. Une nouvelle génération s'ajoute dans `GENERATIONS` 
 
 ## Catalogue (`jobs/catalog.ts`, à la demande)
 
-Les cartes japonaises de Pokécardex, Pokémon, dresseurs et énergies (`lib/pokecardex.ts`), environ
-450 séries de 1996 à aujourd'hui, decks, promos et anciennes séries compris, sans les
-exclusivités d'autres pays d'Asie (bloc « Asia Exclusive » de son menu, `asiaExclusive`) → tables
-`sets`, `cards`, `card_species`, `rarities`.
+Les cartes japonaises, puis les françaises, de Pokécardex, Pokémon, dresseurs et énergies
+(`lib/pokecardex.ts`) : environ 450 séries japonaises de 1996 à aujourd'hui, decks, promos et
+anciennes séries compris, sans les exclusivités d'autres pays d'Asie (bloc « Asia Exclusive » de
+son menu japonais, `asiaExclusive`), et ses 249 séries françaises (sa zone française : section
+suivante) → tables `sets`, `cards`, `card_species`, `rarities`. Les ids des cartes et des raretés
+et les codes des séries se répètent d'une zone à l'autre (la carte 7091, la série SVP, la rareté
+48) : chaque ligne a sa langue (`lang`, `ja` ou `fr`, dans les clés), chaque langue ses réponses.
 
-- La liste des séries vient de son plan du site (`sitemap_fr.xml`, `/series/jp/<code>`) ; chaque
-  série, de sa page : son nom, sa sortie au Japon, et ses cartes (id Pokécardex, numéro imprimé
-  « 001/165 », `sort`, noms français, anglais et allemand, Pokémon, id Cardmarket, rareté, type,
-  illustrateur, versions ; un tiret seul, « — », qu'il écrit pour « inconnu », est gardé vide),
-  les raretés (nom, ordre) et le menu des séries (le bloc de chacune, son rang, si c'est un deck).
+- La liste des séries vient de son plan du site (`sitemap_fr.xml` : `/series/jp/<code>` au Japon,
+  `/series/<code>` en France), lue pour les deux langues avant toute série ; chaque série, de sa
+  page : son nom, sa sortie (au Japon ; en France pour une française), et ses cartes (id
+  Pokécardex, numéro imprimé « 001/165 », `sort`, noms français, anglais et allemand, Pokémon, id
+  Cardmarket, rareté, type, illustrateur, versions ; un tiret seul, « — », qu'il écrit pour
+  « inconnu », est gardé vide), les raretés de sa zone (nom, ordre ; les françaises ne sont pas
+  les japonaises sous les mêmes ids) et le menu des séries de sa langue (le bloc de chacune, son
+  rang, si c'est un deck ; le menu français n'a pas de decks : ses decks et kits sont des séries
+  du bloc « Kit du Dresseur »). En français, les cartes qui n'existent qu'en anglais
+  (`only_english`) sont écartées ; le type 17 (Double Colorless Energy, hors de `CARD_TYPES`) est
+  gardé tel quel, comme tout type (le site traite un type inconnu comme aucun).
+- Le nom de l'extension de chaque série chez Cardmarket (`sets.expansion_name`, pour la liste de
+  souhaits) : pour une japonaise, son nom (ceux de Pokécardex sont ceux de Cardmarket) ; pour une
+  française, son nom anglais, lu dans le menu d'**une seule page anglaise par passage**
+  (`/en/series/<code>` de la première série française à relire, `readEnglishSeriesNames`), gardé
+  seulement si les adresses Cardmarket de ses cartes (`cardmarket_url`) commencent toutes par lui,
+  écrit comme Cardmarket l'écrit (`expansionNameOf`, `cardmarketSlug` : sans accents ni
+  apostrophes, un tiret pour chaque suite de signes) ; sinon aucun (`''` : pas de ligne). Page
+  anglaise illisible : les séries françaises relues restent sans nom, et le journal le dit ; la
+  tâche n'échoue pas pour autant.
 - Ses pages portent leurs données chiffrées (`__INITIAL_DATA_ENCRYPTED__`, AES-CBC) : déchiffrées
   avec la clé que contient son JavaScript, relue quand l'adresse de son script change, jamais
   recopiée dans le dépôt. Une page toutes les 3 s, User-Agent identifié : le premier passage prend
-  une vingtaine de minutes ; ensuite, une série est relue après une semaine, après un jour si elle
-  est sortie depuis moins de 90 jours (`read_at`), et `--refresh` les relit toutes.
+  une vingtaine de minutes pour les japonaises (« Séries japonaises »), une douzaine pour les
+  françaises (« Séries françaises ») ; ensuite, une série est relue après une semaine, après un
+  jour si elle est sortie depuis moins de 90 jours (`read_at`), et `--refresh` les relit toutes.
 - Les gardes : une page en échec n'empêche pas les autres (la tâche échoue ensuite) ; dix
-  d'affilée arrêtent la lecture (le site a changé) ; une série qui donne moins de la moitié des
-  cartes qu'elle avait est refusée ; une page sans cartes ne retire rien (plus de la moitié des
-  séries connues sans cartes : la tâche échoue) ; une carte qu'une lecture de sa série ne voit plus
-  est retirée. Tant qu'aucune carte n'a été lue, les réponses du catalogue répondent 404.
-- Les réponses, recalculées au début et en fin de tâche (`saveCatalog`, `snapshots.ts` : gardées en
-  gzip, une réponse inchangée n'est pas recompressée) :
+  d'affilée arrêtent la lecture, celle de l'autre langue comprise (le site a changé) ; une série
+  qui donne moins de la moitié des cartes qu'elle avait est refusée ; une page sans cartes ne
+  retire rien (plus de la moitié des séries connues sans cartes : la tâche échoue) ; une carte
+  qu'une lecture de sa série ne voit plus est retirée. Tant qu'aucune carte d'une langue n'a été
+  lue, les réponses de cette langue répondent 404.
+- Les réponses, recalculées au début et en fin de tâche, chaque langue d'après ses seules lignes
+  (`saveCatalog`, `snapshots.ts` : gardées en gzip, une réponse inchangée n'est pas recompressée ;
+  `snapshotName` : celles du japonais gardent leurs noms, `catalog/…`, celles du français, de même
+  forme, sont nommées `catalog/fr/…`, la sortie y étant celle en France) :
   - `/v1/catalog/species/<n°>` : les cartes Pokémon d'un Pokémon (une réponse pour chacun des
     1 025, même sans carte), des plus récentes aux plus anciennes : `[série, numéro (sans numéro
     imprimé : sort), id Cardmarket (0 : aucun), nom français, numéro de son image (0 : aucune),
@@ -77,13 +99,14 @@ sont neutres (`cardScan`…, `images.ts`) ; leur adresse d'origine n'est que dan
   et « Image non copiée » au journal. Écrite d'un coup (un fichier provisoire, retiré si
   l'écriture échoue).
 
-## La zone française de Pokécardex (repérée le 22 octobre 2026, pas encore lue par les tâches)
+## La zone française de Pokécardex (repérée le 22 octobre 2026)
 
 Accord du propriétaire pour les cartes françaises comme pour les japonaises : mêmes pages, même
 méthode. Repérage sur `/series/MEG` (récente) et `/series/BS` (ancienne), avec un script à part ;
-`lib/pokecardex.ts` lit désormais une série, une carte et le plan du site dans une langue
-(`CardLanguage`, `ja` ou `fr` : `seriesIn`, `seriesCodes`, `readSeries`, `readCard`, `menuBlocks`),
-mais les tâches ne lisent encore que le Japon ; celles qui liront cette zone s'appuient sur ce qui suit.
+`lib/pokecardex.ts` lit une série, une carte et le plan du site dans une langue (`CardLanguage`,
+`ja` ou `fr` : `seriesIn`, `seriesCodes`, `readSeries`, `readCard`, `menuBlocks`). La tâche
+`catalog` lit cette zone (section Catalogue) ; les images et l'historique ne lisent encore que le
+Japon. Ce qui suit est ce que le repérage a établi.
 
 - **Les pages** : `/series/<code>` (japonaises : `/series/jp/<code>`), chiffrées de la même façon,
   avec le même script (`/react/sets/assets/index-….js`) et sa clé : la méthode de `keyOf` et de
@@ -107,20 +130,22 @@ mais les tâches ne lisent encore que le Japon ; celles qui liront cette zone s'
   - le premier segment de `cartes[].cardmarket_url` (« Mega-Evolution/Bulbasaur-V1-MEG001 ») : le
     même sur toutes les cartes d'une série (« Mega-Evolution » sur les 188 de MEG, « Base-Set » sur les
     102 de BS), le nom de l'extension avec des tirets à la place des espaces. Il perd les accents (page
-    japonaise SV2A : `fullName` « Pokémon Card 151 », segment « Pokemon-Card-151 »), et sans doute les
-    signes comme « & » : il ne donne pas le nom, mais **confirme** celui qu'on a (`cardmarketSlug` et
-    `expansionNameOf`, `lib/pokecardex.ts`, testés) ;
+    japonaise SV2A : `fullName` « Pokémon Card 151 », segment « Pokemon-Card-151 »), sans doute les
+    signes comme « & », et les apostrophes (« Champion's Path » : « Champions-Path ») : il ne donne
+    pas le nom, mais **confirme** celui qu'on a (`cardmarketSlug` et `expansionNameOf`,
+    `lib/pokecardex.ts`, testés) ;
   - `nameUS` du bloc de la série dans le menu (« Mega Evolution ») : celui du **bloc**, donné à toutes
     ses séries (les neuf du bloc « Méga-Évolution » : « Mega Evolution »), donc l'extension seulement
     pour MEG, pas pour PFL, ASC… (dont l'extension a son nom) : écarté ;
   - **la page anglaise de la série** (`/en/series/<code>`, annoncée par le `hreflang` de la page) :
     même document, mais `currentSeries.fullName` y est le nom anglais. Lue une fois le 22 octobre
-    2026 (`readEnglishSeriesName`, `lib/pokecardex.ts`) : `/en/series/MEG` donne « Mega Evolution »,
-    avec 188 cartes dont l'adresse Cardmarket commence par `Mega-Evolution` ; `expansionNameOf`
-    accepte ce nom. Son menu donne aussi, **dans la même page**, le `fullName` anglais des 249 séries
-    françaises (`seriesMenu.blocksByRegion.FR[].series[].fullName` : « Pitch Black », « Phantasmal
-    Flames », « Black Bolt »… ; 91 sont identiques au français) et des `link` vers `/en/series/<code>` :
-    lire une seule page anglaise suffirait, au lieu de 249.
+    2026 : `/en/series/MEG` donne « Mega Evolution », avec 188 cartes dont l'adresse Cardmarket
+    commence par `Mega-Evolution` ; `expansionNameOf` accepte ce nom. Son menu donne aussi, **dans
+    la même page**, le `fullName` anglais des 249 séries françaises
+    (`seriesMenu.blocksByRegion.FR[].series[].fullName` : « Pitch Black », « Phantasmal Flames »,
+    « Black Bolt »… ; 91 sont identiques au français) et des `link` vers `/en/series/<code>` : la
+    tâche `catalog` lit donc une seule page anglaise par passage, au lieu de 249
+    (`readEnglishSeriesNames`, `lib/pokecardex.ts`, retenu).
 - **Le scan d'une carte** : `https://pokecardex-scans.b-cdn.net/sets/<série>/FR/<sort>.jpg?class=<md|hd>`
   (la fonction du script : dossier `sets/`, puis `nom_court` de la carte, c'est-à-dire le code de sa
   série, puis `FR`, puis `sort` de la carte, **non** son numéro imprimé : le 188e de MEG, « 188/132 »,
@@ -153,8 +178,7 @@ mais les tâches ne lisent encore que le Japon ; celles qui liront cette zone s'
   `MC10US`, `MC11US`) sont sans doute des promotions américaines (leurs cartes n'ont pas été lues :
   en anglais ou non ?).
 - **Dans les cartes** : `sort` est unique, de 1 au nombre de cartes de la série, égal à
-  `ordre_affichage` ;
-  `num_card` : « 001/132 » (secrètes : « 188/132 ») ou « 1 » (BS), dont le total imprimé (132) est
+  `ordre_affichage` ; `num_card` : « 001/132 » (secrètes : « 188/132 ») ou « 1 » (BS), dont le total imprimé (132) est
   `total` de la carte, pas `currentSeries.totalCards` (188) ; `cardmarket_url` et `id_cardmarket`
   sont renseignés sur toutes les cartes lues ; `only_english` est à 0 sur toutes les cartes lues,
   mais vrai pour certaines **versions** (« Shadowless », « 4th print ») : leur scan français n'a pas

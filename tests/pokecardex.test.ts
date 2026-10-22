@@ -72,6 +72,11 @@ describe('cardmarketSlug', () => {
     expect(cardmarketSlug('Pokémon Card 151')).toBe('Pokemon-Card-151')
     expect(cardmarketSlug('Sun & Moon')).toBe('Sun-Moon')
   })
+
+  test('les apostrophes retirées, pas changées en tiret', () => {
+    expect(cardmarketSlug("Champion's Path")).toBe('Champions-Path')
+    expect(cardmarketSlug('Champion’s Path')).toBe('Champions-Path')
+  })
 })
 
 describe('expansionNameOf', () => {

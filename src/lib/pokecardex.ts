@@ -55,7 +55,8 @@ export interface PokecardexCard {
 interface PokecardexBlock {
   name: string
   nameUS: string
-  series: { shortName: string }[]
+  /** Ses séries, avec leur nom dans la langue de la page (`fullName`). */
+  series: { shortName: string; fullName: string }[]
   decks?: { shortName: string }[]
 }
 
@@ -198,24 +199,31 @@ export const readCard = (lang: CardLanguage, id: number) =>
   pageData<PokecardexCardPage>(`/carte/${lang === 'ja' ? 'jp/' : ''}${id}`)
 
 /**
- * Le nom anglais d'une série (la page `/en/series/<code>`, la même que la française dans l'autre
- * langue) : celui que Cardmarket donne à son extension, mais seulement s'il s'accorde avec ses
- * adresses (`expansionNameOf`) ; aucune page française ne le donne.
+ * Les noms anglais des séries françaises, par code, d'après le menu d'une page anglaise
+ * (`/en/series/<code>`, la même que la française dans l'autre langue : son menu donne le nom
+ * anglais de chacune). Celui que Cardmarket donne à son extension, mais seulement s'il s'accorde
+ * avec ses adresses (`expansionNameOf`) ; aucune page française ne le donne. Une page lue pour
+ * toutes les séries.
  */
-export async function readEnglishSeriesName(code: string) {
-  const page = await pageData<Partial<PokecardexSeries>>(`/en/series/${code}`)
-  return page.currentSeries?.fullName ?? null
+export async function readEnglishSeriesNames(code: string) {
+  const page = await pageData<PokecardexSeries>(`/en/series/${code}`)
+  return new Map(
+    menuBlocks(page, 'fr').flatMap((block) =>
+      block.series.map((series) => [series.shortName, series.fullName] as const),
+    ),
+  )
 }
 
 /**
- * Un nom d'extension écrit comme dans une adresse de Cardmarket : sans accents, chaque suite de
- * signes à la place d'un tiret (« Pokémon Card 151 » : « Pokemon-Card-151 », « Sun & Moon » :
- * « Sun-Moon »).
+ * Un nom d'extension écrit comme dans une adresse de Cardmarket : sans accents ni apostrophes,
+ * chaque suite de signes à la place d'un tiret (« Pokémon Card 151 » : « Pokemon-Card-151 »,
+ * « Sun & Moon » : « Sun-Moon », « Champion's Path » : « Champions-Path »).
  */
 export const cardmarketSlug = (name: string) =>
   name
     .normalize('NFD')
     .replace(/\p{M}/gu, '')
+    .replace(/['’]/g, '')
     .replace(/[^A-Za-z0-9]+/g, '-')
     .replace(/^-|-$/g, '')
 
