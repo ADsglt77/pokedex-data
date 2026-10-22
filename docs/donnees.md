@@ -77,6 +77,92 @@ sont neutres (`cardScan`…, `images.ts`) ; leur adresse d'origine n'est que dan
   et « Image non copiée » au journal. Écrite d'un coup (un fichier provisoire, retiré si
   l'écriture échoue).
 
+## La zone française de Pokécardex (repérée le 22 octobre 2026, pas encore lue par le code)
+
+Accord du propriétaire pour les cartes françaises comme pour les japonaises : mêmes pages, même
+méthode. Repérage sur `/series/MEG` (récente) et `/series/BS` (ancienne), avec un script à part (pas
+de code dans le dépôt) ; les tâches qui liront cette zone s'appuient sur ce qui suit.
+
+- **Les pages** : `/series/<code>` (japonaises : `/series/jp/<code>`), chiffrées de la même façon,
+  avec le même script (`/react/sets/assets/index-….js`) et sa clé : la méthode de `keyOf` et de
+  `pageData` (`lib/pokecardex.ts`) déchiffre ces pages sans changement. Le document a les mêmes
+  clés que celui d'une page japonaise (`currentSeries`, `seriesMenu`, `cartes`, `raretes`…) et les
+  cartes les mêmes champs (`id_card`, `num_card`, `sort`, `name_card_fr/en/de`, `id_pokedex_list`,
+  `id_cardmarket`, `cardmarket_url`, `id_rarete`, `id_type`, `nom_illustrateur`, `versions`,
+  `only_english`…). Différences : `currentSeries.fullName` est français (« Méga-Évolution », « Set de
+  base ») ; `currentSeries.releaseDateUS` est renseignée (`null` pour une série japonaise) ;
+  `currentSeries.commercialName` (« ME01 ») s'y ajoute sur certaines séries récentes.
+- **La liste des séries** : 249 séries françaises, les mêmes dans le menu (`seriesMenu.blocksByRegion.FR`)
+  et dans le plan du site (`sitemap_fr.xml` : `/series/<code>`, sans les pages d'index `/series/jp` et
+  `/series/chn`). Le menu est identique sur les trois pages lues (MEG, BS et la page japonaise SV2A) :
+  toute page déjà lue le donne.
+- **Le nom anglais d'une série (celui de l'extension chez Cardmarket) : aucun champ ne le donne.**
+  `currentSeries` (`id`, `shortName`, `fullName` français, `releaseDateFR`, `releaseDateUS`,
+  `totalCards`, `secretCards`, `checklistLink`, `checklistLinkV2`, `products`, `commercialName`) et les
+  entrées du menu (`id`, `shortName`, `fullName` français, `commercialName`, `link`) n'en ont pas ;
+  `nom_ext` et `nom_us` de chaque carte sont vides (`""` sur les 290 cartes lues). Les approches les
+  plus proches, aucune choisie :
+  - le premier segment de `cartes[].cardmarket_url` (« Mega-Evolution/Bulbasaur-V1-MEG001 ») : le
+    même sur toutes les cartes d'une série (« Mega-Evolution » sur les 188 de MEG, « Base-Set » sur les
+    102 de BS), le nom de l'extension avec des tirets à la place des espaces. Il perd les accents (page
+    japonaise SV2A : `fullName` « Pokémon Card 151 », segment « Pokemon-Card-151 »), et sans doute les
+    signes comme « & » (non vérifié) ; il faut avoir lu la série ;
+  - `nameUS` du bloc de la série dans le menu (« Mega Evolution ») : celui du **bloc**, donné à toutes
+    ses séries (les neuf du bloc « Méga-Évolution » : « Mega Evolution »), donc l'extension seulement
+    pour MEG, pas pour PFL, ASC… (dont l'extension a son nom) ;
+  - la page anglaise de la série (`/en/series/<code>`, annoncée par le `hreflang` de la page) :
+    **non lue**, hors des pages convenues (`/series/<code>`, `/carte/<id>`).
+- **Le scan d'une carte** : `https://pokecardex-scans.b-cdn.net/sets/<série>/FR/<sort>.jpg?class=<md|hd>`
+  (la fonction du script : dossier `sets/`, puis `nom_court` de la carte, c'est-à-dire le code de sa
+  série, puis `FR`, puis `sort` de la carte, **non** son numéro imprimé : le 188e de MEG, « 188/132 »,
+  est `188.jpg`). Pour une autre langue du site (`US`, `DE`), le script prend `US` ou `DE` à la place de
+  `FR` : on garde `FR`. La classe : `md` (grilles) et `hd` (fiche) comme pour les scans japonais ;
+  le script emploie aussi `sd` et `original`, non vérifiés. Sans version, ou avec la version 1
+  (« Standard »), aucun dossier de plus ; pour une version d'`id_version` de 2 à 246 (`versions[]`,
+  « Reverse » = 2), le script met son id avant le rang (`…/FR/<id_version>/<sort>.jpg`) et retombe sur
+  l'adresse sans version si elle manque. Le dossier sans langue (`sets/<série>/<sort>.jpg`) n'est
+  jamais construit par le site pour la zone française : BS y répond 200 (le fichier n'a pas la
+  taille de celui de `FR`), MEG y répond 404 ; ne pas l'employer. Le logo : `logos/<série>.png` dans
+  `https://pokecardex.b-cdn.net/assets/images/` (`logos_jp/` pour les japonaises).
+- **Le menu** (`seriesMenu.blocksByRegion`) : `{ FR: 19 blocs, JP: 19 blocs, CHN: 5 blocs }`. Un bloc
+  français : `{ id: "bloc-19-fr", name: "Méga-Évolution", nameUS: "Mega Evolution", series: [{ id,
+  shortName, fullName, commercialName?, link }] }` ; `link` est `https://www.pokecardex.com/series/<shortName>`.
+  Pas de `decks` (les blocs japonais en ont) : les decks et kits sont des séries du bloc « Kit du
+  Dresseur ». Les séries d'un bloc vont des plus récentes aux plus anciennes (les promos et énergies
+  de la même époque à la fin) ; `commercialName` (« ME05 », « EV10.5 », « EB12 », « SL11.5 », « XY12 »)
+  n'existe que de XY à Méga-Évolution (69 séries sur 249). Le `name` est en français, `nameUS` en
+  anglais (identique pour XY, HeartGold SoulSilver, EX, Wizards, Promos, Jumbos, World Championships,
+  McDonald's). Les blocs, dans l'ordre du menu (nombre de séries) : Méga-Évolution (9), Écarlate et
+  Violet (18), Épée et Bouclier (18), Soleil et Lune (16), XY (16), Noir et Blanc (13), Appel des
+  légendes (1), HeartGold SoulSilver (5), Platine (4), Diamant et Perle (8), EX (17), Wizards (16) ; puis
+  Promos (16), Ligue Pokémon (10), Jumbos (1), Kit du Dresseur (32), World Championships (20),
+  McDonald's (15), Divers (14). **Aucun bloc n'est d'un autre pays** (pas d'équivalent de « Asia
+  Exclusive » : la Chine et le Japon ont leur région). Ce qui n'est pas une série de cartes à jouer, à
+  trancher (rien n'est écarté ici) : dans « Divers » (`nameUS` « Others »), `TOPPS` (« Topps »), `LMN5` et
+  `LMN6` (« Lamincards »), `PWC98` et `PWC10` (« Pikachu World Collection »), `ARTAC` (« Art
+  Academy ») ; les séries McDonald's dont le code finit par `US` (`MC8US`, `MC9US` : « … - USA » ;
+  `MC10US`, `MC11US`) sont sans doute des promotions américaines (leurs cartes n'ont pas été lues :
+  en anglais ou non ?).
+- **Dans les cartes** : `sort` est unique, de 1 au nombre de cartes de la série, égal à
+  `ordre_affichage` ;
+  `num_card` : « 001/132 » (secrètes : « 188/132 ») ou « 1 » (BS), dont le total imprimé (132) est
+  `total` de la carte, pas `currentSeries.totalCards` (188) ; `cardmarket_url` et `id_cardmarket`
+  sont renseignés sur toutes les cartes lues ; `only_english` est à 0 sur toutes les cartes lues,
+  mais vrai pour certaines **versions** (« Shadowless », « 4th print ») : leur scan français n'a pas
+  été cherché. `raretes` est la liste des 21 raretés françaises (la même sur MEG et BS), pas celle
+  de la série ; ses ids recoupent ceux des raretés japonaises (39 sur SV2A) sans s'y confondre :
+  onze y ont le même nom, l'id 48 s'appelle « Futuriste Rare » ici et « FUR » là, et neuf (32 à 36,
+  38 à 40, 43 : « Double Rare », « Illustration Rare »…) n'existent qu'ici. `id_type` : les mêmes
+  numéros que les japonaises (`CARD_TYPES`), sauf le 17 sur BS (Double Colorless Energy), qui n'y
+  est pas.
+- **Les requêtes du repérage** (6, 3,5 s d'écart, User-Agent de `lib/net.ts`) : `GET` du script
+  `/react/sets/assets/index-Ck3W_Plh.js` (200, 1,5 Mo) ; `HEAD` sur `sets/MEG/FR/1.jpg?class=md` (200,
+  `image/webp`), `sets/BS/FR/1.jpg?class=md` (200), `sets/MEG/FR/1.jpg?class=hd` (200),
+  `sets/MEG/FR/2/1.jpg?class=md` (200, d'une autre taille que `FR/1.jpg`), `sets/MEG/FR/188.jpg?class=md`
+  (200). Les pages `/series/MEG`, `/series/BS` et `/series/jp/SV2A`, et le plan du site, avaient été
+  enregistrés plus tôt le même jour par un premier relevé (avec trois `HEAD` : `sets/MEG/1.jpg` 404,
+  `sets/BS/1.jpg` 200, `logos/MEG.png` 200).
+
 ## Prix (`jobs/prices.ts`, toutes les 6 h)
 
 Le guide des prix public de Cardmarket et sa liste des produits (`products_singles_6.json`),
