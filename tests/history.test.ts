@@ -5,7 +5,8 @@
  * (`mainHistory`, `mergePrices` : jamais celui d'une autre version, jamais le relevé du jour
  * remplacé), la base le range par année, l'API le rend d'un seul tenant (`joinYears`,
  * `historyReader`), pour une carte comme pour toute la collection : aucun prix ne doit se perdre,
- * changer de jour en route, ni passer d'une carte à une autre.
+ * changer de jour en route, ni passer d'une carte à une autre. La reprise (`historyTodo`) suit la
+ * langue : l'id d'une carte japonaise lue ne fait pas sauter la française au même id.
  */
 
 import { Database } from 'bun:sqlite'
@@ -20,7 +21,8 @@ import {
   yearDay,
   type HistoryYear,
 } from '../src/history'
-import { mainHistory } from '../src/jobs/history'
+import { DATA_STEPS, migrate } from '../src/db'
+import { historyTodo, mainHistory } from '../src/jobs/history'
 import type { PokecardexHistory } from '../src/lib/pokecardex'
 
 describe('jour de l’année', () => {
@@ -188,6 +190,40 @@ describe('mergePrices : des prix repris d’ailleurs (Pokécardex)', () => {
     store.save(3, { year: 2026, first: 280, prices: [7] })
     expect(mergePrices(db, 2, [['2026-10-08', 4]], null)).toBe(0)
     expect(store.year(3, 2026)).toEqual({ year: 2026, first: 280, prices: [7] })
+  })
+})
+
+describe('historyTodo : les cartes à reprendre', () => {
+  const db = new Database(':memory:', { strict: true })
+  // Comme `openData` : les clés étrangères actives.
+  db.run('PRAGMA foreign_keys = ON')
+  migrate(db, 'essai', DATA_STEPS)
+  const addSet = db.query(
+    "INSERT INTO sets (lang, id, name, released, read_at) VALUES (?, ?, 'Série', ?, '2026-10-22')",
+  )
+  const addCard = db.query(
+    `INSERT INTO cards (lang, id, set_id, number, sort, name, cardmarket, seen)
+     VALUES (?, ?, ?, '1', 1, 'Carte', ?, '2026-10-22')`,
+  )
+
+  test('la reprise d’une carte japonaise ne saute pas la française au même id', () => {
+    // La carte 7091 de chaque langue : la japonaise déjà lue, la française pas encore.
+    addSet.run('ja', 'SM4A', '2018-05-01')
+    addSet.run('fr', 'BS', '1999-10-20')
+    addCard.run('ja', 7091, 'SM4A', 4001)
+    addCard.run('fr', 7091, 'BS', 4002)
+    db.run("INSERT INTO history_imports (lang, card, read_at) VALUES ('ja', 7091, '2026-10-22')")
+    expect(historyTodo(db)).toEqual([{ lang: 'fr', id: 7091, cardmarket: 4002 }])
+  })
+
+  test('sans id Cardmarket, rien à reprendre ; les séries les plus récentes d’abord', () => {
+    addSet.run('fr', 'MEG', '2025-09-26')
+    addCard.run('fr', 100, 'MEG', 0)
+    addCard.run('fr', 101, 'MEG', 4003)
+    expect(historyTodo(db)).toEqual([
+      { lang: 'fr', id: 101, cardmarket: 4003 },
+      { lang: 'fr', id: 7091, cardmarket: 4002 },
+    ])
   })
 })
 

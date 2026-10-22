@@ -3,7 +3,7 @@
  * demandées (`/v1/prices`), une clé pour chacune (`null` sans
  * prix : aucun prix n'est inventé, jamais celui d'une autre carte), avec un ETag qui change avec
  * eux. L'écriture quotidienne du guide des prix, et de l'historique (irremplaçable : Cardmarket
- * n'en garde pas).
+ * n'en garde pas) ; la série « récente » d'une carte (sa tendance) se juge dans sa langue.
  */
 
 import { describe, expect, test } from 'bun:test'
@@ -205,6 +205,27 @@ describe('savePriceGuide : les prix du jour et l’historique', () => {
     } finally {
       data.run('DELETE FROM cards WHERE id = 990001')
       data.run("DELETE FROM sets WHERE id = 'ESSAI-RECENT'")
+    }
+  })
+
+  test('une série récente se juge dans la langue de la carte : le même code dans l’autre langue n’y change rien', () => {
+    reset()
+    // Le même code, récent au Japon, ancien en France : la carte française n'a pas la tendance.
+    data.run(
+      `INSERT INTO sets (lang, id, name, released, read_at) VALUES
+         ('ja', 'ESSAI-LANGUE', 'Récente', '2026-10-01', '2026-10-01'),
+         ('fr', 'ESSAI-LANGUE', 'Ancienne', '2020-01-01', '2026-10-01')`,
+    )
+    data.run(
+      `INSERT INTO cards (lang, id, set_id, number, sort, name, cardmarket, seen)
+       VALUES ('fr', 990002, 'ESSAI-LANGUE', '1', 1, 'Ancienne', 5, '2026-10-01')`,
+    )
+    try {
+      savePriceGuide(data, guide('2026-10-12', [[5, { trend: 9, avg30: 4.2 }]]), products([5]), 'a')
+      expect(priceRow(5)).toMatchObject({ price: 4.2 })
+    } finally {
+      data.run('DELETE FROM cards WHERE id = 990002')
+      data.run("DELETE FROM sets WHERE id = 'ESSAI-LANGUE'")
     }
   })
 

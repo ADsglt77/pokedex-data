@@ -1,20 +1,22 @@
 /**
  * Tâche `history` : l'historique des prix des 180 derniers jours, repris de Pokécardex (avec son
  * accord, octobre 2026 : Cardmarket n'en garde pas, Pokécardex le relève chaque jour). La page de
- * chaque carte japonaise du catalogue avec un id Cardmarket (`/carte/jp/<id>`) porte ses prix des
- * 180 derniers jours, presque jour par jour ; on en prend ceux de la carte elle-même
- * (`mainHistory` : son produit Cardmarket, son prix suivi, la règle que suit aussi la tâche
- * `prices`, d'où des courbes d'un seul tenant), et chacun prend son jour dans l'historique, avant
- * celui du dernier relevé (`mergePrices`). À la demande (après le catalogue : `bun run ingest
- * cards`) ; une page toutes les 3 s : les quelque 28 000 cartes prennent environ 23 h la première
- * fois. Chaque carte n'est lue qu'une fois (`history_imports`) : un passage suivant ne lit que les
- * nouvelles cartes du catalogue, et un passage interrompu reprend là où il en était. Les séries
- * les plus récentes d'abord. Son prix d'il y a 30 jours suit, et son avancée est notée (`sources` :
- * `history`, toutes les 100 cartes et en fin de passage) : l'ETag des prix et des historiques
- * change, les courbes la montrent aussitôt.
+ * chaque carte du catalogue, japonaise (`/carte/jp/<id>`) ou française (`/carte/<id>`), avec un id
+ * Cardmarket porte ses prix des 180 derniers jours, presque jour par jour ; on en prend ceux de la
+ * carte elle-même (`mainHistory` : son produit Cardmarket, son prix suivi, la règle que suit aussi
+ * la tâche `prices`, d'où des courbes d'un seul tenant), et chacun prend son jour dans
+ * l'historique, avant celui du dernier relevé (`mergePrices`) : l'historique est celui d'un produit
+ * Cardmarket, que toutes les langues partagent. À la demande (après le catalogue : `bun run ingest
+ * cards`) ; une page toutes les 3 s : les quelque 28 000 cartes japonaises prennent environ 23 h la
+ * première fois. Chaque carte n'est lue qu'une fois (`history_imports`, par langue : `historyTodo`) :
+ * un passage suivant ne lit que les nouvelles cartes du catalogue, et un passage interrompu reprend
+ * là où il en était. Les séries les plus récentes d'abord. Son prix d'il y a 30 jours suit, et son
+ * avancée est notée (`sources` : `history`, toutes les 100 cartes et en fin de passage) : l'ETag
+ * des prix et des historiques change, les courbes la montrent aussitôt.
  */
 
 import type { Database } from 'bun:sqlite'
+import type { CardLanguage } from '@/contract'
 import { readSource, writeSource } from '../db'
 import { historyStore, mergePrices } from '../history'
 import { MAX_FAILURES_IN_A_ROW, readCard, type PokecardexCardPage } from '../lib/pokecardex'
@@ -49,17 +51,28 @@ export function mainHistory(
   return points.length ? points : null
 }
 
-export async function history(db: Database) {
-  const todo = db
+/**
+ * Les cartes à reprendre (testé) : celles du catalogue avec un id Cardmarket, absentes de
+ * `history_imports` pour leur langue (l'id 7091 de chaque langue est une autre carte), les séries
+ * les plus récentes d'abord.
+ */
+export function historyTodo(db: Database) {
+  return db
     .query(
-      `SELECT cards.id, cards.cardmarket FROM cards JOIN sets ON sets.id = cards.set_id
-       WHERE cards.cardmarket != 0 AND cards.id NOT IN (SELECT card FROM history_imports)
-       ORDER BY sets.released DESC, cards.id`,
+      `SELECT cards.lang, cards.id, cards.cardmarket
+       FROM cards JOIN sets ON sets.lang = cards.lang AND sets.id = cards.set_id
+       WHERE cards.cardmarket != 0 AND NOT EXISTS (
+         SELECT 1 FROM history_imports WHERE lang = cards.lang AND card = cards.id)
+       ORDER BY sets.released DESC, cards.lang, cards.id`,
     )
-    .all() as { id: number; cardmarket: number }[]
+    .all() as { lang: CardLanguage; id: number; cardmarket: number }[]
+}
+
+export async function history(db: Database) {
+  const todo = historyTodo(db)
   if (!todo.length) return
   const done = db.query(
-    "INSERT OR REPLACE INTO history_imports (lang, card, read_at) VALUES ('ja', ?, ?)",
+    'INSERT OR REPLACE INTO history_imports (lang, card, read_at) VALUES (?, ?, ?)',
   )
   const writeMonthAgo = db.query('UPDATE cardmarket_prices SET month_ago = ? WHERE id = ?')
   const store = historyStore(db)
@@ -78,18 +91,21 @@ export async function history(db: Database) {
   try {
     for (const [index, card] of todo.entries()) {
       try {
-        const points = mainHistory(await readCard('ja', card.id), card.cardmarket)
+        const points = mainHistory(await readCard(card.lang, card.id), card.cardmarket)
         if (points) {
           days += mergePrices(db, card.cardmarket, points, until)
           if (until) writeMonthAgo.run(store.monthAgo(card.cardmarket, until), card.cardmarket)
         }
-        done.run(card.id, new Date().toISOString())
+        done.run(card.lang, card.id, new Date().toISOString())
         read++
         inARow = 0
         if (read % 100 === 0) progress()
       } catch (error) {
         bar.clear()
-        console.warn(`  carte ${card.id} :`, error instanceof Error ? error.message : error)
+        console.warn(
+          `  carte ${card.lang} ${card.id} :`,
+          error instanceof Error ? error.message : error,
+        )
         failed++
         if (++inARow >= MAX_FAILURES_IN_A_ROW) {
           throw new Error(`${inARow} pages en échec d’affilée : la lecture s’arrête là`, {

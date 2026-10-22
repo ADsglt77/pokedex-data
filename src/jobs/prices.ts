@@ -120,7 +120,8 @@ export function savePriceGuide(
     (
       db
         .query(
-          `SELECT DISTINCT cards.cardmarket AS id FROM cards JOIN sets ON sets.id = cards.set_id
+          `SELECT DISTINCT cards.cardmarket AS id
+           FROM cards JOIN sets ON sets.lang = cards.lang AND sets.id = cards.set_id
            WHERE cards.cardmarket != 0 AND sets.released > ?`,
         )
         .all(addDays(date, -31)) as { id: number }[]
