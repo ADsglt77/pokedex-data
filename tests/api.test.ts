@@ -2,13 +2,15 @@
  * L'accès à l'API : sans token, aucune donnée (`auth.ts`) ; seul `/v1/health` passe sans. Et l'état
  * des tâches (`status.ts`), que montre la page Données du site : une tâche à la demande n'est
  * jamais en retard, un passage arrêté net est un échec, et la surveillance ne compte que celles à
- * rythme.
+ * rythme. Et les routes du catalogue : chaque langue rend ses réponses (`/v1/catalog/…` les
+ * japonaises, `/v1/catalog/fr/…` les françaises), sans jamais mêler les unes aux autres.
  */
 
 import { describe, expect, test } from 'bun:test'
 import { readClients } from '../src/auth'
 import { createApp } from '../src/app'
 import type { ServerStatus } from '../src/contract'
+import { saveSnapshot } from '../src/snapshots'
 import { DAY, HOUR, MINUTE } from '../src/lib/time'
 import { testData } from './server'
 
@@ -41,6 +43,7 @@ describe('le token', () => {
       '/v1/status',
       '/v1/species',
       '/v1/catalog/sets',
+      '/v1/catalog/fr/sets',
       '/v1/prices?ids=1',
       '/v1/histories?ids=1',
       '/v1/wants?ids=1',
@@ -146,5 +149,56 @@ describe('l’état des tâches', () => {
     const late = await get('/v1/health')
     expect(late.status).toBe(503)
     expect(await late.json()).toEqual({ ok: false, late: ['prices'] })
+  })
+})
+
+describe('le catalogue de chaque langue', () => {
+  const answer = async (path: string) => {
+    const response = await get(path, TOKEN)
+    expect(response.status).toBe(200)
+    return response.json()
+  }
+
+  test('les routes françaises servent les réponses françaises, les japonaises restent', async () => {
+    saveSnapshot(data, 'catalog/sets', { langue: 'ja', route: 'sets' })
+    saveSnapshot(data, 'catalog/fr/sets', { langue: 'fr', route: 'sets' })
+    saveSnapshot(data, 'catalog/sets/SV2A', { langue: 'ja', route: 'set' })
+    saveSnapshot(data, 'catalog/fr/sets/MEG', { langue: 'fr', route: 'set' })
+    saveSnapshot(data, 'catalog/species/25', { langue: 'ja', route: 'species' })
+    saveSnapshot(data, 'catalog/fr/species/25', { langue: 'fr', route: 'species' })
+    expect(await answer('/v1/catalog/sets')).toEqual({ langue: 'ja', route: 'sets' })
+    expect(await answer('/v1/catalog/fr/sets')).toEqual({ langue: 'fr', route: 'sets' })
+    expect(await answer('/v1/catalog/sets/SV2A')).toEqual({ langue: 'ja', route: 'set' })
+    expect(await answer('/v1/catalog/fr/sets/MEG')).toEqual({ langue: 'fr', route: 'set' })
+    expect(await answer('/v1/catalog/species/25')).toEqual({ langue: 'ja', route: 'species' })
+    expect(await answer('/v1/catalog/fr/species/25')).toEqual({ langue: 'fr', route: 'species' })
+  })
+
+  test('une réponse absente de sa langue : 404 sans corps, jamais celle de l’autre', async () => {
+    saveSnapshot(data, 'catalog/sets/SV2A', { langue: 'ja' })
+    saveSnapshot(data, 'catalog/fr/sets/MEG', { langue: 'fr' })
+    for (const path of [
+      '/v1/catalog/fr/sets/INCONNU',
+      '/v1/catalog/fr/sets/SV2A',
+      '/v1/catalog/sets/MEG',
+      '/v1/catalog/fr/species/1',
+    ]) {
+      const response = await get(path, TOKEN)
+      expect(response.status).toBe(404)
+      expect(await response.text()).toBe('')
+    }
+  })
+
+  test('un paramètre hors schéma : 422, même si une réponse existe sous ce nom', async () => {
+    for (const [name, path] of [
+      ['catalog/sets/a b', '/v1/catalog/sets/a%20b'],
+      ['catalog/fr/sets/a b', '/v1/catalog/fr/sets/a%20b'],
+      ['catalog/species/1026', '/v1/catalog/species/1026'],
+      ['catalog/fr/species/1026', '/v1/catalog/fr/species/1026'],
+      ['catalog/fr/species/0', '/v1/catalog/fr/species/0'],
+    ] as const) {
+      saveSnapshot(data, name, { name })
+      expect((await get(path, TOKEN)).status).toBe(422)
+    }
   })
 })

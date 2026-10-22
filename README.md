@@ -30,6 +30,7 @@ sont dans `API_TOKENS` (le `.env`), un par client : `nom:token,…` ; aujourd'hu
 | `GET /v1/species`, `/v1/species/details` | Les 1 025 espèces ; ce qu'en montre leur fiche |
 | `GET /v1/catalog/species/:id` | Les cartes japonaises d'un Pokémon |
 | `GET /v1/catalog/sets`, `/v1/catalog/sets/:code` | Les séries ; toutes les cartes d'une série |
+| `GET /v1/catalog/fr/species/:id`, `/v1/catalog/fr/sets`, `/v1/catalog/fr/sets/:code` | Les mêmes, pour les cartes françaises (leur sortie : celle en France) |
 | `GET /v1/prices?ids=…` | Les prix du jour des cartes demandées (ids Cardmarket) |
 | `GET /v1/prices/:id`, `/v1/histories?ids=…` | L'historique d'une carte ; de plusieurs |
 | `GET /v1/wants?ids=…` | La ligne de chaque carte pour la liste de souhaits Cardmarket |

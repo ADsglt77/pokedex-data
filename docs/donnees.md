@@ -58,7 +58,8 @@ et les codes des séries se répètent d'une zone à l'autre (la carte 7091, la 
 - Les réponses, recalculées au début et en fin de tâche, chaque langue d'après ses seules lignes
   (`saveCatalog`, `snapshots.ts` : gardées en gzip, une réponse inchangée n'est pas recompressée ;
   `snapshotName` : celles du japonais gardent leurs noms, `catalog/…`, celles du français, de même
-  forme, sont nommées `catalog/fr/…`, la sortie y étant celle en France) :
+  forme, sont nommées `catalog/fr/…`, la sortie y étant celle en France ; l'API sert chacune à la
+  route de même nom, `/v1/catalog/…` et `/v1/catalog/fr/…`, mêmes paramètres, `reference.ts`) :
   - `/v1/catalog/species/<n°>` : les cartes Pokémon d'un Pokémon (une réponse pour chacun des
     1 025, même sans carte), des plus récentes aux plus anciennes : `[série, numéro (sans numéro
     imprimé : sort), id Cardmarket (0 : aucun), nom français, numéro de son image (0 : aucune),

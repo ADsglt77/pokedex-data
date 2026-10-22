@@ -58,7 +58,11 @@ export interface SpeciesDetailsFile {
 
 /* Le catalogue (Pokécardex) : `/v1/catalog/…` */
 
-/** La langue des cartes : japonaises (`ja`) ou françaises (`fr`). */
+/**
+ * La langue des cartes : japonaises (`ja`) ou françaises (`fr`). Chaque réponse du catalogue est
+ * dans sa langue, de même forme : `/v1/catalog/…` pour les japonaises, `/v1/catalog/fr/…` pour les
+ * françaises, dont la « sortie » est celle en France (au Japon pour les japonaises).
+ */
 export type CardLanguage = 'ja' | 'fr'
 
 /**
@@ -69,13 +73,15 @@ export type CardLanguage = 'ja' | 'fr'
 export type CatalogRow = [string, string, number, string, number, number, number, number[]?]
 
 /**
- * `/v1/catalog/species/<n°>` : les cartes Pokémon japonaises d'un Pokémon chez Pokécardex, avec
- * leurs séries et leurs raretés (tâche `catalog`, `jobs/catalog.ts`) : la fenêtre d'ajout.
+ * `/v1/catalog/species/<n°>` (`/v1/catalog/fr/species/<n°>` pour les françaises) : les cartes
+ * Pokémon d'un Pokémon chez Pokécardex dans sa langue, avec leurs séries et leurs raretés (tâche
+ * `catalog`, `jobs/catalog.ts`) : la fenêtre d'ajout.
  */
 export interface CatalogFile {
   /**
-   * Clé : le code de la série chez Pokécardex (« SV2A ») ; [nom, date de sortie au Japon, 1 si son
-   * logo est chez nous ou pas encore cherché, 0 si Pokécardex n'en a pas].
+   * Clé : le code de la série chez Pokécardex (« SV2A ») ; [nom, date de sortie (au Japon, en
+   * France pour une série française), 1 si son logo est chez nous ou pas encore cherché, 0 si
+   * Pokécardex n'en a pas].
    */
   sets: Record<string, [name: string, released: string, logo: 0 | 1]>
   /** Clé : numéro du Pokémon ; ses cartes, des plus récentes aux plus anciennes. */
@@ -84,14 +90,17 @@ export interface CatalogFile {
   rarities: Record<string, [name: string, rank: number]>
 }
 
-/** `/v1/catalog/sets` : les séries du catalogue, pour la page Catalogue (tâche `catalog`). */
+/**
+ * `/v1/catalog/sets` (`/v1/catalog/fr/sets` pour les françaises) : les séries du catalogue de sa
+ * langue, pour la page Catalogue (tâche `catalog`).
+ */
 export interface CatalogSetsFile {
   /** Les blocs du menu de Pokécardex (« Scarlet & Violet »), des plus récents aux plus anciens. */
   blocks: string[]
   /**
-   * Des plus récentes aux plus anciennes : [code (« SV2A »), nom, sortie au Japon (YYYY-MM-DD, ''
-   * si inconnue), logo (comme `CatalogFile`), nombre de cartes, rang de son bloc dans `blocks` (-1 :
-   * aucun), 1 pour un deck].
+   * Des plus récentes aux plus anciennes : [code (« SV2A »), nom, sortie (au Japon, en France pour
+   * une série française ; YYYY-MM-DD, '' si inconnue), logo (comme `CatalogFile`), nombre de
+   * cartes, rang de son bloc dans `blocks` (-1 : aucun), 1 pour un deck].
    */
   sets: [
     id: string,
@@ -131,7 +140,10 @@ export interface CatalogSetRow {
   versions: string[]
 }
 
-/** `/v1/catalog/sets/<code>` : toutes les cartes d'une série, dans son ordre, et leurs raretés. */
+/**
+ * `/v1/catalog/sets/<code>` (`/v1/catalog/fr/sets/<code>` pour les françaises) : toutes les cartes
+ * d'une série, dans son ordre, et leurs raretés.
+ */
 export interface CatalogSetFile {
   cards: CatalogSetRow[]
   rarities: CatalogFile['rarities']

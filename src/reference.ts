@@ -4,6 +4,8 @@
  * - `GET /catalog/species/:id` : les cartes Pokémon japonaises d'un Pokémon (la fenêtre d'ajout) ;
  *   `GET /catalog/sets` : les séries du catalogue ; `GET /catalog/sets/:id` : toutes les cartes
  *   d'une série, dresseurs et énergies compris (la page Catalogue) ;
+ * - `GET /catalog/fr/species/:id`, `/catalog/fr/sets`, `/catalog/fr/sets/:id` : les mêmes réponses
+ *   pour les cartes françaises (`catalogRoutes`), sans jamais mêler les deux langues ;
  * - `GET /prices?ids=…` : les prix Cardmarket du jour des cartes demandées, dans la forme de
  *   `readPrices` ; `GET /prices/:id` : l'historique d'une carte Cardmarket, par son id produit (la
  *   fiche) ;
@@ -20,10 +22,11 @@
 import type { Database } from 'bun:sqlite'
 import { Elysia, t } from 'elysia'
 import { TOTAL_SPECIES } from '@/config/pokedex'
-import type { PriceFile, PriceHistories, WantsLines } from '@/contract'
+import type { CardLanguage, PriceFile, PriceHistories, WantsLines } from '@/contract'
 import { wantsLine, type ExpansionName } from '@/lib/wants'
 import { historyReader } from './history'
 import { readSource } from './db'
+import { snapshotName } from './jobs/catalog'
 import { notFound, serveSnapshot, serveTagged } from './snapshots'
 
 /**
@@ -142,6 +145,30 @@ export function referenceRoutes(data: Database) {
       serveSnapshot(data, name, request)
   /** Sa description dans la documentation de l'API. */
   const doc = (summary: string) => ({ detail: { summary, tags: ['Référence'] } })
+  /**
+   * Les trois routes du catalogue d'une langue, chacune servant sa réponse (`snapshotName`) :
+   * `/catalog/…` pour les cartes japonaises, `/catalog/fr/…` pour les françaises.
+   */
+  const catalogRoutes = (lang: CardLanguage) => {
+    const cards = lang === 'ja' ? 'japonaises' : 'françaises'
+    const answer = (rest: string, request: Request) =>
+      serveSnapshot(data, snapshotName(lang, rest), request)
+    return new Elysia({ prefix: lang === 'ja' ? '/catalog' : '/catalog/fr' })
+      .get('/species/:id', ({ params, request }) => answer(`species/${params.id}`, request), {
+        params: t.Object({ id: t.Integer({ minimum: 1, maximum: TOTAL_SPECIES }) }),
+        ...doc(`Les cartes ${cards} d’un Pokémon`),
+      })
+      .get(
+        '/sets',
+        ({ request }) => answer('sets', request),
+        doc(`Les séries du catalogue des cartes ${cards}`),
+      )
+      .get('/sets/:id', ({ params, request }) => answer(`sets/${params.id}`, request), {
+        // Un code de série chez Pokécardex : « SV2A », « S8A-G ».
+        params: t.Object({ id: t.String({ pattern: '^[A-Za-z0-9_-]{1,32}$' }) }),
+        ...doc(`Toutes les cartes ${cards} d’une série`),
+      })
+  }
 
   return new Elysia({ name: 'reference' })
     .get('/species', snapshot('species'), doc('Les espèces : noms, types, génération'))
@@ -150,24 +177,8 @@ export function referenceRoutes(data: Database) {
       snapshot('species-details'),
       doc('Les détails des espèces : catégorie, description, taille…'),
     )
-    .get(
-      '/catalog/species/:id',
-      ({ params, request }) => serveSnapshot(data, `catalog/species/${params.id}`, request),
-      {
-        params: t.Object({ id: t.Integer({ minimum: 1, maximum: TOTAL_SPECIES }) }),
-        ...doc('Les cartes japonaises d’un Pokémon'),
-      },
-    )
-    .get('/catalog/sets', snapshot('catalog/sets'), doc('Les séries du catalogue'))
-    .get(
-      '/catalog/sets/:id',
-      ({ params, request }) => serveSnapshot(data, `catalog/sets/${params.id}`, request),
-      {
-        // Un code de série chez Pokécardex : « SV2A », « S8A-G ».
-        params: t.Object({ id: t.String({ pattern: '^[A-Za-z0-9_-]{1,32}$' }) }),
-        ...doc('Toutes les cartes d’une série du catalogue'),
-      },
-    )
+    .use(catalogRoutes('ja'))
+    .use(catalogRoutes('fr'))
     .get(
       '/prices',
       ({ query, request }) => {
