@@ -167,6 +167,30 @@ describe('seriesWriter', () => {
     expect(expansion('fr', 'PFL')).toBe('')
     expect(expansion('fr', 'ASC')).toBe('')
   })
+
+  test('les noms anglais indisponibles, une française garde le nom déjà confirmé par ses cartes', () => {
+    const writer = seriesWriter(db)
+    const expansion = () =>
+      (
+        db.query("SELECT expansion_name AS name FROM sets WHERE lang = 'fr'").get() as {
+          name: string
+        }
+      ).name
+    const series = { ...FRENCH, code: 'MEG', fullName: 'Méga-Évolution' }
+    const bulbizarre = (url: string) => card({ id_card: 1, sort: 1, cardmarket_url: url })
+    const meg = page(series, [bulbizarre('Mega-Evolution/Bulbasaur-V1-MEG001')])
+    writer.save('fr', 'MEG', meg, READ_AT, 'Mega Evolution')
+    // Relue sans noms anglais (page anglaise illisible, ou la série absente de son menu).
+    writer.save('fr', 'MEG', meg, LATER, null)
+    expect(expansion()).toBe('Mega Evolution')
+    // Ses cartes ne le confirment plus : aucun nom, avec ou sans nom anglais.
+    const moved = page(series, [bulbizarre('Phantasmal-Flames/Bulbasaur-PFL001')])
+    writer.save('fr', 'MEG', moved, LATER, null)
+    expect(expansion()).toBe('')
+    writer.save('fr', 'MEG', meg, LATER, 'Mega Evolution')
+    writer.save('fr', 'MEG', moved, LATER, 'Mega Evolution')
+    expect(expansion()).toBe('')
+  })
 })
 
 describe('snapshotName', () => {
@@ -234,6 +258,12 @@ describe('saveCatalog', () => {
     expect(snapshot('catalog/fr/sets/SVP')).toBeNull()
     expect(snapshot('catalog/fr/sets/MEG')).not.toBeNull()
     expect(snapshot('catalog/sets/SVP')).not.toBeNull()
+    // La série japonaise et sa carte restent.
+    expect(db.query("SELECT lang FROM sets WHERE id = 'SVP'").all()).toEqual([{ lang: 'ja' }])
+    expect(cards()).toEqual([
+      { lang: 'fr', id: 1, set: 'MEG', name: 'Carte', dexIds: '[]' },
+      { lang: 'ja', id: 7091, set: 'SVP', name: 'Regirock', dexIds: '[377]' },
+    ])
   })
 
   test('une langue sans cartes : aucune réponse (l’API répond 404)', () => {

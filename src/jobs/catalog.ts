@@ -14,7 +14,8 @@
  * les japonaises, sont écartées, comme, en français, les cartes qui n'existent qu'en anglais
  * (`only_english`). Le nom de l'extension de chaque série chez Cardmarket (la liste de souhaits) :
  * pour une japonaise, son nom ; pour une française, son nom anglais (le menu d'une page anglaise,
- * lue une fois par passage) si les adresses Cardmarket de ses cartes le confirment, sinon aucun.
+ * lue une fois par passage ; sans elle, celui déjà confirmé) si les adresses Cardmarket de ses
+ * cartes le confirment, sinon aucun.
  * Une série est relue après une semaine, après un jour si elle est sortie depuis moins de 90 jours
  * (Pokécardex la complète) ; `--refresh` les relit toutes. Une page par série, une toutes les 3 s :
  * le premier passage prend une vingtaine de minutes pour les japonaises, une douzaine pour les
@@ -368,14 +369,20 @@ export function seriesWriter(db: Database) {
   )
   const countCards = db.query('SELECT COUNT(*) AS count FROM cards WHERE lang = ? AND set_id = ?')
   const forget = db.query('DELETE FROM cards WHERE lang = ? AND set_id = ? AND seen != ?')
+  const readExpansion = db.query(
+    'SELECT expansion_name AS name FROM sets WHERE lang = ? AND id = ?',
+  )
   /** Le nombre de cartes de la série déjà en base. */
   const known = (lang: CardLanguage, code: string) =>
     (countCards.get(lang, code) as { count: number }).count
+  /** Le nom d'extension Cardmarket de la série déjà en base ; `null` s'il n'y en a pas. */
+  const storedExpansion = (lang: CardLanguage, code: string) =>
+    (readExpansion.get(lang, code) as { name: string } | null)?.name || null
 
   /**
    * La page d'une série, enregistrée d'un coup : son nombre de cartes. En français, sans les cartes
    * qui n'existent qu'en anglais ; `englishName` : le nom anglais d'une série française, que les
-   * adresses Cardmarket de ses cartes doivent confirmer.
+   * adresses Cardmarket de ses cartes doivent confirmer (`null` : indisponible ce passage).
    */
   const save = db.transaction(
     (
@@ -390,8 +397,11 @@ export function seriesWriter(db: Database) {
       const { fullName, releaseDateFR } = page.currentSeries
       // Le nom de son extension chez Cardmarket (la liste de souhaits) : pour une japonaise, son
       // nom ; pour une française, son nom anglais, s'il s'accorde avec ses cartes (sinon aucun).
+      // Sans nom anglais ce passage (page anglaise illisible, série absente de son menu) : celui
+      // qu'un passage d'avant a confirmé, tant que ses cartes le confirment encore.
       const urls = cartes.map((card) => card.cardmarket_url)
-      const expansion = lang === 'ja' ? fullName : expansionNameOf(englishName, urls)
+      const expansion =
+        lang === 'ja' ? fullName : expansionNameOf(englishName ?? storedExpansion(lang, code), urls)
       writeSet.run(lang, code, fullName, releaseDateFR?.slice(0, 10) ?? '', readAt, expansion)
       // Le numéro imprimé, sinon le rang. Si deux cartes de la série se confondraient (deux
       // demi-decks numérotés chacun : HS ; cartes géantes de séries diverses : JUMBO), toutes
@@ -488,23 +498,38 @@ function logTotals(db: Database, lang: CardLanguage, read: number, cards: number
   )
 }
 
+/** Les pages anglaises essayées, au plus, pour les noms anglais des séries françaises. */
+const ENGLISH_PAGES = 3
+
 /**
- * Les noms anglais des séries françaises (`readEnglishSeriesNames`, d'après la page anglaise de
- * l'une d'elles). Illisibles : aucun, la tâche n'échoue pas pour autant ; les séries françaises
- * relues n'ont alors pas de nom d'extension Cardmarket (pas de ligne de liste de souhaits).
+ * Les noms anglais des séries françaises (`readEnglishSeriesNames`), d'après la page anglaise de la
+ * première à relire, sinon des suivantes (trois au plus) : une page illisible, ou sans ces noms (son
+ * menu a changé), ne compte pas. Aucune : aucun nom, la tâche n'échoue pas pour autant ; chaque
+ * série française relue garde alors celui que ses cartes confirmaient déjà (`save`).
  */
-async function englishNames(code: string) {
-  try {
-    const names = await readEnglishSeriesNames(code)
-    console.log(`Pokécardex : noms anglais de ${plural(names.size, 'série', 'séries')}`)
-    return names
-  } catch (error) {
-    console.warn(
-      `  Noms anglais des séries illisibles (${error instanceof Error ? error.message : error}) : ` +
-        'les séries françaises relues restent sans nom d’extension Cardmarket',
-    )
-    return new Map<string, string>()
+async function englishNames(due: string[]) {
+  for (const code of due.slice(0, ENGLISH_PAGES)) {
+    try {
+      const names = await readEnglishSeriesNames(code)
+      if (names.size) {
+        console.log(
+          `Pokécardex : noms anglais de ${plural(names.size, 'série', 'séries')} (page de ${code})`,
+        )
+        return names
+      }
+      console.warn(`  ${code} : page anglaise sans les noms des séries françaises`)
+    } catch (error) {
+      console.warn(
+        `  ${code} : page anglaise illisible :`,
+        error instanceof Error ? error.message : error,
+      )
+    }
   }
+  console.warn(
+    '  Noms anglais des séries indisponibles : les séries françaises relues gardent leur nom ' +
+      'd’extension Cardmarket déjà confirmé',
+  )
+  return new Map<string, string>()
 }
 
 /** Ce qu'a donné la lecture des séries d'une langue. */
@@ -526,9 +551,8 @@ async function readLanguage(
   due: string[],
 ): Promise<LanguagePass> {
   const pass: LanguagePass = { failed: [], knownRead: 0, knownEmpty: 0, interrupted: false }
-  // Le nom anglais de chaque série française : une page anglaise, celle de la première à relire.
-  const english =
-    lang === 'fr' && due.length ? await englishNames(due[0]!) : new Map<string, string>()
+  // Le nom anglais de chaque série française : une page anglaise, d'une des premières à relire.
+  const english = lang === 'fr' && due.length ? await englishNames(due) : new Map<string, string>()
   let inARow = 0
   let cards = 0
   let read = 0
