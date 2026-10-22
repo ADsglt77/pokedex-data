@@ -35,16 +35,17 @@ sont dans `API_TOKENS` (le `.env`), un par client : `nom:token,…` ; aujourd'hu
 | `GET /v1/prices/:id`, `/v1/histories?ids=…` | L'historique d'une carte ; de plusieurs |
 | `GET /v1/wants?ids=…` | La ligne de chaque carte pour la liste de souhaits Cardmarket |
 | `GET /v1/status` | Chaque tâche : son identifiant, son libellé et son état |
-| `GET /v1/images/…` | Une image copiée (copiée à la demande si elle manque) |
+| `GET /v1/images/…` | Une image copiée (404 tant que la tâche `images` ne l'a pas copiée : rien n'est copié à la demande) |
 | `GET /v1/health` | **Sans token** : 200, ou 503 si une tâche à rythme est en retard ou les prix figés |
 
 La forme de chaque réponse : `src/contract.ts`, dont le site garde une copie. Les grosses
 réponses portent un ETag (304 tant qu'elles n'ont pas changé) et arrivent compressées (gzip). En développement, la documentation (OpenAPI) est à `http://127.0.0.1:3001/docs`.
 
 Les chemins des images ne nomment aucune source : `/v1/images/cards/<série>/<n>-<md|hd>.webp`,
-`/v1/images/sets/<série>-<md|hd>.webp`, `/v1/images/types/<n>.webp`,
-`/v1/images/rarities/<n>.webp`, `/v1/images/species/<n>.png`. Seule l'API connaît leur adresse
-d'origine.
+`/v1/images/sets/<série>-<md|hd>.webp` (celles des cartes japonaises ; les françaises, avec `fr/`
+avant la série : `/v1/images/cards/fr/<série>/…`, `/v1/images/sets/fr/<série>-…`),
+`/v1/images/types/<n>.webp`, `/v1/images/rarities/<n>.webp`, `/v1/images/species/<n>.png`. Seule
+l'API connaît leur adresse d'origine.
 
 ## Les tâches d'ingestion
 
@@ -52,7 +53,7 @@ d'origine.
 |---|---|---|
 | `species` | chaque mois | Les espèces, d'après PokéAPI |
 | `catalog` | à la demande | Le catalogue des cartes japonaises, d'après Pokécardex (une page par série, toutes les 3 s : une vingtaine de minutes la première fois ; `--refresh` relit toutes les séries) |
-| `images` | à la demande | Les images qui manquent : logos, icônes, Pokémon, scans des cartes (environ 1,5 Go la première fois) |
+| `images` | à la demande | Les images qui manquent, toutes d'avance : logos, icônes, Pokémon, scans des cartes japonaises et françaises (environ 1,5 Go la première fois pour les japonaises, de plus pour les françaises) |
 | `prices` | toutes les 6 h | Le guide des prix public de Cardmarket, et l'historique du jour |
 | `history` | à la demande | Les 180 derniers jours de prix de chaque carte, une fois par carte, d'après Pokécardex (environ 23 h la première fois) |
 | `backups` | chaque jour | Une copie de la base (7 gardées) |
@@ -75,12 +76,12 @@ Le même token va dans le `.env` du site (`DATA_API_TOKEN`). La base vit dans `.
 une fois avec `bun run setup`, qui enchaîne les espèces, le catalogue, les prix (après le
 catalogue : le prix d'une carte d'une série récente en dépend), les images et l'historique avec une
 progression visible (environ 23 h la première fois ; arrêté, il reprend où il en était quand on le
-relance). Les images n'ont pas besoin d'être toutes copiées : l'API copie à la demande celles
-qu'on lui demande.
+relance). Les images doivent toutes être copiées : l'API n'en copie aucune elle-même, une image
+qui manque répond 404.
 
 **Le journal** : une ligne par évènement, alignée, à l'heure de Paris (pas les requêtes une à
-une) : un token refusé (une ligne par minute au plus, jamais le token), une image que sa source
-n'a pas donnée, une erreur de l'API. Sans couleurs avec `NO_COLOR=1`.
+une) : un token refusé (une ligne par minute au plus, jamais le token), une erreur de l'API. Sans
+couleurs avec `NO_COLOR=1`.
 
 ## Déploiement (le VPS du site)
 

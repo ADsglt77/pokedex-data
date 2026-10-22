@@ -197,8 +197,8 @@ const raritiesOf = (cards: CardRecord[], rarities: Map<number, RarityRecord>) =>
 
 /**
  * Le numéro de l'image chez Pokécardex : son rang ; 0 s'il n'en a pas. Une image pas encore
- * cherchée : celle de Pokécardex, qui les a presque toutes (le serveur la copie à la demande ; sans
- * elle, la carte de substitution).
+ * cherchée : celle de Pokécardex, qui les a presque toutes (la tâche `images` la copie ; d'ici là,
+ * l'API répond 404 et le site montre la carte de substitution).
  */
 const imageOf = (card: CardRecord) => (card.image === 'none' ? 0 : card.sort)
 

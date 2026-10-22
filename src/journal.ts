@@ -6,16 +6,15 @@
  *   16/10 14:03:12  ▲  accès       Token refusé                  route="GET /v1/prices"
  *
  * - `accès` : une demande sans token valide (`auth.ts`) ;
- * - `images` : une image que sa source n'a pas donnée (`images.ts`) ;
  * - `serveur` : une erreur imprévue de l'API.
  * Pas les requêtes une à une : seulement ce qui se passe. Ce qu'un client peut provoquer à volonté
  * (un token refusé) : une ligne par minute au plus (`journalOnce`). Jamais un token. Sans couleurs
  * avec `NO_COLOR` (la convention des terminaux).
  */
 
-type JournalTopic = 'accès' | 'images' | 'serveur'
+type JournalTopic = 'accès' | 'serveur'
 
-/** À surveiller (un token refusé, une image non copiée), ou en erreur. */
+/** À surveiller (un token refusé), ou en erreur. */
 type JournalLevel = 'warn' | 'error'
 
 interface JournalEntry {
@@ -35,7 +34,6 @@ const dim = paint('2')
 const bold = paint('1')
 const red = paint('31')
 const yellow = paint('33')
-const blue = paint('34')
 const cyan = paint('36')
 
 const LEVELS: Record<JournalLevel, string> = {
@@ -45,7 +43,6 @@ const LEVELS: Record<JournalLevel, string> = {
 
 const TOPICS: Record<JournalTopic, (text: string) => string> = {
   accès: cyan,
-  images: blue,
   serveur: red,
 }
 

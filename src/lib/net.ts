@@ -40,13 +40,6 @@ export async function politeFetch(url: string, init?: RequestInit) {
   })
 }
 
-/**
- * Une requête identifiée, sans attente, 15 s au plus : une image qu'une page attend (copiée à la
- * demande, `images.ts`).
- */
-export const quickFetch = (url: string) =>
-  fetch(url, { signal: AbortSignal.timeout(15_000), headers: { 'User-Agent': USER_AGENT } })
-
 /** Une requête identifiée qui a réussi ; sinon (404 compris), une erreur. */
 export async function download(url: string, init?: RequestInit) {
   const response = await politeFetch(url, init)

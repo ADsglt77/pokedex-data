@@ -17,8 +17,8 @@ x-bun: &bun
   logging: { options: { max-size: 10m, max-file: '3' } }
 
 services:
-  # L'API (`src/index.ts`) : elle lit la base que remplit `ingest`, et copie à la demande une image
-  # qui manque. Ses tokens (`API_TOKENS`) viennent du fichier `.env` du clone (README) : sans eux,
+  # L'API (`src/index.ts`) : elle lit la base et les images que remplit `ingest`, sans rien
+  # télécharger. Ses tokens (`API_TOKENS`) viennent du fichier `.env` du clone (README) : sans eux,
   # docker compose refuse de démarrer. Son état (`docker compose ps`) : sain tant qu'elle répond.
   api:
     <<: *bun

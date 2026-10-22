@@ -76,40 +76,48 @@ et les codes des séries se répètent d'une zone à l'autre (la carte 7091, la 
 
 ## Images (`images.ts`, `jobs/images.ts`, à la demande)
 
-Copiées chez nous (`IMAGES_DIR`), condition de Pokécardex ; servies à `/v1/images/…`, gardées un
-an par les clients (`immutable` : `mirror` ne réécrit jamais un fichier qui existe). Les chemins
-sont neutres (`cardScan`…, `images.ts`) ; leur adresse d'origine n'est que dans `UPSTREAMS` :
+Copiées chez nous (`IMAGES_DIR`), condition de Pokécardex, **toutes d'avance** par la tâche
+`images` ; servies à `/v1/images/…`, gardées un an par les clients (`immutable` : `mirror` ne
+réécrit jamais un fichier qui existe). Les chemins sont neutres (`cardScan`…, `images.ts`) ; leur
+adresse d'origine n'est que dans `UPSTREAMS`. Les codes des séries et les rangs se répètent d'une
+langue à l'autre (SVP, rang 1) : les chemins français ont un dossier `fr/` de plus, les
+japonais n'ont pas changé.
 
 | Chemin | Origine |
 |---|---|
-| `/images/cards/<série>/<sort>-<md\|hd>.webp` | Le scan d'une carte (`md` pour les grilles, `hd` pour la fiche), Pokécardex |
-| `/images/sets/<série>-<md\|hd>.webp` | Le logo japonais d'une série (`logos_jp`, jamais le français) |
-| `/images/types/<n>.webp`, `/images/rarities/<n>.webp` | Les icônes des types et des raretés |
+| `/images/cards/<série>/<sort>-<md\|hd>.webp` | Le scan d'une carte japonaise (`md` pour les grilles, `hd` pour la fiche), Pokécardex (`sets_jp/`) |
+| `/images/cards/fr/<série>/<sort>-<md\|hd>.webp` | Le scan d'une carte française, Pokécardex (`sets/<série>/FR/`, jamais le dossier sans langue : section suivante) |
+| `/images/sets/<série>-<md\|hd>.webp`, `/images/sets/fr/<série>-<md\|hd>.webp` | Le logo d'une série, japonaise (`logos_jp`) ou française (`logos`) |
+| `/images/types/<n>.webp`, `/images/rarities/<n>.webp` | Les icônes des types et des raretés, communes aux deux langues : un même id de rareté a la même icône chez la source |
 | `/images/species/<n>.png`, `/images/species/artwork/<n>.png` | Le sprite et l'illustration d'un Pokémon, PokéAPI |
 
 - La tâche, deux téléchargements à la fois, seulement ce qui manque (environ 1,5 Go la première
-  fois) : les logos de chaque série du catalogue, notés s'ils existent (`sets.logo`, cherché de
-  nouveau chaque semaine), les icônes, les sprites et illustrations des 1 025 Pokémon, puis le scan
-  de chaque carte en deux tailles, noté s'il existe (`cards.image` : le catalogue le dit
-  d'avance ; une carte sans scan est recherchée chaque semaine). Une image en erreur n'arrête pas
-  les autres : rien n'est noté pour elle, la tâche échoue à la fin (à la 20e erreur, elle
-  s'arrête : la source est sans doute en panne). En fin de tâche, le catalogue est recalculé.
-- La copie à la demande (`serveImage`) : une image absente (une référence saisie hors du
-  catalogue, une image pas encore copiée) est copiée quand on la demande, seulement pour un chemin
-  connu et plausible (une série du catalogue et un numéro jusqu'au plus grand des siens, le logo
-  d'une série du catalogue, un type de `CARD_TYPES`, une rareté connue, un Pokémon de 1 à 1 025) ;
-  4 copies à la fois, 15 s au plus ; une absence retenue une semaine ; une source en panne : 502,
-  et « Image non copiée » au journal. Écrite d'un coup (un fichier provisoire, retiré si
-  l'écriture échoue).
+  fois pour les japonaises, de plus pour les françaises) : les logos de chaque série du catalogue,
+  dans chaque langue, notés s'ils existent (`sets.logo`, par langue ; cherché de nouveau chaque
+  semaine), les icônes (les types ; les raretés qu'utilisent les cartes de l'une ou l'autre
+  langue, une icône par id), les sprites et illustrations des 1 025 Pokémon, puis le scan de
+  chaque carte, de chaque langue, en deux tailles, noté s'il existe (`cards.image` : le catalogue
+  le dit d'avance ; une carte sans scan est recherchée chaque semaine). Chaque requête et chaque
+  note portent la langue : l'id 7091 de chaque langue est une autre carte. Une image en erreur
+  n'arrête pas les autres : rien n'est noté pour elle, la tâche échoue à la fin (à la 20e erreur,
+  elle s'arrête : la source est sans doute en panne). En fin de tâche, le catalogue est recalculé.
+- **Aucune copie à la demande** (décision du propriétaire, octobre 2026) : `serveImage` sert le
+  fichier s'il existe, sinon 404 sans rien télécharger (une réponse sans cache : l'image est servie
+  dès que la tâche l'a copiée) ; le site montre alors la carte de substitution. Seulement pour un
+  chemin plausible (`UPSTREAMS` : une série du catalogue **de sa langue** et un numéro
+  jusqu'au plus grand des siens, le logo d'une série du catalogue de sa langue, un type de
+  `CARD_TYPES`, une rareté connue d'une langue ou de l'autre, un Pokémon de 1 à 1 025). Une image
+  est écrite d'un coup (un fichier provisoire, retiré si l'écriture échoue : l'API ne sert jamais
+  une image à moitié écrite).
 
 ## La zone française de Pokécardex (repérée le 22 octobre 2026)
 
 Accord du propriétaire pour les cartes françaises comme pour les japonaises : mêmes pages, même
 méthode. Repérage sur `/series/MEG` (récente) et `/series/BS` (ancienne), avec un script à part ;
 `lib/pokecardex.ts` lit une série, une carte et le plan du site dans une langue (`CardLanguage`,
-`ja` ou `fr` : `seriesIn`, `seriesCodes`, `readSeries`, `readCard`, `menuBlocks`). La tâche
-`catalog` lit cette zone (section Catalogue) ; les images et l'historique ne lisent encore que le
-Japon. Ce qui suit est ce que le repérage a établi.
+`ja` ou `fr` : `seriesIn`, `seriesCodes`, `readSeries`, `readCard`, `menuBlocks`). Les tâches
+`catalog` et `images` lisent cette zone (sections Catalogue et Images) ; l'historique ne lit encore
+que le Japon. Ce qui suit est ce que le repérage a établi.
 
 - **Les pages** : `/series/<code>` (japonaises : `/series/jp/<code>`), chiffrées de la même façon,
   avec le même script (`/react/sets/assets/index-….js`) et sa clé : la méthode de `keyOf` et de
@@ -160,7 +168,9 @@ Japon. Ce qui suit est ce que le repérage a établi.
   l'adresse sans version si elle manque. Le dossier sans langue (`sets/<série>/<sort>.jpg`) n'est
   jamais construit par le site pour la zone française : BS y répond 200 (le fichier n'a pas la
   taille de celui de `FR`), MEG y répond 404 ; ne pas l'employer. Le logo : `logos/<série>.png` dans
-  `https://pokecardex.b-cdn.net/assets/images/` (`logos_jp/` pour les japonaises).
+  `https://pokecardex.b-cdn.net/assets/images/` (`logos_jp/` pour les japonaises). Ce sont les
+  adresses que copie la tâche `images` (`UPSTREAMS`, `images.ts`, testées dans
+  `tests/images.test.ts`) : le scan sans version, pas ceux des versions (`FR/<id_version>/…`).
 - **Le menu** (`seriesMenu.blocksByRegion`) : `{ FR: 19 blocs, JP: 19 blocs, CHN: 5 blocs }`. Un bloc
   français : `{ id: "bloc-19-fr", name: "Méga-Évolution", nameUS: "Mega Evolution", series: [{ id,
   shortName, fullName, commercialName?, link }] }` ; `link` est `https://www.pokecardex.com/series/<shortName>`.

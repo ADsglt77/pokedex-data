@@ -51,7 +51,8 @@ bun run format         # Prettier sur src/ et tests/
   Le prix suivi : la règle de Pokécardex (`guidePrice`), la même pour l'historique repris.
 - Tests (`tests/`) : seulement ce où une erreur coûte (prix d'une carte, écriture de l'historique,
   irremplaçable ; lignes de la liste de souhaits, une mauvaise version achèterait une autre carte ;
-  étapes du schéma ; accès par token et état des tâches). Le build Docker les lance.
+  étapes du schéma ; accès par token et état des tâches ; images : un chemin français ne mène
+  qu'à une image française). Le build Docker les lance.
 - Textes en français. Prettier : pas de point-virgule, guillemets simples, 100 colonnes.
 
 ## Architecture (`src/`)
@@ -62,7 +63,7 @@ bun run format         # Prettier sur src/ et tests/
 | `auth.ts` | Les clients (`API_TOKENS`), le token comparé à temps constant, 401 au journal |
 | `status.ts` | `/v1/status` (chaque tâche : rythme, état, dates) et `/v1/health` |
 | `reference.ts` | Espèces, catalogue, prix, historiques, liste de souhaits ; ETag des réponses tirées des prix (`pricesTag`) |
-| `images.ts` | Les images copiées (`IMAGES_DIR`), leurs chemins neutres, leurs adresses d'origine (`UPSTREAMS`), la copie à la demande |
+| `images.ts` | Les images copiées d'avance (`IMAGES_DIR`), leurs chemins neutres (français : `fr/`), leurs adresses d'origine (`UPSTREAMS`) ; 404 pour une image absente, jamais de copie à la demande |
 | `snapshots.ts` | Les grosses réponses, calculées en fin de tâche, gardées en gzip ; `serveTagged` et la forme des réponses (`FORMAT`) |
 | `history.ts` | L'historique des prix, une ligne par carte et par année |
 | `db.ts` | `data.db` dans `DATA_DIR`, schéma par étapes |
