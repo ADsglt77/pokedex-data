@@ -31,9 +31,9 @@ export function wantsVersion(
 }
 
 /**
- * Le nom d'une série du catalogue, candidat au nom d'une extension Cardmarket, et le nombre
- * d'extensions Cardmarket dont des cartes du catalogue portent une série de ce nom (espaces des
- * bords ignorées), elle comprise.
+ * Le nom d'extension Cardmarket d'une série du catalogue (`sets.expansion_name`, japonaise ou
+ * française : en anglais), et le nombre d'extensions Cardmarket dont des cartes du catalogue, de
+ * toute langue, portent une série de ce nom (espaces des bords ignorées), elle comprise.
  */
 export interface ExpansionName {
   name: string
@@ -46,13 +46,14 @@ export interface ExpansionName {
  * Firebreathing (V.2) (Pokémon Card 151)`, que Cardmarket ajoute comme « Salamèche (sv2a 168) ».
  * Son nom chez Cardmarket sans crochets, « | » devenu une espace ; sa version (`wantsVersion`)
  * quand l'extension a plusieurs produits de la même carte (`sameCard`, comme pour `wantsVersion`),
- * sans quoi Cardmarket prendrait la V.1 ; le nom de son extension (`expansionNames` : les noms des
- * séries du catalogue de cette extension Cardmarket), sans les espaces des bords (Pokécardex en
- * laisse : « Shining Legends  »). `null` quand elle ne désignerait pas sûrement cette carte :
- * version incertaine ; pas exactement un nom d'extension, ou un nom que porte aussi une autre
- * extension (deux séries « Beginning Set », « Jumbo » sur sept extensions) : Cardmarket ajouterait
- * « n'importe quelle version » ; ou une parenthèse dans le nom ou l'extension (Cardmarket la lirait
- * mal). Toujours 1 exemplaire ; ni la langue ni l'état ne s'y écrivent.
+ * sans quoi Cardmarket prendrait la V.1 ; le nom de son extension (`expansionNames` : les noms
+ * d'extension des séries du catalogue de cette extension Cardmarket, d'une carte japonaise ou
+ * française), sans les espaces des bords (Pokécardex en laisse : « Shining Legends  »). `null`
+ * quand elle ne désignerait pas sûrement cette carte : version incertaine ; pas exactement un nom
+ * d'extension, ou un nom que porte aussi une autre extension (deux séries « Beginning Set »,
+ * « Jumbo » sur sept extensions) : Cardmarket ajouterait « n'importe quelle version » ; ou une
+ * parenthèse dans le nom ou l'extension (Cardmarket la lirait mal). Toujours 1 exemplaire ; ni la
+ * langue ni l'état ne s'y écrivent.
  */
 export function wantsLine(
   product: { name: string; number: string | null },

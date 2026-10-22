@@ -281,9 +281,22 @@ Le produit 719621 donne `1x Charmander Blazing Destruction Steady Firebreathing 
   V.2). Ce numéro vient du catalogue ; la version n'est donnée que si chaque produit du groupe y a
   exactement un numéro, fait de chiffres seulement, jamais deux fois le même. Sinon, pas de ligne.
 - L'extension : ses noms ne sont dans aucun fichier public de Cardmarket ; ceux des séries du
-  catalogue leur correspondent. Un seul nom de série pour l'extension (sans les espaces des bords),
-  porté par aucune autre extension ; sinon, pas de ligne (Cardmarket ajouterait « toutes
-  versions »).
+  catalogue leur correspondent, **en anglais** (`sets.expansion_name`, voir « Catalogue » : pour une
+  japonaise, son nom ; pour une française, son nom anglais confirmé par les adresses Cardmarket de
+  ses cartes). Un seul nom d'extension parmi les séries du catalogue de l'extension (sans les
+  espaces des bords), porté par aucune autre extension ; sinon, pas de ligne (Cardmarket
+  ajouterait « toutes versions »).
+- Les cartes françaises : leur produit Cardmarket est celui de toutes les langues, et leur ligne
+  est celle d'une japonaise (`1x Bulbasaur Bind Down (Mega Evolution)`), jamais écrite en français
+  (le nom d'une série française, « Méga-Évolution », n'est pas celui de l'extension). Une série
+  française sans nom d'extension (`expansion_name` vide : nom anglais illisible ou non confirmé)
+  est ignorée : si elle est la seule de son extension, pas de ligne ; si une série japonaise de la
+  même extension en a un, c'est ce nom-là. La série d'une carte se joint par sa langue **et** son
+  code (un code se répète d'une langue à l'autre : la série « SVP » japonaise n'est pas la
+  française). Le nombre d'extensions qui portent un nom se compte sur les cartes des deux langues :
+  un nom porté par deux extensions, l'une par des cartes japonaises et l'autre par des françaises,
+  n'a pas de ligne non plus ; un produit que portent une carte japonaise et une française n'est
+  qu'une extension (un seul compte).
 - Pas de ligne non plus pour un produit inconnu, sans extension ou sans métacarte, ni pour une
   parenthèse dans le nom ou l'extension. Ni la langue ni l'état ne tiennent dans une ligne.
 - Calculée à chaque demande (`Cache-Control: no-cache`), requêtes préparées une fois, chaque id et

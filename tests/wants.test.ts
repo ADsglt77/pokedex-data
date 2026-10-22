@@ -12,6 +12,7 @@ import { testData } from './server'
 
 const CHARMANDER = 'Charmander [Blazing Destruction | Steady Firebreathing]'
 const TOXTRICITY = 'Toxtricity VMAX [G-Max Riot]'
+const BULBASAUR = 'Bulbasaur [Bind Down]'
 /** Le seul nom d’une extension, qu’aucune autre ne porte. */
 const only = (name: string) => [{ name, expansions: 1 }]
 
@@ -143,8 +144,9 @@ describe('/v1/wants : les lignes tirées de la base (produits, catalogue, extens
     data.run("DELETE FROM cards WHERE set_id = 'ZZS2'")
     data.run("DELETE FROM sets WHERE id = 'ZZS2'")
     data.run('DELETE FROM cardmarket_products WHERE id BETWEEN 464054 AND 464061')
+    // Pour une japonaise, le nom de son extension est son nom (`expansion_name`).
     data.run(
-      "INSERT INTO sets (lang, id, name, released, read_at) VALUES ('ja', 'ZZS2', 'Rebellion Crash', '2019-12-06', '2026-10-01')",
+      "INSERT INTO sets (lang, id, name, released, read_at, expansion_name) VALUES ('ja', 'ZZS2', 'Rebellion Crash', '2019-12-06', '2026-10-01', 'Rebellion Crash')",
     )
     const card = data.query(
       `INSERT INTO cards (lang, id, set_id, number, sort, name, cardmarket, seen)
@@ -174,5 +176,86 @@ describe('/v1/wants : les lignes tirées de la base (produits, catalogue, extens
   test('un produit retiré, sans métacarte, ou inconnu : pas de ligne (jamais une autre carte)', async () => {
     seed()
     expect(await wants('464060,464061,1')).toEqual({ '464060': null, '464061': null, '1': null })
+  })
+
+  /**
+   * Des cartes françaises : « Mega Evolution » (extension 2900, le nom anglais de sa série), une
+   * série sans nom d'extension (2901), et une japonaise de même code que la française mais d'une
+   * autre extension (2903), le code d'une série se répétant d'une langue à l'autre.
+   */
+  function seedFrench() {
+    data.run("DELETE FROM cards WHERE set_id LIKE 'ZZX%'")
+    data.run("DELETE FROM sets WHERE id LIKE 'ZZX%'")
+    data.run('DELETE FROM cardmarket_products WHERE id BETWEEN 464070 AND 464079')
+    const set = data.query(
+      `INSERT INTO sets (lang, id, name, released, read_at, expansion_name)
+       VALUES (?, ?, ?, '2025-09-26', '2026-10-01', ?)`,
+    )
+    set.run('fr', 'ZZXMEG', 'Méga-Évolution', 'Mega Evolution')
+    set.run('fr', 'ZZXASC', 'Héros Transcendants', '')
+    set.run('ja', 'ZZXMEG', 'Mega Brave', 'Mega Brave')
+    const card = data.query(
+      `INSERT INTO cards (lang, id, set_id, number, sort, name, cardmarket, seen)
+       VALUES (?, ?, ?, '001', 1, 'Bulbizarre', ?, '2026-10-01')`,
+    )
+    card.run('fr', 990201, 'ZZXMEG', 464070)
+    card.run('fr', 990202, 'ZZXASC', 464071)
+    card.run('ja', 990203, 'ZZXMEG', 464073)
+    const product = data.query(
+      'INSERT INTO cardmarket_products (id, name, expansion, metacard) VALUES (?, ?, ?, ?)',
+    )
+    product.run(464070, BULBASAUR, 2900, 90)
+    product.run(464071, BULBASAUR, 2901, 90)
+    product.run(464073, BULBASAUR, 2903, 90)
+  }
+
+  test('une carte française : le nom anglais de l’extension de sa série', async () => {
+    seedFrench()
+    expect(await wants('464070')).toEqual({
+      '464070': '1x Bulbasaur Bind Down (Mega Evolution)',
+    })
+  })
+
+  test('une série française sans nom d’extension : pas de ligne (jamais son nom français)', async () => {
+    seedFrench()
+    expect(await wants('464071')).toEqual({ '464071': null })
+  })
+
+  test('le code d’une série dans les deux langues : chaque carte a le nom de sa langue', async () => {
+    seedFrench()
+    expect(await wants('464070,464073')).toEqual({
+      '464070': '1x Bulbasaur Bind Down (Mega Evolution)',
+      '464073': '1x Bulbasaur Bind Down (Mega Brave)',
+    })
+  })
+
+  test('un nom que portent une série française et une japonaise d’extensions différentes : pas de ligne', async () => {
+    seedFrench()
+    // Une série japonaise de même nom d'extension que la française, mais d'une autre extension.
+    data.run(
+      "INSERT INTO sets (lang, id, name, released, read_at, expansion_name) VALUES ('ja', 'ZZXJ', 'Mega Evolution', '2025-09-26', '2026-10-01', 'Mega Evolution')",
+    )
+    data.run(
+      "INSERT INTO cards (lang, id, set_id, number, sort, name, cardmarket, seen) VALUES ('ja', 990204, 'ZZXJ', '001', 1, 'Fushigidane', 464074, '2026-10-01')",
+    )
+    data.run(
+      'INSERT INTO cardmarket_products (id, name, expansion, metacard) VALUES (464074, ?, 2904, 91)',
+      [BULBASAUR],
+    )
+    expect(await wants('464070,464074')).toEqual({ '464070': null, '464074': null })
+  })
+
+  test('une série française et une japonaise d’une même extension et d’un même nom : une ligne', async () => {
+    seedFrench()
+    // Le produit partagé par les deux langues est d'une seule extension : un seul nom, un seul compte.
+    data.run(
+      "INSERT INTO sets (lang, id, name, released, read_at, expansion_name) VALUES ('ja', 'ZZXJ', 'Mega Evolution', '2025-09-26', '2026-10-01', 'Mega Evolution')",
+    )
+    data.run(
+      "INSERT INTO cards (lang, id, set_id, number, sort, name, cardmarket, seen) VALUES ('ja', 990204, 'ZZXJ', '001', 1, 'Fushigidane', 464070, '2026-10-01')",
+    )
+    expect(await wants('464070')).toEqual({
+      '464070': '1x Bulbasaur Bind Down (Mega Evolution)',
+    })
   })
 })

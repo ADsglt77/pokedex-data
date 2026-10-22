@@ -70,8 +70,10 @@ export function referenceRoutes(data: Database) {
   // Ce que demande `wantsLine` : le produit (sans extension, absent de la liste des produits de
   // Cardmarket : pas de ligne) ; le numéro imprimé de chaque produit de la même carte dans son
   // extension, lui compris, d'après le catalogue (`null` : absent du catalogue, ou plusieurs
-  // numéros) ; les noms des séries du catalogue de son extension, chacun avec le nombre
-  // d'extensions dont des cartes du catalogue portent ce nom (calculé une fois par nom : `GROUP BY`).
+  // numéros) ; les noms d'extension des séries du catalogue de son extension (`expansion_name`,
+  // dans les deux langues, jamais vide), chacun avec le nombre d'extensions dont des cartes du
+  // catalogue, de toute langue, portent ce nom (calculé une fois par nom : `GROUP BY`). Une série
+  // se joint à ses cartes par sa langue et son code : un code se répète d'une langue à l'autre.
   // Sans métacarte (un produit que Cardmarket ne range sous aucune) : pas de version sûre, donc
   // pas de ligne.
   const product = data.query(
@@ -86,18 +88,19 @@ export function referenceRoutes(data: Database) {
      GROUP BY products.id`,
   )
   const expansionNames = data.query(
-    `SELECT sets.name,
+    `SELECT sets.expansion_name AS name,
             (SELECT COUNT(DISTINCT others.expansion) FROM cards AS shared
              JOIN cardmarket_products AS others ON others.id = shared.cardmarket
              -- Les séries de ce nom d'abord, puis leurs cartes (index cards_by_set).
              WHERE (shared.lang, shared.set_id) IN (SELECT lang, id FROM sets AS same
-                                                    WHERE TRIM(same.name) = TRIM(sets.name)))
+                                                    WHERE TRIM(same.expansion_name)
+                                                        = TRIM(sets.expansion_name)))
             AS expansions
      FROM cardmarket_products AS products
      JOIN cards ON cards.cardmarket = products.id
-     JOIN sets ON sets.id = cards.set_id
-     WHERE products.expansion = ?
-     GROUP BY sets.name`,
+     JOIN sets ON sets.lang = cards.lang AND sets.id = cards.set_id
+     WHERE products.expansion = ? AND sets.expansion_name <> ''
+     GROUP BY sets.expansion_name`,
   )
   /**
    * La ligne d'un produit Cardmarket pour la liste de souhaits ; `null` sans ligne sûre. `known` :
