@@ -1,7 +1,8 @@
 # CLAUDE.md
 
-L'API privée des données du Pokédex de cartes Pokémon japonaises (le site : le dépôt `pokedex`,
-à côté) : espèces (PokéAPI), catalogue et images des cartes japonaises (Pokécardex), prix
+L'API privée des données du Pokédex de cartes Pokémon japonaises et françaises (le site : le dépôt
+`pokedex`, à côté) : espèces (PokéAPI), catalogue et images des cartes japonaises (Pokécardex ; les
+françaises : à venir), prix
 Cardmarket et leur historique. Bun, Elysia, SQLite. Tout est privé : chaque route exige un token
 (`src/auth.ts`), sauf `/v1/health`. Le site est son seul client : son nginx et son serveur la
 joignent avec leur token, le navigateur ne la voit jamais.
@@ -42,7 +43,7 @@ bun run format         # Prettier sur src/ et tests/
   chez nous**, jamais affichées depuis ses serveurs ; ses pages chiffrées déchiffrées comme son
   propre JavaScript, avec sa clé relue dans ce JavaScript) ; les fichiers publics de Cardmarket
   (guide des prix, liste des produits : pas de scraping, pas d'API). Seulement les cartes
-  japonaises.
+  japonaises et françaises.
 - **Les rythmes** (`config/jobs.ts`, décision de l'utilisateur, octobre 2026) : `species` chaque
   mois, `prices` toutes les 6 h, `backups` chaque jour ; `catalog`, `images` et `history` à la
   demande seulement (`bun run ingest cards`), jamais dans la boucle.
