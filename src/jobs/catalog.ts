@@ -120,7 +120,7 @@ export function saveCatalog(db: Database) {
       `SELECT set_id AS 'set', number, printed, sort, name, name_en AS en, name_de AS de,
               cardmarket, image, rarity, type, illustrator, versions,
               (SELECT json_group_array(dex_id ORDER BY rank) FROM card_species
-               WHERE card = id) AS dexIds
+               WHERE card_species.lang = cards.lang AND card = cards.id) AS dexIds
        FROM cards ORDER BY sort`,
     )
     .all() as CardRecord[]
@@ -305,16 +305,18 @@ function dueSeries(db: Database, codes: string[], now: number) {
  */
 function seriesWriter(db: Database) {
   const writeSet = db.query(
-    `INSERT INTO sets (id, name, released, read_at) VALUES (?, ?, ?, ?)
-     ON CONFLICT (id) DO UPDATE SET name = excluded.name, released = excluded.released,
-                                    read_at = excluded.read_at`,
+    `INSERT INTO sets (lang, id, name, released, read_at, expansion_name)
+     VALUES ('ja', ?, ?, ?, ?, ?)
+     ON CONFLICT (lang, id) DO UPDATE SET name = excluded.name, released = excluded.released,
+                                          read_at = excluded.read_at,
+                                          expansion_name = excluded.expansion_name`,
   )
   // Une carte dont la série ou le rang changent a une autre image : à chercher de nouveau.
   const writeCard = db.query(
-    `INSERT INTO cards (id, set_id, number, printed, sort, name, name_en, name_de, cardmarket,
-                        rarity, type, illustrator, versions, seen)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT (id) DO UPDATE SET
+    `INSERT INTO cards (lang, id, set_id, number, printed, sort, name, name_en, name_de,
+                        cardmarket, rarity, type, illustrator, versions, seen)
+     VALUES ('ja', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT (lang, id) DO UPDATE SET
        number = excluded.number, printed = excluded.printed, name = excluded.name,
        name_en = excluded.name_en, name_de = excluded.name_de, cardmarket = excluded.cardmarket,
        rarity = excluded.rarity, type = excluded.type, illustrator = excluded.illustrator,
@@ -325,12 +327,14 @@ function seriesWriter(db: Database) {
        set_id = excluded.set_id, sort = excluded.sort`,
   )
   const writeRarity = db.query(
-    `INSERT INTO rarities (id, name, rank) VALUES (?, ?, ?)
-     ON CONFLICT (id) DO UPDATE SET name = excluded.name, rank = excluded.rank`,
+    `INSERT INTO rarities (lang, id, name, rank) VALUES ('ja', ?, ?, ?)
+     ON CONFLICT (lang, id) DO UPDATE SET name = excluded.name, rank = excluded.rank`,
   )
   const writeBlock = db.query('UPDATE sets SET block = ?, block_rank = ?, deck = ? WHERE id = ?')
   const clearSpecies = db.query('DELETE FROM card_species WHERE card = ?')
-  const writeSpecies = db.query('INSERT INTO card_species (card, rank, dex_id) VALUES (?, ?, ?)')
+  const writeSpecies = db.query(
+    "INSERT INTO card_species (lang, card, rank, dex_id) VALUES ('ja', ?, ?, ?)",
+  )
   const countCards = db.query('SELECT COUNT(*) AS count FROM cards WHERE set_id = ?')
   const forget = db.query('DELETE FROM cards WHERE set_id = ? AND seen != ?')
   /** Le nombre de cartes de la série déjà en base. */
@@ -340,7 +344,7 @@ function seriesWriter(db: Database) {
   const save = db.transaction((code: string, page: PokecardexSeries, readAt: string) => {
     const before = known(code)
     const { fullName, releaseDateFR } = page.currentSeries
-    writeSet.run(code, fullName, releaseDateFR?.slice(0, 10) ?? '', readAt)
+    writeSet.run(code, fullName, releaseDateFR?.slice(0, 10) ?? '', readAt, fullName)
     // Le numéro imprimé, sinon le rang. Si deux cartes de la série se confondraient (deux
     // demi-decks numérotés chacun : HS ; cartes géantes de séries diverses : JUMBO), toutes
     // prennent leur rang.

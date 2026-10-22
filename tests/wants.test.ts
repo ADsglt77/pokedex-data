@@ -144,11 +144,11 @@ describe('/v1/wants : les lignes tirées de la base (produits, catalogue, extens
     data.run("DELETE FROM sets WHERE id = 'ZZS2'")
     data.run('DELETE FROM cardmarket_products WHERE id BETWEEN 464054 AND 464061')
     data.run(
-      "INSERT INTO sets (id, name, released, read_at) VALUES ('ZZS2', 'Rebellion Crash', '2019-12-06', '2026-10-01')",
+      "INSERT INTO sets (lang, id, name, released, read_at) VALUES ('ja', 'ZZS2', 'Rebellion Crash', '2019-12-06', '2026-10-01')",
     )
     const card = data.query(
-      `INSERT INTO cards (id, set_id, number, sort, name, cardmarket, seen)
-       VALUES (?, 'ZZS2', ?, ?, 'Toxtricity VMAX', ?, '2026-10-01')`,
+      `INSERT INTO cards (lang, id, set_id, number, sort, name, cardmarket, seen)
+       VALUES ('ja', ?, 'ZZS2', ?, ?, 'Toxtricity VMAX', ?, '2026-10-01')`,
     )
     card.run(990037, '037', 37, 464059)
     card.run(990107, '107', 107, 464054)

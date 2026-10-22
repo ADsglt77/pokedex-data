@@ -87,8 +87,9 @@ export function referenceRoutes(data: Database) {
             (SELECT COUNT(DISTINCT others.expansion) FROM cards AS shared
              JOIN cardmarket_products AS others ON others.id = shared.cardmarket
              -- Les séries de ce nom d'abord, puis leurs cartes (index cards_by_set).
-             WHERE shared.set_id IN (SELECT id FROM sets AS same
-                                     WHERE TRIM(same.name) = TRIM(sets.name))) AS expansions
+             WHERE (shared.lang, shared.set_id) IN (SELECT lang, id FROM sets AS same
+                                                    WHERE TRIM(same.name) = TRIM(sets.name)))
+            AS expansions
      FROM cardmarket_products AS products
      JOIN cards ON cards.cardmarket = products.id
      JOIN sets ON sets.id = cards.set_id

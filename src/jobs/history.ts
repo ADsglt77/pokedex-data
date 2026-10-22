@@ -58,7 +58,9 @@ export async function history(db: Database) {
     )
     .all() as { id: number; cardmarket: number }[]
   if (!todo.length) return
-  const done = db.query('INSERT OR REPLACE INTO history_imports (card, read_at) VALUES (?, ?)')
+  const done = db.query(
+    "INSERT OR REPLACE INTO history_imports (lang, card, read_at) VALUES ('ja', ?, ?)",
+  )
   const writeMonthAgo = db.query('UPDATE cardmarket_prices SET month_ago = ? WHERE id = ?')
   const store = historyStore(db)
   /** L'avancée de la reprise, que suit l'ETag des prix et des historiques (`pricesTag`). */

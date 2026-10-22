@@ -264,6 +264,107 @@ export const DATA_STEPS = [
   ALTER TABLE runs ADD COLUMN alive_at TEXT;
   UPDATE runs SET alive_at = started_at WHERE finished_at IS NULL;
   `,
+  `
+  -- Les cartes françaises à côté des japonaises (octobre 2026) : chez Pokécardex, les ids des
+  -- cartes, les codes des séries et les ids des raretés se répètent d'une zone à l'autre (la carte
+  -- 7091 : Regirock de SM4A au Japon, Alakazam du Set de base en France ; la rareté 48 : « FUR »,
+  -- « Futuriste Rare »). La langue (\`lang\` : \`ja\`, \`fr\`) entre dans les clés du catalogue, de
+  -- la reprise de l'historique et des raretés ; chaque série reçoit le nom de son extension chez
+  -- Cardmarket (\`expansion_name\` ; pour une japonaise, son nom). SQLite ne change pas une clé, et
+  -- les clés étrangères restent actives dans la transaction d'une étape : les tables sont copiées,
+  -- retirées (les dépendantes d'abord), recréées, puis remplies de leurs copies, en japonais. La
+  -- reprise de l'historique (\`history_imports\`, une vingtaine d'heures de lecture) est gardée.
+  CREATE TABLE old_card_species AS SELECT * FROM card_species;
+  CREATE TABLE old_history_imports AS SELECT * FROM history_imports;
+  CREATE TABLE old_cards AS SELECT * FROM cards;
+  CREATE TABLE old_sets AS SELECT * FROM sets;
+  CREATE TABLE old_rarities AS SELECT * FROM rarities;
+  DROP TABLE card_species;
+  DROP TABLE history_imports;
+  DROP TABLE cards;
+  DROP TABLE sets;
+  DROP TABLE rarities;
+
+  CREATE TABLE sets (
+    lang TEXT NOT NULL,
+    id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    released TEXT NOT NULL,
+    read_at TEXT NOT NULL,
+    logo TEXT,
+    logo_checked TEXT,
+    block TEXT,
+    block_rank INTEGER,
+    deck INTEGER NOT NULL DEFAULT 0,
+    expansion_name TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (lang, id)
+  );
+  CREATE TABLE cards (
+    lang TEXT NOT NULL,
+    id INTEGER NOT NULL,
+    set_id TEXT NOT NULL,
+    number TEXT NOT NULL,
+    sort INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    cardmarket INTEGER NOT NULL,
+    seen TEXT NOT NULL,
+    image TEXT,
+    image_checked TEXT,
+    rarity INTEGER,
+    type INTEGER,
+    printed TEXT NOT NULL DEFAULT '',
+    name_en TEXT NOT NULL DEFAULT '',
+    name_de TEXT NOT NULL DEFAULT '',
+    illustrator TEXT NOT NULL DEFAULT '',
+    versions TEXT NOT NULL DEFAULT '[]',
+    PRIMARY KEY (lang, id),
+    FOREIGN KEY (lang, set_id) REFERENCES sets (lang, id)
+  );
+  CREATE TABLE card_species (
+    lang TEXT NOT NULL,
+    card INTEGER NOT NULL,
+    rank INTEGER NOT NULL,
+    dex_id INTEGER NOT NULL,
+    PRIMARY KEY (lang, card, rank),
+    FOREIGN KEY (lang, card) REFERENCES cards (lang, id) ON DELETE CASCADE
+  ) WITHOUT ROWID;
+  CREATE TABLE history_imports (
+    lang TEXT NOT NULL,
+    card INTEGER NOT NULL,
+    read_at TEXT NOT NULL,
+    PRIMARY KEY (lang, card)
+  ) WITHOUT ROWID;
+  CREATE TABLE rarities (
+    lang TEXT NOT NULL,
+    id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    rank INTEGER NOT NULL,
+    PRIMARY KEY (lang, id)
+  );
+
+  INSERT INTO sets (lang, id, name, released, read_at, logo, logo_checked, block, block_rank, deck,
+                    expansion_name)
+    SELECT 'ja', id, name, released, read_at, logo, logo_checked, block, block_rank, deck, name
+    FROM old_sets;
+  INSERT INTO cards (lang, id, set_id, number, sort, name, cardmarket, seen, image, image_checked,
+                     rarity, type, printed, name_en, name_de, illustrator, versions)
+    SELECT 'ja', id, set_id, number, sort, name, cardmarket, seen, image, image_checked, rarity,
+           type, printed, name_en, name_de, illustrator, versions
+    FROM old_cards;
+  INSERT INTO card_species (lang, card, rank, dex_id)
+    SELECT 'ja', card, rank, dex_id FROM old_card_species;
+  INSERT INTO history_imports (lang, card, read_at)
+    SELECT 'ja', card, read_at FROM old_history_imports;
+  INSERT INTO rarities (lang, id, name, rank) SELECT 'ja', id, name, rank FROM old_rarities;
+  DROP TABLE old_card_species;
+  DROP TABLE old_history_imports;
+  DROP TABLE old_cards;
+  DROP TABLE old_sets;
+  DROP TABLE old_rarities;
+
+  CREATE INDEX cards_by_set ON cards (lang, set_id);
+  CREATE INDEX cards_by_cardmarket ON cards (cardmarket);
+  `,
 ]
 
 const userVersion = (db: Database) =>

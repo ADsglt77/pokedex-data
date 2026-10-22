@@ -165,11 +165,11 @@ describe('savePriceGuide : les prix du jour et l’historique', () => {
     reset()
     // Une série sortie 11 jours avant le guide, et sa carte : la tendance ; ensuite, la moyenne.
     data.run(
-      "INSERT INTO sets (id, name, released, read_at) VALUES ('ESSAI-RECENT', 'Récente', '2026-10-01', '2026-10-01')",
+      "INSERT INTO sets (lang, id, name, released, read_at) VALUES ('ja', 'ESSAI-RECENT', 'Récente', '2026-10-01', '2026-10-01')",
     )
     data.run(
-      `INSERT INTO cards (id, set_id, number, sort, name, cardmarket, seen)
-       VALUES (990001, 'ESSAI-RECENT', '1', 1, 'Récente', 5, '2026-10-01')`,
+      `INSERT INTO cards (lang, id, set_id, number, sort, name, cardmarket, seen)
+       VALUES ('ja', 990001, 'ESSAI-RECENT', '1', 1, 'Récente', 5, '2026-10-01')`,
     )
     try {
       const day = guide(
