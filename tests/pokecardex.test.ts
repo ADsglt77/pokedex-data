@@ -1,11 +1,19 @@
 /**
  * La lecture de Pokécardex dans une langue : quelles séries du plan du site sont japonaises ou
  * françaises (un code mal rangé ferait lire une page pour une autre, et mêler les cartes des deux
- * langues), et quels blocs du menu sont ceux d'une langue.
+ * langues), quels blocs du menu sont ceux d'une langue, et le nom d'extension Cardmarket d'une
+ * série française (un nom qui ne correspond pas au sien ferait tomber la liste de souhaits sur une
+ * autre extension : mieux vaut aucun nom).
  */
 
 import { describe, expect, test } from 'bun:test'
-import { menuBlocks, seriesIn, type PokecardexSeries } from '@/lib/pokecardex'
+import {
+  cardmarketSlug,
+  expansionNameOf,
+  menuBlocks,
+  seriesIn,
+  type PokecardexSeries,
+} from '@/lib/pokecardex'
 
 const SITEMAP = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
@@ -55,5 +63,42 @@ describe('menuBlocks', () => {
 
   test('pas de menu : aucun bloc', () => {
     expect(menuBlocks({} as PokecardexSeries, 'fr')).toEqual([])
+  })
+})
+
+describe('cardmarketSlug', () => {
+  test('le nom d’une extension tel que Cardmarket l’écrit dans ses adresses', () => {
+    expect(cardmarketSlug('Mega Evolution')).toBe('Mega-Evolution')
+    expect(cardmarketSlug('Pokémon Card 151')).toBe('Pokemon-Card-151')
+    expect(cardmarketSlug('Sun & Moon')).toBe('Sun-Moon')
+  })
+})
+
+describe('expansionNameOf', () => {
+  const urls = ['Mega-Evolution/Bulbasaur-V1-MEG001', 'Mega-Evolution/Ivysaur-MEG002']
+
+  test('le nom anglais de la série, quand toutes ses cartes sont de la même extension', () => {
+    expect(expansionNameOf('Mega Evolution', urls)).toBe('Mega Evolution')
+    expect(expansionNameOf('Pokémon Card 151', ['Pokemon-Card-151/Mew-V1-SV2A151'])).toBe(
+      'Pokémon Card 151',
+    )
+  })
+
+  test('une carte sans adresse ne compte pas', () => {
+    expect(expansionNameOf('Mega Evolution', [null, '', ...urls])).toBe('Mega Evolution')
+  })
+
+  test('un nom qui ne correspond pas à l’adresse : aucun nom', () => {
+    expect(expansionNameOf('Mega Evolution', ['Phantasmal-Flames/Mew-PFL001'])).toBe('')
+  })
+
+  test('des adresses d’extensions différentes : aucun nom', () => {
+    expect(expansionNameOf('Mega Evolution', [...urls, 'Phantasmal-Flames/Mew-PFL001'])).toBe('')
+  })
+
+  test('aucune adresse, ou pas de nom : aucun nom', () => {
+    expect(expansionNameOf('Mega Evolution', [])).toBe('')
+    expect(expansionNameOf('Mega Evolution', [null, ''])).toBe('')
+    expect(expansionNameOf(null, urls)).toBe('')
   })
 })

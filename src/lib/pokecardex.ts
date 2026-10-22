@@ -35,6 +35,8 @@ export interface PokecardexCard {
   /** Ses Pokémon (numéros du Pokédex) ; vide pour un dresseur ou une énergie. */
   id_pokedex_list: number[] | null
   id_cardmarket: number | null
+  /** Son adresse chez Cardmarket : l'extension, puis la carte (« Mega-Evolution/Bulbasaur-V1-MEG001 »). */
+  cardmarket_url: string | null
   /** 1 : la carte n'existe qu'en anglais (0 sur toutes les cartes françaises lues). */
   only_english: number | null
   /** Sa rareté (`raretes` de la page). */
@@ -194,3 +196,39 @@ export interface PokecardexCardPage {
 /** La page d'une carte, par son id chez Pokécardex (celui du catalogue). */
 export const readCard = (lang: CardLanguage, id: number) =>
   pageData<PokecardexCardPage>(`/carte/${lang === 'ja' ? 'jp/' : ''}${id}`)
+
+/**
+ * Le nom anglais d'une série (la page `/en/series/<code>`, la même que la française dans l'autre
+ * langue) : celui que Cardmarket donne à son extension, mais seulement s'il s'accorde avec ses
+ * adresses (`expansionNameOf`) ; aucune page française ne le donne.
+ */
+export async function readEnglishSeriesName(code: string) {
+  const page = await pageData<Partial<PokecardexSeries>>(`/en/series/${code}`)
+  return page.currentSeries?.fullName ?? null
+}
+
+/**
+ * Un nom d'extension écrit comme dans une adresse de Cardmarket : sans accents, chaque suite de
+ * signes à la place d'un tiret (« Pokémon Card 151 » : « Pokemon-Card-151 », « Sun & Moon » :
+ * « Sun-Moon »).
+ */
+export const cardmarketSlug = (name: string) =>
+  name
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .replace(/[^A-Za-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+
+/**
+ * Le nom d'extension Cardmarket d'une série française : son nom anglais, si toutes les adresses de
+ * ses cartes (`cardmarket_url`) commencent par lui, tel que Cardmarket l'écrit. Sinon '' : mieux
+ * vaut aucun nom (la liste de souhaits ne donne alors pas de ligne) qu'un nom qui désignerait une
+ * autre extension.
+ */
+export function expansionNameOf(englishName: string | null, cardmarketUrls: (string | null)[]) {
+  const segments = new Set(
+    cardmarketUrls.filter((url): url is string => !!url).map((url) => url.split('/')[0]),
+  )
+  const matches = englishName && segments.size === 1 && segments.has(cardmarketSlug(englishName))
+  return matches ? englishName : ''
+}

@@ -77,11 +77,13 @@ sont neutres (`cardScan`…, `images.ts`) ; leur adresse d'origine n'est que dan
   et « Image non copiée » au journal. Écrite d'un coup (un fichier provisoire, retiré si
   l'écriture échoue).
 
-## La zone française de Pokécardex (repérée le 22 octobre 2026, pas encore lue par le code)
+## La zone française de Pokécardex (repérée le 22 octobre 2026, pas encore lue par les tâches)
 
 Accord du propriétaire pour les cartes françaises comme pour les japonaises : mêmes pages, même
-méthode. Repérage sur `/series/MEG` (récente) et `/series/BS` (ancienne), avec un script à part (pas
-de code dans le dépôt) ; les tâches qui liront cette zone s'appuient sur ce qui suit.
+méthode. Repérage sur `/series/MEG` (récente) et `/series/BS` (ancienne), avec un script à part ;
+`lib/pokecardex.ts` lit désormais une série, une carte et le plan du site dans une langue
+(`CardLanguage`, `ja` ou `fr` : `seriesIn`, `seriesCodes`, `readSeries`, `readCard`, `menuBlocks`),
+mais les tâches ne lisent encore que le Japon ; celles qui liront cette zone s'appuient sur ce qui suit.
 
 - **Les pages** : `/series/<code>` (japonaises : `/series/jp/<code>`), chiffrées de la même façon,
   avec le même script (`/react/sets/assets/index-….js`) et sa clé : la méthode de `keyOf` et de
@@ -96,22 +98,29 @@ de code dans le dépôt) ; les tâches qui liront cette zone s'appuient sur ce q
   et dans le plan du site (`sitemap_fr.xml` : `/series/<code>`, sans les pages d'index `/series/jp` et
   `/series/chn`). Le menu est identique sur les trois pages lues (MEG, BS et la page japonaise SV2A) :
   toute page déjà lue le donne.
-- **Le nom anglais d'une série (celui de l'extension chez Cardmarket) : aucun champ ne le donne.**
-  `currentSeries` (`id`, `shortName`, `fullName` français, `releaseDateFR`, `releaseDateUS`,
-  `totalCards`, `secretCards`, `checklistLink`, `checklistLinkV2`, `products`, `commercialName`) et les
-  entrées du menu (`id`, `shortName`, `fullName` français, `commercialName`, `link`) n'en ont pas ;
-  `nom_ext` et `nom_us` de chaque carte sont vides (`""` sur les 290 cartes lues). Les approches les
-  plus proches, aucune choisie :
+- **Le nom anglais d'une série (celui de l'extension chez Cardmarket) : aucun champ de la page
+  française ne le donne.** `currentSeries` (`id`, `shortName`, `fullName` français, `releaseDateFR`,
+  `releaseDateUS`, `totalCards`, `secretCards`, `checklistLink`, `checklistLinkV2`, `products`,
+  `commercialName`) et les entrées du menu (`id`, `shortName`, `fullName` français, `commercialName`,
+  `link`) n'en ont pas ; `nom_ext` et `nom_us` de chaque carte sont vides (`""` sur les 290 cartes
+  lues). Les approches essayées ou écartées :
   - le premier segment de `cartes[].cardmarket_url` (« Mega-Evolution/Bulbasaur-V1-MEG001 ») : le
     même sur toutes les cartes d'une série (« Mega-Evolution » sur les 188 de MEG, « Base-Set » sur les
     102 de BS), le nom de l'extension avec des tirets à la place des espaces. Il perd les accents (page
     japonaise SV2A : `fullName` « Pokémon Card 151 », segment « Pokemon-Card-151 »), et sans doute les
-    signes comme « & » (non vérifié) ; il faut avoir lu la série ;
+    signes comme « & » : il ne donne pas le nom, mais **confirme** celui qu'on a (`cardmarketSlug` et
+    `expansionNameOf`, `lib/pokecardex.ts`, testés) ;
   - `nameUS` du bloc de la série dans le menu (« Mega Evolution ») : celui du **bloc**, donné à toutes
     ses séries (les neuf du bloc « Méga-Évolution » : « Mega Evolution »), donc l'extension seulement
-    pour MEG, pas pour PFL, ASC… (dont l'extension a son nom) ;
-  - la page anglaise de la série (`/en/series/<code>`, annoncée par le `hreflang` de la page) :
-    **non lue**, hors des pages convenues (`/series/<code>`, `/carte/<id>`).
+    pour MEG, pas pour PFL, ASC… (dont l'extension a son nom) : écarté ;
+  - **la page anglaise de la série** (`/en/series/<code>`, annoncée par le `hreflang` de la page) :
+    même document, mais `currentSeries.fullName` y est le nom anglais. Lue une fois le 22 octobre
+    2026 (`readEnglishSeriesName`, `lib/pokecardex.ts`) : `/en/series/MEG` donne « Mega Evolution »,
+    avec 188 cartes dont l'adresse Cardmarket commence par `Mega-Evolution` ; `expansionNameOf`
+    accepte ce nom. Son menu donne aussi, **dans la même page**, le `fullName` anglais des 249 séries
+    françaises (`seriesMenu.blocksByRegion.FR[].series[].fullName` : « Pitch Black », « Phantasmal
+    Flames », « Black Bolt »… ; 91 sont identiques au français) et des `link` vers `/en/series/<code>` :
+    lire une seule page anglaise suffirait, au lieu de 249.
 - **Le scan d'une carte** : `https://pokecardex-scans.b-cdn.net/sets/<série>/FR/<sort>.jpg?class=<md|hd>`
   (la fonction du script : dossier `sets/`, puis `nom_court` de la carte, c'est-à-dire le code de sa
   série, puis `FR`, puis `sort` de la carte, **non** son numéro imprimé : le 188e de MEG, « 188/132 »,
@@ -161,7 +170,9 @@ de code dans le dépôt) ; les tâches qui liront cette zone s'appuient sur ce q
   `sets/MEG/FR/2/1.jpg?class=md` (200, d'une autre taille que `FR/1.jpg`), `sets/MEG/FR/188.jpg?class=md`
   (200). Les pages `/series/MEG`, `/series/BS` et `/series/jp/SV2A`, et le plan du site, avaient été
   enregistrés plus tôt le même jour par un premier relevé (avec trois `HEAD` : `sets/MEG/1.jpg` 404,
-  `sets/BS/1.jpg` 200, `logos/MEG.png` 200).
+  `sets/BS/1.jpg` 200, `logos/MEG.png` 200). La page anglaise `/en/series/MEG` (200, 377 Ko, même
+  script `index-Ck3W_Plh.js`, donc sans le redemander) : 1 requête de plus, le même jour (`download`
+  de `lib/net.ts`, son User-Agent).
 
 ## Prix (`jobs/prices.ts`, toutes les 6 h)
 
