@@ -78,7 +78,7 @@ export async function history(db: Database) {
   try {
     for (const [index, card] of todo.entries()) {
       try {
-        const points = mainHistory(await readCard(card.id), card.cardmarket)
+        const points = mainHistory(await readCard('ja', card.id), card.cardmarket)
         if (points) {
           days += mergePrices(db, card.cardmarket, points, until)
           if (until) writeMonthAgo.run(store.monthAgo(card.cardmarket, until), card.cardmarket)

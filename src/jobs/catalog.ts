@@ -32,10 +32,10 @@ import type {
 import { refresh } from '../lib/net'
 import {
   asiaExclusive,
-  japaneseSeries,
   MAX_FAILURES_IN_A_ROW,
   menuBlocks,
   readSeries,
+  seriesCodes,
   type PokecardexCard,
   type PokecardexSeries,
 } from '../lib/pokecardex'
@@ -401,7 +401,7 @@ function seriesWriter(db: Database) {
     },
     /** Le bloc de chaque série, d'après le menu : ses séries en boosters, puis ses decks. */
     blocks(menu: PokecardexSeries) {
-      for (const [rank, block] of menuBlocks(menu).entries()) {
+      for (const [rank, block] of menuBlocks(menu, 'ja').entries()) {
         for (const series of block.series) writeBlock.run(block.name, rank, 0, series.shortName)
         for (const deck of block.decks ?? []) writeBlock.run(block.name, rank, 1, deck.shortName)
       }
@@ -436,7 +436,7 @@ export async function catalog(db: Database) {
   // une étape du schéma) est refaite sans attendre la lecture des séries (une vingtaine de minutes
   // quand toutes sont à relire).
   saveCatalog(db)
-  const codes = await japaneseSeries()
+  const codes = await seriesCodes('ja')
   const due = dueSeries(db, codes, Date.now())
   console.log(`Pokécardex : ${codes.length} séries japonaises, ${due.length} à relire`)
 
@@ -460,7 +460,7 @@ export async function catalog(db: Database) {
       continue
     }
     try {
-      const page = await readSeries(code)
+      const page = await readSeries('ja', code)
       if (!menu) {
         menu = page
         asian = asiaExclusive(page)

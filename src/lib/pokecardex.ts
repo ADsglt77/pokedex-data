@@ -8,6 +8,7 @@
  * la lecture échouerait : on ne le contourne pas.
  */
 
+import type { CardLanguage } from '@/contract'
 import { download } from './net'
 
 const SITE = 'https://www.pokecardex.com'
@@ -34,6 +35,8 @@ export interface PokecardexCard {
   /** Ses Pokémon (numéros du Pokédex) ; vide pour un dresseur ou une énergie. */
   id_pokedex_list: number[] | null
   id_cardmarket: number | null
+  /** 1 : la carte n'existe qu'en anglais (0 sur toutes les cartes françaises lues). */
+  only_english: number | null
   /** Sa rareté (`raretes` de la page). */
   id_rarete: number | null
   /** Son type (`CARD_TYPES`, `src/config/catalog.ts`), ou sa catégorie de dresseur, ou énergie. */
@@ -43,7 +46,10 @@ export interface PokecardexCard {
   versions: { nom_version: string }[] | null
 }
 
-/** Un bloc du menu des séries (« Scarlet & Violet ») : ses séries en boosters, puis ses decks. */
+/**
+ * Un bloc du menu des séries (« Scarlet & Violet ») : ses séries en boosters, puis ses decks (les
+ * blocs français n'en ont pas : leurs decks sont des séries).
+ */
 interface PokecardexBlock {
   name: string
   nameUS: string
@@ -51,31 +57,32 @@ interface PokecardexBlock {
   decks?: { shortName: string }[]
 }
 
-/** Une série japonaise : sa page (`/series/jp/SV2A`). */
+/** Une série : sa page (`/series/jp/SV2A` au Japon, `/series/MEG` en France). */
 export interface PokecardexSeries {
   currentSeries: {
     shortName: string
     fullName: string
-    /** « 2023-06-16 00:00:00 » : sa sortie au Japon. */
+    /** « 2023-06-16 00:00:00 » : sa sortie au Japon, ou en France pour une série française. */
     releaseDateFR: string | null
   }
   cartes: PokecardexCard[]
   /** Toutes ses raretés (pas seulement celles de la série), dans son ordre. */
   raretes?: { id_rarete: number; nom_rarete: string; order_rarete: number }[]
   /** Le menu des séries, par bloc (« Scarlet & Violet », « Asia Exclusive »…), des plus récents aux plus anciens. */
-  seriesMenu?: { blocksByRegion?: { JP?: PokecardexBlock[] } }
+  seriesMenu?: { blocksByRegion?: { JP?: PokecardexBlock[]; FR?: PokecardexBlock[] } }
 }
 
-/** Les blocs japonais du menu de la page, dans son ordre. */
-export const menuBlocks = (page: PokecardexSeries) => page.seriesMenu?.blocksByRegion?.JP ?? []
+/** Les blocs du menu de la page pour une langue, dans son ordre. */
+export const menuBlocks = (page: PokecardexSeries, lang: CardLanguage) =>
+  page.seriesMenu?.blocksByRegion?.[lang === 'ja' ? 'JP' : 'FR'] ?? []
 
 /**
- * Les séries du bloc « Asia Exclusive » du menu (Chine, Hong Kong et Taïwan, Indonésie,
+ * Les séries du bloc « Asia Exclusive » du menu japonais (Chine, Hong Kong et Taïwan, Indonésie,
  * Thaïlande, Corée) : rangées avec les japonaises, mais pas japonaises.
  */
 export const asiaExclusive = (page: PokecardexSeries) =>
   new Set(
-    menuBlocks(page)
+    menuBlocks(page, 'ja')
       .filter((block) => /asia exclusive/i.test(block.nameUS))
       .flatMap((block) => block.series.map((series) => series.shortName)),
   )
@@ -90,12 +97,30 @@ async function read(url: string) {
   return (await download(url)).text()
 }
 
-/** Les codes des séries japonaises (« SV2A », « OR1 »…), d'après le plan du site. */
-export async function japaneseSeries() {
-  const sitemap = await read(`${SITE}/sitemap_fr.xml`)
-  const codes = [...sitemap.matchAll(/\/series\/jp\/([\w-]+)<\/loc>/g)].map((match) => match[1]!)
-  if (!codes.length) throw new Error('Pokécardex : aucune série japonaise dans son plan du site')
+/** Les pages d'index des régions dans le plan du site (`/series/jp`, `/series/chn`) : pas des séries. */
+const REGION_PAGES = ['jp', 'chn']
+
+/**
+ * Les codes des séries d'une langue d'après le plan du site (« SV2A », « OR1 » ; « MEG », « BS »…) :
+ * `/series/jp/<code>` au Japon, `/series/<code>` en France.
+ */
+export function seriesIn(sitemap: string, lang: CardLanguage) {
+  const pattern = lang === 'ja' ? /\/series\/jp\/([\w-]+)<\/loc>/g : /\/series\/([\w-]+)<\/loc>/g
+  const codes = [...sitemap.matchAll(pattern)]
+    .map((match) => match[1]!)
+    .filter((code) => lang === 'ja' || !REGION_PAGES.includes(code))
   return [...new Set(codes)]
+}
+
+/** Les codes des séries d'une langue, d'après le plan du site. */
+export async function seriesCodes(lang: CardLanguage) {
+  const codes = seriesIn(await read(`${SITE}/sitemap_fr.xml`), lang)
+  if (!codes.length) {
+    throw new Error(
+      `Pokécardex : aucune série ${lang === 'ja' ? 'japonaise' : 'française'} dans son plan du site`,
+    )
+  }
+  return codes
 }
 
 /** La clé de déchiffrement, et le script d'où elle vient. */
@@ -143,8 +168,9 @@ async function pageData<T>(path: string): Promise<T> {
   return JSON.parse(new TextDecoder().decode(plain)) as T
 }
 
-/** La page d'une série japonaise : son nom, sa date, ses cartes. */
-export const readSeries = (code: string) => pageData<PokecardexSeries>(`/series/jp/${code}`)
+/** La page d'une série : son nom, sa date, ses cartes. */
+export const readSeries = (lang: CardLanguage, code: string) =>
+  pageData<PokecardexSeries>(`/series/${lang === 'ja' ? 'jp/' : ''}${code}`)
 
 /**
  * L'historique des prix d'une carte sur une période : ses séries (une par version, variante et
@@ -155,7 +181,7 @@ export interface PokecardexHistory {
   points: ({ date: string } & Record<string, number | string | null>)[]
 }
 
-/** La page d'une carte japonaise (`/carte/jp/22819`), ce qu'on en lit : ses prix Cardmarket. */
+/** La page d'une carte (`/carte/jp/22819`, `/carte/7091`), ce qu'on en lit : ses prix Cardmarket. */
 export interface PokecardexCardPage {
   carte: {
     /** Ses produits Cardmarket : celui de la carte (`id_version` nul), ceux de ses versions. */
@@ -165,5 +191,6 @@ export interface PokecardexCardPage {
   }
 }
 
-/** La page d'une carte japonaise, par son id chez Pokécardex (celui du catalogue). */
-export const readCard = (id: number) => pageData<PokecardexCardPage>(`/carte/jp/${id}`)
+/** La page d'une carte, par son id chez Pokécardex (celui du catalogue). */
+export const readCard = (lang: CardLanguage, id: number) =>
+  pageData<PokecardexCardPage>(`/carte/${lang === 'ja' ? 'jp/' : ''}${id}`)

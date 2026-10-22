@@ -58,6 +58,9 @@ export interface SpeciesDetailsFile {
 
 /* Le catalogue (Pokécardex) : `/v1/catalog/…` */
 
+/** La langue des cartes : japonaises (`ja`) ou françaises (`fr`). */
+export type CardLanguage = 'ja' | 'fr'
+
 /**
  * Une carte du catalogue : [série, numéro (sans numéro imprimé : son rang), id Cardmarket (0 :
  * aucun), nom français, numéro de son image chez Pokécardex (0 : aucune), sa rareté (0 : inconnue),
