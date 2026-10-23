@@ -35,7 +35,8 @@ describe('migrate', () => {
         `INSERT INTO ${table} (${columns}) VALUES (${columns.map((column) => `$${column}`)})`,
       ).run(row)
     }
-    migrate(db, 'essai', DATA_STEPS.slice(0, -1))
+    // Les 16 premières étapes : celles d'avant la langue (la 17e), quelles que soient les suivantes.
+    migrate(db, 'essai', DATA_STEPS.slice(0, 16))
     const set = {
       id: 'SM4A',
       name: 'Ultradimensional Beasts',

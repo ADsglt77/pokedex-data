@@ -29,7 +29,8 @@ export function createApp(data: Database, clients: Clients) {
             info: {
               title: 'Pokédex · données',
               version: '1',
-              description: 'L’API privée des données du Pokédex japonais.',
+              description:
+                'L’API privée des données du Pokédex de cartes japonaises et françaises.',
             },
             components: { securitySchemes: { token: { type: 'http', scheme: 'bearer' } } },
             security: [{ token: [] }],

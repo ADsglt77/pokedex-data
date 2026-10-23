@@ -1,10 +1,10 @@
 # Pokédex · données
 
-L'API privée des données du Pokédex de cartes Pokémon japonaises (PokéCodex, en ligne à
-https://pokecodex.fr) : les espèces (PokéAPI), le catalogue des cartes japonaises et leurs images
-(Pokécardex), les prix Cardmarket du jour et leur historique. Elle les relit à son rythme, les
-range dans une base SQLite et les rend au site, et à lui seul : sans token, aucune donnée. Bun,
-Elysia, SQLite.
+L'API privée des données du Pokédex de cartes Pokémon japonaises et françaises (PokéCodex, en ligne
+à https://pokecodex.fr) : les espèces (PokéAPI), le catalogue des cartes japonaises et françaises et
+leurs images (Pokécardex), les prix Cardmarket du jour et leur historique. Elle les relit à son
+rythme, les range dans une base SQLite et les rend au site, et à lui seul : sans token, aucune
+donnée. Bun, Elysia, SQLite.
 
 ```sh
 bun install
@@ -52,10 +52,10 @@ l'API connaît leur adresse d'origine.
 | Tâche | Rythme | Ce qu'elle fait |
 |---|---|---|
 | `species` | chaque mois | Les espèces, d'après PokéAPI |
-| `catalog` | à la demande | Le catalogue des cartes japonaises, d'après Pokécardex (une page par série, toutes les 3 s : une vingtaine de minutes la première fois ; `--refresh` relit toutes les séries) |
-| `images` | à la demande | Les images qui manquent, toutes d'avance : logos, icônes, Pokémon, scans des cartes japonaises et françaises (environ 1,5 Go la première fois pour les japonaises, de plus pour les françaises) |
+| `catalog` | à la demande | Le catalogue des cartes japonaises, puis des françaises, d'après Pokécardex (une page par série, toutes les 3 s : environ 20 minutes la première fois pour les japonaises, 13 de plus pour les françaises, 250 séries ; `--refresh` relit toutes les séries) |
+| `images` | à la demande | Les images qui manquent, toutes d'avance : logos, icônes, Pokémon, scans des cartes japonaises et françaises (environ 1,5 Go la première fois pour les japonaises, 1 à 1,4 Go de plus pour les françaises) |
 | `prices` | toutes les 6 h | Le guide des prix public de Cardmarket, et l'historique du jour |
-| `history` | à la demande | Les 180 derniers jours de prix de chaque carte, une fois par carte, d'après Pokécardex (environ 23 h la première fois) |
+| `history` | à la demande | Les 180 derniers jours de prix de chaque carte, une fois par carte, d'après Pokécardex (environ 23 h la première fois pour les japonaises, 12 à 20 h de plus pour les françaises) |
 | `backups` | chaque jour | Une copie de la base (7 gardées) |
 
 Quand de nouvelles cartes sortent : `bun run ingest cards` enchaîne le catalogue, puis les images
@@ -75,9 +75,9 @@ echo "API_TOKENS=pokedex:$(openssl rand -hex 32)" > .env
 Le même token va dans le `.env` du site (`DATA_API_TOKEN`). La base vit dans `.data/` ; la remplir
 une fois avec `bun run setup`, qui enchaîne les espèces, le catalogue, les prix (après le
 catalogue : le prix d'une carte d'une série récente en dépend), les images et l'historique avec une
-progression visible (environ 23 h la première fois ; arrêté, il reprend où il en était quand on le
-relance). Les images doivent toutes être copiées : l'API n'en copie aucune elle-même, une image
-qui manque répond 404.
+progression visible (environ 40 h la première fois, cartes françaises comprises ; arrêté, il
+reprend où il en était quand on le relance). Les images doivent toutes être copiées : l'API n'en
+copie aucune elle-même, une image qui manque répond 404.
 
 **Le journal** : une ligne par évènement, alignée, à l'heure de Paris (pas les requêtes une à
 une) : un token refusé (une ligne par minute au plus, jamais le token), une erreur de l'API. Sans
@@ -126,7 +126,8 @@ nouveau VPS, à installer avant le site.
    ```sh
    docker compose up -d
    ```
-6. Le reste des cartes (leurs images, puis leur historique : environ 23 h la première fois), dans
+6. Le reste des cartes, japonaises et françaises (le catalogue français, environ 15 minutes ; leurs
+   images, 2,5 à 3 Go en tout ; puis leur historique : environ 40 h en tout la première fois), dans
    un conteneur ponctuel, sans garder la connexion SSH ouverte :
    ```sh
    docker compose run -d --name pokedex-data-cards ingest bun src/ingest.ts cards
@@ -145,6 +146,25 @@ nouveau VPS, à installer avant le site.
    ```sh
    docker compose run -d --name pokedex-data-cards ingest bun src/ingest.ts cards
    ```
+
+**Les cartes françaises, sur un VPS déjà en place** (une seule fois) : déployer l'API des données
+d'abord (ses routes japonaises ne changent pas : le site d'avant continue de tourner), puis le
+site. Au démarrage, l'API passe une étape de schéma qui ajoute la langue aux clés du catalogue
+(les cartes japonaises deviennent `ja`, rien ne se perd ; la sauvegarde du jour suffit si l'on
+veut une copie d'avant). Le catalogue français n'est pas encore lu : ses routes (`/v1/catalog/fr/…`)
+répondent 404 tant que `catalog` n'a pas tourné, et le site le dit. Le premier remplissage
+français, dans un conteneur ponctuel (comme à l'étape 6) :
+
+```sh
+docker compose run -d --name pokedex-data-cards ingest bun src/ingest.ts cards
+docker logs -f pokedex-data-cards
+```
+
+Il enchaîne le catalogue (environ 15 minutes, 250 séries et 25 600 cartes), leurs images (1 à
+1,4 Go de plus dans le volume `images`) puis leur historique (12 à 20 heures) ; ce que les
+japonaises ont déjà n'est pas refait, et chaque étape reprend où elle en était si le conteneur
+s'arrête. Le cache d'images du nginx du site est passé à 12 Go (`deploy/nginx.conf.template`) :
+vérifier la place libre du VPS avant, les images et la base y sont sur le même disque.
 
 **Ensuite, à chaque déploiement** (`.github/workflows/deploy.yml`, lancé à la main depuis l'onglet
 Actions) : GitHub se connecte au VPS en SSH, fait `git pull` et lance `deploy/deploy.sh`. La

@@ -92,7 +92,7 @@ japonais n'ont pas changé.
 | `/images/species/<n>.png`, `/images/species/artwork/<n>.png` | Le sprite et l'illustration d'un Pokémon, PokéAPI |
 
 - La tâche, deux téléchargements à la fois, seulement ce qui manque (environ 1,5 Go la première
-  fois pour les japonaises, de plus pour les françaises) : les logos de chaque série du catalogue,
+  fois pour les japonaises, 1 à 1,4 Go de plus pour les françaises) : les logos de chaque série du catalogue,
   dans chaque langue, notés s'ils existent (`sets.logo`, par langue ; cherché de nouveau chaque
   semaine), les icônes (les types ; les raretés qu'utilisent les cartes de l'une ou l'autre
   langue, une icône par id), les sprites et illustrations des 1 025 Pokémon, puis le scan de
@@ -250,7 +250,7 @@ elle-même (`mainHistory`, testé : son produit Cardmarket, celui du catalogue, 
 « Reverse » ni version, au prix suivi « avg30 », la même règle que `prices`, pour une française
 comme pour une japonaise), et chaque jour avant le dernier relevé prend son prix (`mergePrices`,
 testé : celui-là et les suivants restent ceux du relevé). Une page toutes les 3 s : environ 23 h
-pour les japonaises la première fois ; les séries les plus récentes d'abord, toutes langues
+pour les japonaises la première fois, 12 à 20 h de plus pour les françaises ; les séries les plus récentes d'abord, toutes langues
 mêlées ; chaque carte lue une fois (`history_imports`, une ligne par langue et par carte :
 `historyTodo`, testé, l'id 7091 japonais lu ne fait pas sauter le français), un passage suivant ne
 lit que les nouvelles ; 10 pages en échec d'affilée arrêtent la lecture ; des cartes en échec font
