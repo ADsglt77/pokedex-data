@@ -149,11 +149,30 @@ nouveau VPS, à installer avant le site.
 
 **Les cartes françaises, sur un VPS déjà en place** (une seule fois) : déployer l'API des données
 d'abord (ses routes japonaises ne changent pas : le site d'avant continue de tourner), puis le
-site. Au démarrage, l'API passe une étape de schéma qui ajoute la langue aux clés du catalogue
-(les cartes japonaises deviennent `ja`, rien ne se perd ; la sauvegarde du jour suffit si l'on
-veut une copie d'avant). Le catalogue français n'est pas encore lu : ses routes (`/v1/catalog/fr/…`)
-répondent 404 tant que `catalog` n'a pas tourné, et le site le dit. Le premier remplissage
-français, dans un conteneur ponctuel (comme à l'étape 6) :
+site. Au démarrage, l'API passe l'étape 17 du schéma, qui ajoute la langue aux clés du catalogue
+(les cartes japonaises deviennent `ja`, rien ne se perd). **Cette étape ne se défait pas en
+redéployant le code d'avant** : l'image d'avant refuse alors de démarrer (« data.db en est à
+l'étape 17 du schéma, ce code n'en connaît que 16 »). Avant de lancer le déploiement, sur le VPS :
+
+1. Aucune tâche lancée à la main ne doit tourner : le déploiement ne redémarre que `api` et
+   `ingest`, et un conteneur ponctuel garderait le code d'avant, qui écrirait le catalogue sans
+   sa langue sur des clés qui l'exigent. `docker ps` ne doit montrer ni `pokedex-data-cards`, ni
+   un autre conteneur lancé par `docker compose run` (une tâche, `setup`) ; sinon, l'arrêter
+   (`docker stop pokedex-data-cards`, puis `docker rm` : relancée après le déploiement, la tâche
+   reprend où elle en était).
+2. Une copie de la base d'avant l'étape, sortie du volume et gardée à part. La sauvegarde
+   quotidienne ne suffit pas : un fichier par jour (`data-AAAA-MM-JJ.db.gz`, le jour en UTC),
+   remplacé quand la tâche repasse le même jour ; celle du jour peut donc devenir, après le
+   déploiement, une copie d'après l'étape. Ici, hors du dossier `sauvegardes`, que la copie de
+   chaque nuit vide (« Sauvegardes ») :
+   ```sh
+   docker compose run --rm ingest bun src/ingest.ts backups
+   docker compose cp ingest:/backups/data-$(date -u +%F).db.gz ~/data-avant-catalogue-francais.db.gz
+   ```
+
+Puis déployer (le workflow, plus bas). Le catalogue français n'est pas encore lu : ses routes
+(`/v1/catalog/fr/…`) répondent 404 tant que `catalog` n'a pas tourné, et le site le dit. Le
+premier remplissage français, dans un conteneur ponctuel (comme à l'étape 6) :
 
 ```sh
 docker compose run -d --name pokedex-data-cards ingest bun src/ingest.ts cards
@@ -161,10 +180,27 @@ docker logs -f pokedex-data-cards
 ```
 
 Il enchaîne le catalogue (environ 15 minutes, 250 séries et 25 600 cartes), leurs images (1 à
-1,4 Go de plus dans le volume `images`) puis leur historique (12 à 20 heures) ; ce que les
+1,4 Go de plus dans le volume `images`) puis leur historique (environ 21 heures) ; ce que les
 japonaises ont déjà n'est pas refait, et chaque étape reprend où elle en était si le conteneur
 s'arrête. Le cache d'images du nginx du site est passé à 12 Go (`deploy/nginx.conf.template`) :
 vérifier la place libre du VPS avant, les images et la base y sont sur le même disque.
+
+**Revenir en arrière** (au code d'avant les cartes françaises) : seulement en remettant la copie
+d'avant l'étape, puis en déployant le code d'avant. Tout ce que la base a reçu depuis la copie est
+perdu : les cartes françaises (relues si l'on redéploie un jour), et surtout les jours du guide
+des prix lus depuis (l'historique, irremplaçable), sauf celui du jour, relu à la fin.
+
+1. Sur GitHub, ramener `main` au code d'avant (un `git revert` de la fusion), sans déployer.
+2. Sur le VPS, arrêter l'API et les tâches, puis remettre la copie, **sans** `docker compose up`
+   (l'image en place, celle des cartes françaises, repasserait l'étape) :
+   ```sh
+   docker compose stop api ingest
+   docker rm -f pokedex-data-cards   # s'il existe : une tâche du code des cartes françaises
+   mkdir -p sauvegardes && cp ~/data-avant-catalogue-francais.db.gz sauvegardes/
+   docker compose run --rm --no-deps -v "$PWD/sauvegardes:/restore:ro" api sh -c 'rm -f /data/data.db-wal /data/data.db-shm && gunzip -c /restore/data-avant-catalogue-francais.db.gz > /data/data.db'
+   ```
+3. Déployer (le workflow) : l'image d'avant démarre sur la base d'avant. Puis relire le guide du
+   jour : `docker compose run --rm ingest bun src/ingest.ts prices`.
 
 **Ensuite, à chaque déploiement** (`.github/workflows/deploy.yml`, lancé à la main depuis l'onglet
 Actions) : GitHub se connecte au VPS en SSH, fait `git pull` et lance `deploy/deploy.sh`. La
