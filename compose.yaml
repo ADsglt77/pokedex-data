@@ -62,7 +62,8 @@ networks:
 volumes:
   # La base SQLite (`data.db`) et le cache des téléchargements de PokéAPI.
   data:
-  # Les images copiées chez nous (environ 1,5 Go) : cartes, logos, icônes, Pokémon.
+  # Les images copiées chez nous (2,5 à 3 Go : environ 1,5 Go pour les cartes japonaises, 1 à
+  # 1,4 Go pour les françaises) : cartes, logos, icônes, Pokémon.
   images:
   # Les sauvegardes de la base, chaque jour (tâche `backups`) : à copier aussi hors du VPS.
   backups:

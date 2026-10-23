@@ -12,7 +12,8 @@ bun run dev            # l'API, sur http://127.0.0.1:3001 (relancée à chaque m
 bun run setup          # première installation complète, avec progression
 bun run ingest <tâche> # une tâche d'ingestion, tout de suite (plus bas)
 bun run ingest cards   # les nouvelles cartes : catalogue, puis leurs images et leur historique
-bun test               # tests (prix, historique, liste de souhaits, schéma, accès, tâches)
+bun test               # tests (prix, historique, liste de souhaits, schéma, accès, tâches,
+                       # catalogue des deux langues, lecture de Pokécardex, images)
 bun run typecheck      # TypeScript
 bun run lint           # ESLint, puis knip (code mort)
 bun run format         # Prettier
@@ -55,7 +56,7 @@ l'API connaît leur adresse d'origine.
 | `catalog` | à la demande | Le catalogue des cartes japonaises, puis des françaises, d'après Pokécardex (une page par série, toutes les 3 s : environ 20 minutes la première fois pour les japonaises, 13 de plus pour les françaises, 250 séries ; `--refresh` relit toutes les séries) |
 | `images` | à la demande | Les images qui manquent, toutes d'avance : logos, icônes, Pokémon, scans des cartes japonaises et françaises (environ 1,5 Go la première fois pour les japonaises, 1 à 1,4 Go de plus pour les françaises) |
 | `prices` | toutes les 6 h | Le guide des prix public de Cardmarket, et l'historique du jour |
-| `history` | à la demande | Les 180 derniers jours de prix de chaque carte, une fois par carte, d'après Pokécardex (environ 23 h la première fois pour les japonaises, 12 à 20 h de plus pour les françaises) |
+| `history` | à la demande | Les 180 derniers jours de prix de chaque carte, une fois par carte, d'après Pokécardex (environ 23 h la première fois pour les japonaises, 21 h de plus pour les françaises) |
 | `backups` | chaque jour | Une copie de la base (7 gardées) |
 
 Quand de nouvelles cartes sortent : `bun run ingest cards` enchaîne le catalogue, puis les images
@@ -75,9 +76,9 @@ echo "API_TOKENS=pokedex:$(openssl rand -hex 32)" > .env
 Le même token va dans le `.env` du site (`DATA_API_TOKEN`). La base vit dans `.data/` ; la remplir
 une fois avec `bun run setup`, qui enchaîne les espèces, le catalogue, les prix (après le
 catalogue : le prix d'une carte d'une série récente en dépend), les images et l'historique avec une
-progression visible (environ 40 h la première fois, cartes françaises comprises ; arrêté, il
-reprend où il en était quand on le relance). Les images doivent toutes être copiées : l'API n'en
-copie aucune elle-même, une image qui manque répond 404.
+progression visible (environ deux jours la première fois, cartes françaises comprises, dont 44 h
+d'historique ; arrêté, il reprend où il en était quand on le relance). Les images doivent toutes
+être copiées : l'API n'en copie aucune elle-même, une image qui manque répond 404.
 
 **Le journal** : une ligne par évènement, alignée, à l'heure de Paris (pas les requêtes une à
 une) : un token refusé (une ligne par minute au plus, jamais le token), une erreur de l'API. Sans
@@ -113,9 +114,9 @@ nouveau VPS, à installer avant le site.
    chmod 600 .env
    docker compose build --pull
    ```
-4. Sur une base vide, le catalogue d'abord (une vingtaine de minutes) : le prix d'une carte d'une
-   série récente en dépend, et un premier guide des prix lu sans lui resterait faux dans
-   l'historique.
+4. Sur une base vide, le catalogue d'abord (environ 33 minutes : les japonaises, puis les
+   françaises) : le prix d'une carte d'une série récente en dépend, et un premier guide des prix
+   lu sans lui resterait faux dans l'historique.
    ```sh
    docker compose run --rm ingest bun src/ingest.ts catalog
    ```
@@ -126,9 +127,9 @@ nouveau VPS, à installer avant le site.
    ```sh
    docker compose up -d
    ```
-6. Le reste des cartes, japonaises et françaises (le catalogue français, environ 15 minutes ; leurs
-   images, 2,5 à 3 Go en tout ; puis leur historique : environ 40 h en tout la première fois), dans
-   un conteneur ponctuel, sans garder la connexion SSH ouverte :
+6. Le reste des cartes, japonaises et françaises (le catalogue est déjà lu ; leurs images, 2,5 à
+   3 Go en tout ; puis leur historique : environ 44 h la première fois, 23 pour les japonaises et
+   21 pour les françaises), dans un conteneur ponctuel, sans garder la connexion SSH ouverte :
    ```sh
    docker compose run -d --name pokedex-data-cards ingest bun src/ingest.ts cards
    docker logs -f pokedex-data-cards

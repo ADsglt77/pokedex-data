@@ -8,11 +8,12 @@
  * l'historique, avant celui du dernier relevé (`mergePrices`) : l'historique est celui d'un produit
  * Cardmarket, que toutes les langues partagent. À la demande (après le catalogue : `bun run ingest
  * cards`) ; une page toutes les 3 s : les quelque 28 000 cartes japonaises prennent environ 23 h la
- * première fois. Chaque carte n'est lue qu'une fois (`history_imports`, par langue : `historyTodo`) :
- * un passage suivant ne lit que les nouvelles cartes du catalogue, et un passage interrompu reprend
- * là où il en était. Les séries les plus récentes d'abord. Son prix d'il y a 30 jours suit, et son
- * avancée est notée (`sources` : `history`, toutes les 100 cartes et en fin de passage) : l'ETag
- * des prix et des historiques change, les courbes la montrent aussitôt.
+ * première fois, les quelque 25 000 françaises 21 h de plus. Chaque carte n'est lue qu'une fois
+ * (`history_imports`, par langue : `historyTodo`) : un passage suivant ne lit que les nouvelles
+ * cartes du catalogue, et un passage interrompu reprend là où il en était. Les séries les plus
+ * récentes d'abord. Son prix d'il y a 30 jours suit, et son avancée est notée (`sources` :
+ * `history`, toutes les 100 cartes et en fin de passage) : l'ETag des prix et des historiques
+ * change, les courbes la montrent aussitôt.
  */
 
 import type { Database } from 'bun:sqlite'

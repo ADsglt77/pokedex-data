@@ -248,18 +248,18 @@ Accord de Pokécardex, octobre 2026 : il relève le guide chaque jour, et la pag
 cartes, japonaise (`/carte/jp/<id>`) ou française (`/carte/<id>`, de la même forme :
 `carte.cardmarketPrices`, `carte.priceHistory.cardmarket`), porte ses prix des **180 derniers
 jours** au plus, presque jour par jour. Pour chaque carte du catalogue, dans les deux langues, avec
-un id Cardmarket (environ 28 000 japonaises, plus les françaises), une fois : la série de la carte
+un id Cardmarket (environ 28 000 japonaises et 25 000 françaises), une fois : la série de la carte
 elle-même (`mainHistory`, testé : son produit Cardmarket, celui du catalogue, sans variante
 « Reverse » ni version, au prix suivi « avg30 », la même règle que `prices`, pour une française
 comme pour une japonaise), et chaque jour avant le dernier relevé prend son prix (`mergePrices`,
 testé : celui-là et les suivants restent ceux du relevé). Une page toutes les 3 s : environ 23 h
-pour les japonaises la première fois, 12 à 20 h de plus pour les françaises ; les séries les plus récentes d'abord, toutes langues
-mêlées ; chaque carte lue une fois (`history_imports`, une ligne par langue et par carte :
-`historyTodo`, testé, l'id 7091 japonais lu ne fait pas sauter le français), un passage suivant ne
-lit que les nouvelles ; 10 pages en échec d'affilée arrêtent la lecture ; des cartes en échec font
-échouer la tâche (relues au passage suivant). Le prix d'il y a 30 jours de chaque carte reprise
-suit, et l'avancée est notée (`sources` : `history`, toutes les 100 cartes), que suit l'ETag des
-prix.
+pour les japonaises la première fois, 21 h de plus pour les françaises ; les séries les plus
+récentes d'abord, toutes langues mêlées ; chaque carte lue une fois (`history_imports`, une ligne
+par langue et par carte : `historyTodo`, testé, l'id 7091 japonais lu ne fait pas sauter le
+français), un passage suivant ne lit que les nouvelles ; 10 pages en échec d'affilée arrêtent la
+lecture ; des cartes en échec font échouer la tâche (relues au passage suivant). Le prix d'il y a
+30 jours de chaque carte reprise suit, et l'avancée est notée (`sources` : `history`, toutes les
+100 cartes), que suit l'ETag des prix.
 
 L'historique est celui d'un **produit Cardmarket** (`cardmarket_history`, par id produit) : une
 carte française qui partage son produit avec une autre carte (de toute langue) en reprend les prix

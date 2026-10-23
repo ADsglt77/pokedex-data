@@ -24,7 +24,8 @@ export const INGEST_JOBS: Record<
   images: { label: 'Images copiées', every: null },
   // Le guide change une fois par jour ; la tâche ne retélécharge que ce qui a changé.
   prices: { label: 'Prix', every: 6 * HOUR },
-  // Les 180 derniers jours de chaque carte, lus une fois par carte (environ 23 h la première fois).
+  // Les 180 derniers jours de chaque carte, lus une fois par carte (la première fois, environ 23 h
+  // pour les japonaises, 21 h de plus pour les françaises).
   history: { label: 'Historique des prix', every: null },
   // La base, copiée chaque jour (`BACKUP_DIR`).
   backups: { label: 'Sauvegardes', every: DAY },
