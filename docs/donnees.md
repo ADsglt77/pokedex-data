@@ -107,8 +107,9 @@ japonais n'ont pas changé.
   chemin plausible (`UPSTREAMS` : une série du catalogue **de sa langue** et un numéro
   jusqu'au plus grand des siens, le logo d'une série du catalogue de sa langue, un type de
   `CARD_TYPES`, une rareté connue d'une langue ou de l'autre, un Pokémon de 1 à 1 025). Une image
-  est écrite d'un coup (un fichier provisoire, retiré si l'écriture échoue : l'API ne sert jamais
-  une image à moitié écrite).
+  est écrite d'un coup (un fichier provisoire propre à chaque copie, deux cartes pouvant partager
+  un scan, NRGY 41 au Japon ; retiré si l'écriture échoue : l'API ne sert jamais une image à
+  moitié écrite).
 
 ## La zone française de Pokécardex (repérée le 22 octobre 2026)
 

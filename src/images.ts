@@ -165,9 +165,11 @@ export async function mirror(path: string): Promise<boolean> {
   if (!response.headers.get('content-type')?.startsWith('image/')) {
     throw new Error(`Pas une image : ${url}`)
   }
-  // Un fichier provisoire, renommé quand il est complet. Retiré si l'écriture échoue (disque
-  // plein) : un reste l'aggraverait.
-  const temporary = `${file}.tmp`
+  // Un fichier provisoire, renommé quand il est complet ; un nom à part pour chaque copie : deux
+  // cartes peuvent avoir le même chemin (le même scan), copiées en même temps par la tâche
+  // `images` (deux à la fois), et un nom commun laisserait l'une renommer le fichier pendant que
+  // l'autre l'écrit. Retiré si l'écriture échoue (disque plein) : un reste l'aggraverait.
+  const temporary = `${file}.${crypto.randomUUID()}.tmp`
   await mkdir(dirname(file), { recursive: true })
   try {
     await writeFile(temporary, new Uint8Array(await response.arrayBuffer()))
