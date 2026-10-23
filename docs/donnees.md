@@ -22,7 +22,9 @@ et les codes des séries se répètent d'une zone à l'autre (la carte 7091, la 
 48) : chaque ligne a sa langue (`lang`, `ja` ou `fr`, dans les clés), chaque langue ses réponses.
 
 - La liste des séries vient de son plan du site (`sitemap_fr.xml` : `/series/jp/<code>` au Japon,
-  `/series/<code>` en France), lue pour les deux langues avant toute série ; chaque série, de sa
+  `/series/<code>` en France ; seulement les codes de majuscules, chiffres, `_` et `-`, que
+  permettent les chemins des images : `seriesIn`, testé), lue pour les deux langues avant toute
+  série ; chaque série, de sa
   page : son nom, sa sortie (au Japon ; en France pour une française), et ses cartes (id
   Pokécardex, numéro imprimé « 001/165 », `sort`, noms français, anglais et allemand, Pokémon, id
   Cardmarket, rareté, type, illustrateur, versions ; un tiret seul, « — », qu'il écrit pour

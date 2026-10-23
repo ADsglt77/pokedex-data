@@ -100,19 +100,18 @@ async function read(url: string) {
   return (await download(url)).text()
 }
 
-/** Les pages d'index des régions dans le plan du site (`/series/jp`, `/series/chn`) : pas des séries. */
-const REGION_PAGES = ['jp', 'chn']
-
 /**
  * Les codes des séries d'une langue d'après le plan du site (« SV2A », « OR1 » ; « MEG », « BS »…) :
- * `/series/jp/<code>` au Japon, `/series/<code>` en France.
+ * `/series/jp/<code>` au Japon, `/series/<code>` en France. Seulement des majuscules, des chiffres,
+ * `_` et `-`, ce que permettent les chemins des images (`UPSTREAMS`, `images.ts`) : une série d'un
+ * autre code, chacun de ses scans ferait une erreur de la tâche `images`, qui s'arrêterait à la
+ * 20e, pour les deux langues. Les pages d'index des régions (`/series/jp`, `/series/chn`), en
+ * minuscules, n'en sont pas.
  */
 export function seriesIn(sitemap: string, lang: CardLanguage) {
-  const pattern = lang === 'ja' ? /\/series\/jp\/([\w-]+)<\/loc>/g : /\/series\/([\w-]+)<\/loc>/g
-  const codes = [...sitemap.matchAll(pattern)]
-    .map((match) => match[1]!)
-    .filter((code) => lang === 'ja' || !REGION_PAGES.includes(code))
-  return [...new Set(codes)]
+  const pattern =
+    lang === 'ja' ? /\/series\/jp\/([A-Z0-9_-]+)<\/loc>/g : /\/series\/([A-Z0-9_-]+)<\/loc>/g
+  return [...new Set([...sitemap.matchAll(pattern)].map((match) => match[1]!))]
 }
 
 /** Les codes des séries d'une langue, d'après le plan du site. */

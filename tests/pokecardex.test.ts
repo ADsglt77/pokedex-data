@@ -1,9 +1,10 @@
 /**
  * La lecture de Pokécardex dans une langue : quelles séries du plan du site sont japonaises ou
  * françaises (un code mal rangé ferait lire une page pour une autre, et mêler les cartes des deux
- * langues), quels blocs du menu sont ceux d'une langue, et le nom d'extension Cardmarket d'une
- * série française (un nom qui ne correspond pas au sien ferait tomber la liste de souhaits sur une
- * autre extension : mieux vaut aucun nom).
+ * langues ; un code que les chemins des images refusent arrêterait la tâche `images`), quels blocs
+ * du menu sont ceux d'une langue, et le nom d'extension Cardmarket d'une série française (un nom
+ * qui ne correspond pas au sien ferait tomber la liste de souhaits sur une autre extension : mieux
+ * vaut aucun nom).
  */
 
 import { describe, expect, test } from 'bun:test'
@@ -35,6 +36,19 @@ describe('seriesIn', () => {
 
   test('françaises : /series/<code>, sans les pages d’index /series/jp et /series/chn', () => {
     expect(seriesIn(SITEMAP, 'fr')).toEqual(['MEG', 'BS', 'HS'])
+  })
+
+  // Les chemins des images n'acceptent que ces codes : une série d'un autre code ferait échouer
+  // chacun de ses scans, et la tâche `images` s'arrêterait pour les deux langues.
+  test('seulement les codes de majuscules, chiffres, « _ » et « - »', () => {
+    const sitemap = `<urlset>
+      <url><loc>https://www.pokecardex.com/series/jp/SV-P_2</loc></url>
+      <url><loc>https://www.pokecardex.com/series/jp/SV2a</loc></url>
+      <url><loc>https://www.pokecardex.com/series/MC8US</loc></url>
+      <url><loc>https://www.pokecardex.com/series/Mcd</loc></url>
+    </urlset>`
+    expect(seriesIn(sitemap, 'ja')).toEqual(['SV-P_2'])
+    expect(seriesIn(sitemap, 'fr')).toEqual(['MC8US'])
   })
 })
 
