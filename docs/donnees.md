@@ -42,9 +42,10 @@ et les codes des séries se répètent d'une zone à l'autre (la carte 7091, la 
   (`cardmarket_url`) commencent toutes par lui, écrit comme Cardmarket l'écrit (`expansionNameOf`,
   `cardmarketSlug` : sans accents ni apostrophes, un tiret pour chaque suite de signes) ; sinon
   aucun (`''` : pas de ligne). Sans nom anglais pour une série (aucune des trois pages ne donne les
-  noms, illisible ou son menu changé ; ou la série absente du menu) : elle garde le nom qu'un
-  passage d'avant a confirmé, tant que ses cartes le confirment encore (sinon aucun) ; le journal
-  le dit, et la tâche n'échoue pas pour autant.
+  noms, illisible ou son menu changé ; ou la série absente du menu), ou avec un nom que ses cartes
+  ne confirment pas (le menu anglais en donne un autre : testé) : elle garde le nom qu'un passage
+  d'avant a confirmé, tant que ses cartes le confirment encore (sinon aucun) ; le journal le dit
+  (pages anglaises illisibles), et la tâche n'échoue pas pour autant.
 - Ses pages portent leurs données chiffrées (`__INITIAL_DATA_ENCRYPTED__`, AES-CBC) : déchiffrées
   avec la clé que contient son JavaScript, relue quand l'adresse de son script change, jamais
   recopiée dans le dépôt. Une page toutes les 3 s, User-Agent identifié : le premier passage prend

@@ -4,7 +4,8 @@
  * Regirock de SM4A au Japon, Alakazam du Set de base en France). Une carte d'une langue ne doit
  * jamais écraser ni retirer celle de l'autre, ni une réponse d'une langue montrer l'autre ; une
  * carte qui n'existe qu'en anglais n'entre pas au catalogue français ; le nom d'extension
- * Cardmarket d'une série (la liste de souhaits) : jamais un nom que ses cartes ne confirment pas.
+ * Cardmarket d'une série (la liste de souhaits) : jamais un nom que ses cartes ne confirment pas,
+ * et un nom anglais qu'elles ne confirment pas n'efface pas celui qu'elles confirment encore.
  */
 
 import { Database } from 'bun:sqlite'
@@ -190,6 +191,27 @@ describe('seriesWriter', () => {
     writer.save('fr', 'MEG', meg, LATER, 'Mega Evolution')
     writer.save('fr', 'MEG', moved, LATER, 'Mega Evolution')
     expect(expansion()).toBe('')
+  })
+
+  test('un nom anglais que ses cartes ne confirment pas : la française garde celui qu’elles confirment encore', () => {
+    const writer = seriesWriter(db)
+    const expansion = () =>
+      (
+        db.query("SELECT expansion_name AS name FROM sets WHERE lang = 'fr'").get() as {
+          name: string
+        }
+      ).name
+    const series = { ...FRENCH, code: 'MEG', fullName: 'Méga-Évolution' }
+    const meg = page(series, [
+      card({ id_card: 1, sort: 1, cardmarket_url: 'Mega-Evolution/Bulbasaur-V1-MEG001' }),
+    ])
+    writer.save('fr', 'MEG', meg, READ_AT, 'Mega Evolution')
+    // La page anglaise répond, mais son menu donne un autre nom (celui d'une autre série, une
+    // précision ajoutée) : ses cartes confirment toujours celui d'avant.
+    writer.save('fr', 'MEG', meg, LATER, 'Phantasmal Flames')
+    expect(expansion()).toBe('Mega Evolution')
+    writer.save('fr', 'MEG', meg, LATER, 'Mega Evolution (Set)')
+    expect(expansion()).toBe('Mega Evolution')
   })
 })
 

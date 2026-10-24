@@ -14,8 +14,8 @@
  * les japonaises, sont écartées, comme, en français, les cartes qui n'existent qu'en anglais
  * (`only_english`). Le nom de l'extension de chaque série chez Cardmarket (la liste de souhaits) :
  * pour une japonaise, son nom ; pour une française, son nom anglais (le menu d'une page anglaise,
- * lue une fois par passage ; sans elle, celui déjà confirmé) si les adresses Cardmarket de ses
- * cartes le confirment, sinon aucun.
+ * lue une fois par passage ; sans elle, ou s'il ne s'accorde pas, celui déjà confirmé) si les
+ * adresses Cardmarket de ses cartes le confirment, sinon aucun.
  * Une série est relue après une semaine, après un jour si elle est sortie depuis moins de 90 jours
  * (Pokécardex la complète) ; `--refresh` les relit toutes. Une page par série, une toutes les 3 s :
  * le premier passage prend une vingtaine de minutes pour les japonaises, une douzaine pour les
@@ -401,12 +401,15 @@ export function seriesWriter(db: Database) {
       const cartes = lang === 'fr' ? page.cartes.filter((card) => !card.only_english) : page.cartes
       const { fullName, releaseDateFR } = page.currentSeries
       // Le nom de son extension chez Cardmarket (la liste de souhaits) : pour une japonaise, son
-      // nom ; pour une française, son nom anglais, s'il s'accorde avec ses cartes (sinon aucun).
-      // Sans nom anglais ce passage (page anglaise illisible, série absente de son menu) : celui
-      // qu'un passage d'avant a confirmé, tant que ses cartes le confirment encore.
+      // nom ; pour une française, son nom anglais, s'il s'accorde avec ses cartes. Sans nom anglais
+      // ce passage (page anglaise illisible, série absente de son menu), ou avec un nom que ses
+      // cartes ne confirment pas (le menu anglais en donne un autre) : celui qu'un passage d'avant
+      // a confirmé, tant que ses cartes le confirment encore (sinon aucun).
       const urls = cartes.map((card) => card.cardmarket_url)
       const expansion =
-        lang === 'ja' ? fullName : expansionNameOf(englishName ?? storedExpansion(lang, code), urls)
+        lang === 'ja'
+          ? fullName
+          : expansionNameOf(englishName, urls) || expansionNameOf(storedExpansion(lang, code), urls)
       writeSet.run(lang, code, fullName, releaseDateFR?.slice(0, 10) ?? '', readAt, expansion)
       // Le numéro imprimé, sinon le rang. Si deux cartes de la série se confondraient (deux
       // demi-decks numérotés chacun : HS ; cartes géantes de séries diverses : JUMBO), toutes
