@@ -1,8 +1,10 @@
 /**
  * Les passages des tâches (`src/runs.ts`) : une tâche qui tourne dans un autre processus (un passage
- * ouvert qui donne signe de vie) n'est pas lancée une seconde fois ; un passage arrêté net (sans
- * signe de vie depuis 5 min : conteneur tué, machine redémarrée) ne bloque plus sa tâche, et il est
- * noté interrompu. Sinon, après un arrêt brutal, plus rien ne relancerait l'historique des prix.
+ * ouvert qui donne signe de vie) n'est pas lancée une seconde fois, ni `catalog` pendant `history`
+ * (elles lisent les mêmes pages : deux à la fois doubleraient le rythme convenu avec la source) ;
+ * un passage arrêté net (sans signe de vie depuis 5 min : conteneur tué, machine redémarrée) ne
+ * bloque plus sa tâche, et il est noté interrompu. Sinon, après un arrêt brutal, plus rien ne
+ * relancerait l'historique des prix.
  */
 
 import { beforeEach, describe, expect, test } from 'bun:test'
@@ -55,8 +57,23 @@ describe('startRun', () => {
   })
 
   test('le passage en vie d’une autre tâche ne bloque pas celle-ci', () => {
-    const catalog = openRun('catalog', MINUTE)
+    const prices = openRun('prices', MINUTE)
     expect(startRun(data, 'history')).not.toBeNull()
+    expect(run(prices).finished_at).toBeNull()
+  })
+
+  test('catalog et history lisent les mêmes pages : l’une en vie bloque l’autre, pas un passage arrêté net', () => {
+    const catalog = openRun('catalog', MINUTE)
+    expect(startRun(data, 'history')).toBeNull()
     expect(run(catalog).finished_at).toBeNull()
+    data.run('DELETE FROM runs')
+    openRun('history', MINUTE)
+    expect(startRun(data, 'catalog')).toBeNull()
+    // Sans signe de vie depuis plus de 5 min : il ne bloque plus l'autre.
+    data.run('DELETE FROM runs')
+    const orphan = openRun('history', 6 * MINUTE)
+    expect(startRun(data, 'catalog')).not.toBeNull()
+    expect(run(orphan).finished_at).toBeNull()
+    expect(startRun(data, 'images')).not.toBeNull()
   })
 })

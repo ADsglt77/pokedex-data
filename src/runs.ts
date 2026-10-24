@@ -17,17 +17,31 @@ const STALE = 5 * MINUTE
 export const aliveSince = (now: number) => new Date(now - STALE).toISOString()
 
 /**
- * Commence un passage de `job` : son id, ou `null` si la tâche tourne déjà dans un autre processus
- * (un passage ouvert, en vie : deux à la fois doubleraient le rythme des requêtes). Un passage
- * ouvert sans signe de vie est noté interrompu, terminé à son dernier signe de vie. En une
- * transaction : deux processus lancés ensemble ne commencent pas tous deux.
+ * Les tâches qui lisent les pages de Pokécardex : une seule à la fois, tous processus confondus.
+ * Son rythme (une page toutes les 3 s, `lib/pokecardex.ts`) n'est tenu que dans un processus :
+ * `catalog --refresh` lancé à la main pendant l'historique d'un conteneur `cards` le doublerait.
+ */
+const POKECARDEX_PAGES: IngestJob[] = ['catalog', 'history']
+
+/** Les tâches qu'un passage de `job` ne doit pas croiser : elle-même, et celles de ses pages. */
+const exclusive = (job: IngestJob) => (POKECARDEX_PAGES.includes(job) ? POKECARDEX_PAGES : [job])
+
+/**
+ * Commence un passage de `job` : son id, ou `null` si la tâche tourne déjà dans un autre processus,
+ * ou une tâche qui lit les mêmes pages (`POKECARDEX_PAGES` : un passage ouvert, en vie ; deux à la
+ * fois doubleraient le rythme des requêtes). Un passage de `job` ouvert sans signe de vie est noté
+ * interrompu, terminé à son dernier signe de vie. En une transaction : deux processus lancés
+ * ensemble ne commencent pas tous deux.
  */
 export function startRun(db: Database, job: IngestJob, now = Date.now()) {
   return db
     .transaction(() => {
       const running = db
-        .query('SELECT 1 FROM runs WHERE job = ? AND finished_at IS NULL AND alive_at >= ?')
-        .get(job, aliveSince(now))
+        .query(
+          `SELECT 1 FROM runs WHERE job IN (SELECT value FROM json_each(?))
+           AND finished_at IS NULL AND alive_at >= ?`,
+        )
+        .get(JSON.stringify(exclusive(job)), aliveSince(now))
       if (running) return null
       db.query(
         `UPDATE runs SET finished_at = alive_at, ok = 0, message = 'interrompue'

@@ -331,7 +331,10 @@ Le produit 719621 donne `1x Charmander Blazing Destruction Steady Firebreathing 
 `runs` note chaque passage (`runs.ts`, `ingest.ts`) : son début, sa fin, s'il a réussi, et la
 cause d'un échec (`message` : celui de l'erreur, ou « interrompue » pour un passage arrêté).
 Pendant qu'il tourne, il donne signe de vie chaque minute (`alive_at`) : une tâche n'est pas lancée
-deux fois à la fois (deux processus doubleraient le rythme des requêtes), mais un passage sans
+deux fois à la fois (deux processus doubleraient le rythme des requêtes), ni `catalog` pendant
+`history` ou l'inverse (testé : toutes deux lisent les pages de Pokécardex, une toutes les 3 s en
+tout, rythme que chaque processus ne tient que pour lui ; une étape de `cards` qui trouve l'autre
+en cours est alors passée, comme une tâche déjà en cours), mais un passage sans
 signe de vie depuis 5 min a été arrêté net (conteneur tué, mémoire épuisée, machine redémarrée) :
 il ne bloque plus sa tâche, et il est noté interrompu à son passage suivant (testé).
 

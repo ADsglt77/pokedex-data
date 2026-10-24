@@ -236,8 +236,11 @@ docker compose run --rm ingest bun src/ingest.ts cards
 docker compose run --rm ingest bun src/ingest.ts catalog --refresh
 ```
 
-Une tâche déjà en cours ailleurs n'est pas doublée ; arrêtée net (conteneur tué, VPS redémarré),
-elle ne bloque plus sa relance au bout de 5 min (elle donne signe de vie chaque minute).
+Une tâche déjà en cours ailleurs n'est pas doublée, et `catalog` et `history`, qui lisent toutes
+deux les pages de Pokécardex (une toutes les 3 s en tout), ne tournent jamais en même temps : un
+`catalog --refresh` lancé pendant l'historique d'un conteneur `cards` ne lance rien (le relancer
+après). Arrêtée net (conteneur tué, VPS redémarré), une tâche ne bloque plus sa relance au bout de
+5 min (elle donne signe de vie chaque minute).
 **La surveillance** : `/v1/health` (par le
 site : `https://pokecodex.fr/api/health`) répond 200 quand chaque tâche à rythme a réussi
 récemment (deux intervalles au plus : les prix en 12 h, les sauvegardes en 2 jours, les espèces en

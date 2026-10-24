@@ -64,11 +64,14 @@ async function runJob(db: Database, name: IngestJob, step?: { current: number; t
   if (step) {
     console.log(`\n${muted(`[${step.current}/${step.total}]`)} ${strong(INGEST_JOBS[name].label)}`)
   }
-  // Déjà en cours dans un autre processus, en vie (une tâche lancée deux fois) : deux à la fois
-  // doubleraient le rythme des requêtes. Un passage arrêté net ne compte plus (`startRun`).
+  // Déjà en cours dans un autre processus, en vie (une tâche lancée deux fois, ou `catalog` et
+  // `history`, qui lisent les mêmes pages) : deux à la fois doubleraient le rythme des requêtes. Un
+  // passage arrêté net ne compte plus (`startRun`).
   const id = startRun(db, name)
   if (id === null) {
-    console.warn(`Tâche ${name} déjà en cours dans un autre processus : rien de lancé.`)
+    console.warn(
+      `Tâche ${name} : déjà en cours dans un autre processus, ou une tâche qui lit les mêmes pages (catalog, history) : rien de lancé.`,
+    )
     if (step) console.log(`${failure('✗')} Étape ignorée`)
     return false
   }
