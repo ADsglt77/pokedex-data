@@ -150,12 +150,18 @@ export async function history(db: Database) {
     bar.finish()
   } catch (error) {
     bar.stop()
-    throw error
-  } finally {
     // Même arrêtée en route (10 pages en échec d'affilée), l'avancée est notée : les jours repris
     // depuis la dernière centaine changent l'ETag des prix, et les clients ne gardent pas l'ancien.
-    progress()
+    // Si elle échoue à son tour (la base occupée ou pleine), son erreur est écrite à part : celle
+    // d'origine reste la cause du passage (`runs.message`), au lieu d'être remplacée.
+    try {
+      progress()
+    } catch (cause) {
+      console.error('  avancée de l’historique pas notée :', cause)
+    }
+    throw error
   }
+  progress()
   console.log(
     `Historique (Pokécardex) : ${plural(read, 'carte lue', 'cartes lues')}, ` +
       plural(days, 'jour écrit', 'jours écrits'),

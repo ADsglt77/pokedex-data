@@ -20,7 +20,9 @@
  * (Pokécardex la complète) ; `--refresh` les relit toutes. Une page par série, une toutes les 3 s :
  * le premier passage prend une vingtaine de minutes pour les japonaises, une douzaine pour les
  * françaises. Une page en échec n'empêche pas les autres ; la tâche échoue ensuite, pour être
- * relancée. Une page soudain vide (le site a changé) ne retire rien. Au début et en fin de tâche,
+ * relancée. Une page soudain vide (le site a changé) ne retire rien. Une série renumérotée par la
+ * source (les cartes déjà copiées qui changent de série ou de rang) : le journal compte ces cartes,
+ * en fin de langue (docs/donnees.md, « Une série renumérotée »). Au début et en fin de tâche,
  * les réponses du catalogue de chaque langue sont recalculées (`snapshots`, `snapshotName`) :
  * `/v1/catalog/species/<n°>` (les cartes d'un Pokémon : la fenêtre d'ajout), `/v1/catalog/sets`
  * (les séries) et `/v1/catalog/sets/<code>` (toutes les cartes d'une série : la page Catalogue,
@@ -370,6 +372,13 @@ export function seriesWriter(db: Database) {
   const writeSpecies = db.query(
     'INSERT INTO card_species (lang, card, rank, dex_id) VALUES (?, ?, ?, ?)',
   )
+  // Une carte dont le scan est déjà copié (`image` noté) et dont la série ou le rang changent :
+  // son chemin, celui de son rang, ne mène plus à son scan (docs/donnees.md, « Une série
+  // renumérotée »).
+  const renumbered = db.query(
+    `SELECT COUNT(*) AS count FROM cards
+     WHERE lang = ? AND id = ? AND image = 'pokecardex' AND (set_id != ? OR sort != ?)`,
+  )
   const countCards = db.query('SELECT COUNT(*) AS count FROM cards WHERE lang = ? AND set_id = ?')
   const forget = db.query('DELETE FROM cards WHERE lang = ? AND set_id = ? AND seen != ?')
   const readExpansion = db.query(
@@ -383,11 +392,13 @@ export function seriesWriter(db: Database) {
     (readExpansion.get(lang, code) as { name: string } | null)?.name || null
 
   /**
-   * La page d'une série, enregistrée d'un coup : son nombre de cartes. En français, sans les cartes
-   * qui n'existent qu'en anglais ; `englishName` : le nom anglais d'une série française, que les
-   * adresses Cardmarket de ses cartes doivent confirmer (`null` : indisponible ce passage). En une
-   * transaction `IMMEDIATE` : elle lit la série (ses cartes, son nom d'extension) avant de l'écrire,
-   * et attend ainsi son tour si un autre processus écrit (sinon, une série comptée illisible).
+   * La page d'une série, enregistrée d'un coup : son nombre de cartes, et celui de ses cartes déjà
+   * copiées (`image` noté) que la source a changées de série ou de rang. En français, sans les
+   * cartes qui n'existent qu'en anglais ; `englishName` : le nom anglais d'une série française, que
+   * les adresses Cardmarket de ses cartes doivent confirmer (`null` : indisponible ce passage). En
+   * une transaction `IMMEDIATE` : elle lit la série (ses cartes, son nom d'extension) avant de
+   * l'écrire, et attend ainsi son tour si un autre processus écrit (sinon, une série comptée
+   * illisible).
    */
   const save = db.transaction(
     (
@@ -417,11 +428,13 @@ export function seriesWriter(db: Database) {
       const keys = cartes.map((card) => numberKey(printedNumber(card.num_card) || `${card.sort}`))
       const distinct = new Set(keys).size === keys.length
       const numberOf = (card: PokecardexCard) => (distinct ? printedNumber(card.num_card) : '')
+      let moved = 0
       for (const card of cartes) {
         const dexIds = (card.id_pokedex_list ?? []).filter(
           (id) => Number.isInteger(id) && id >= 1 && id <= TOTAL_SPECIES,
         )
         const english = stated(card.name_card_en)
+        moved += (renumbered.get(lang, card.id_card, code, card.sort) as { count: number }).count
         writeCard.run(
           lang,
           card.id_card,
@@ -452,7 +465,7 @@ export function seriesWriter(db: Database) {
         )
       }
       forget.run(lang, code, readAt)
-      return saved
+      return { saved, moved }
     },
   ).immediate
 
@@ -503,6 +516,20 @@ function logTotals(db: Database, lang: CardLanguage, read: number, cards: number
       `(${plural(cards, 'carte', 'cartes')}) ; ` +
       `${totals.cards} cartes en tout, ${totals.withoutCardmarket ?? 0} sans id Cardmarket, ` +
       `${totals.otherNumber ?? 0} dont le numéro imprimé n’est pas le rang de l’image`,
+  )
+}
+
+/**
+ * Les cartes déjà copiées (`image` noté) que ce passage a vues changer de série ou de rang : la
+ * source a renumérotée une série. Le fichier du rang d'une carte est alors celui d'une autre, et la
+ * collection d'un compte qui garde l'ancien chemin montre ce scan-là (docs/donnees.md, « Une série
+ * renumérotée »). Le nombre seulement : rien d'autre ne change.
+ */
+function logRenumbered(lang: CardLanguage, moved: number) {
+  if (!moved) return
+  const cards = plural(moved, 'carte déjà copiée change', 'cartes déjà copiées changent')
+  console.warn(
+    `  Séries ${LANGUAGE_NAMES[lang]} : ${cards} de série ou de rang (renumérotée par la source)`,
   )
 }
 
@@ -564,6 +591,7 @@ async function readLanguage(
   let inARow = 0
   let cards = 0
   let read = 0
+  let renumbered = 0
   // Les exclusivités d'autres pays d'Asie (au Japon) et les blocs, d'après le menu de la première
   // page lue, et les raretés de la langue, que chaque page donne toutes.
   let asian = new Set<string>()
@@ -595,7 +623,15 @@ async function readLanguage(
         }
         continue
       }
-      cards += writer.save(lang, code, page, new Date().toISOString(), english.get(code) ?? null)
+      const { saved, moved } = writer.save(
+        lang,
+        code,
+        page,
+        new Date().toISOString(),
+        english.get(code) ?? null,
+      )
+      cards += saved
+      renumbered += moved
       read++
       inARow = 0
     } catch (error) {
@@ -619,6 +655,7 @@ async function readLanguage(
   // Le bloc de chaque série, les nouvelles comprises (enregistrées depuis).
   if (menu) writer.blocks(lang, menu)
   logTotals(db, lang, read, cards)
+  logRenumbered(lang, renumbered)
   return pass
 }
 

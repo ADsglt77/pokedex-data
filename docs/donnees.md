@@ -118,7 +118,16 @@ dossier `fr/` de plus, les japonais n'ont pas changé.
   changé du 19 au 24 octobre) : un navigateur qui avait l'ancien scan d'un chemin le garde
   jusqu'à ce que son cache se vide (`immutable`, un an), le nginx du site jusqu'à son prochain
   déploiement, qui vide son cache. Un fichier déposé à la main pour une carte à chercher est donc
-  recopié aussi.
+  recopié aussi. **Le coût réel est dans la collection du site** : une carte enregistrée y garde le
+  chemin de son image (série et rang), non la carte. Après une renumérotation à la source, les
+  cartes enregistrées à un rang égal ou postérieur au point d'insertion montrent le scan de leur
+  nouvelle occupante, jusqu'à ce que leur image soit choisie de nouveau ; rien ne les corrige
+  d'elles-mêmes. Pour ne pas le découvrir par hasard, la tâche `catalog` écrit au journal de
+  `cards`, à la fin de chaque langue, une ligne qui compte les cartes déjà copiées (`cards.image`
+  noté) dont la série ou le rang viennent de changer : « Séries françaises : N cartes déjà copiées
+  changent de série ou de rang (renumérotée par la source) » (`logRenumbered`, comptées par
+  `save`, testé). Le nombre seulement : rien d'autre ne change, et aucune ligne tant que rien n'a
+  bougé.
 - **Aucune copie à la demande** (décision du propriétaire, octobre 2026) : `serveImage` sert le
   fichier s'il existe, sinon 404 sans rien télécharger (une réponse sans cache : l'image est servie
   dès que la tâche l'a copiée) ; le site montre alors la carte de substitution. Seulement pour un
@@ -286,8 +295,10 @@ séries les plus récentes d'abord, toutes langues mêlées ; chaque carte lue u
 lu ne fait pas sauter le français), un passage suivant ne lit que les nouvelles ; 10 pages en
 échec d'affilée arrêtent la lecture ; des cartes en échec font échouer la tâche (relues au passage
 suivant). Le prix d'il y a 30 jours de chaque carte reprise suit, et l'avancée est notée
-(`sources` : `history`, toutes les 100 cartes et en fin de passage, même arrêté par les échecs),
-que suit l'ETag des prix. Une carte reprise ne l'est plus : si son id Cardmarket change ensuite
+(`sources` : `history`, toutes les 100 cartes et en fin de passage, même arrêté par les échecs ;
+si cette note échoue alors à son tour, la base occupée ou pleine, son erreur est écrite à part, et
+celle qui a arrêté le passage reste sa cause dans `runs.message`), que suit l'ETag des prix. Une
+carte reprise ne l'est plus : si son id Cardmarket change ensuite
 (le catalogue adopte celui que Pokécardex a corrigé), les 180 jours de son nouveau produit ne sont
 pas repris, seulement les relevés suivants (le corriger demanderait une étape du schéma : le
 produit repris dans `history_imports`).

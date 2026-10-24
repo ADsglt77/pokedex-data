@@ -5,7 +5,9 @@
  * jamais écraser ni retirer celle de l'autre, ni une réponse d'une langue montrer l'autre ; une
  * carte qui n'existe qu'en anglais n'entre pas au catalogue français ; le nom d'extension
  * Cardmarket d'une série (la liste de souhaits) : jamais un nom que ses cartes ne confirment pas,
- * et un nom anglais qu'elles ne confirment pas n'efface pas celui qu'elles confirment encore.
+ * et un nom anglais qu'elles ne confirment pas n'efface pas celui qu'elles confirment encore ; une
+ * série renumérotée par la source : la tâche compte les cartes déjà copiées qui changent de rang
+ * (ou de série), pour que le journal le dise (`save`).
  */
 
 import { Database } from 'bun:sqlite'
@@ -212,6 +214,28 @@ describe('seriesWriter', () => {
     expect(expansion()).toBe('Mega Evolution')
     writer.save('fr', 'MEG', meg, LATER, 'Mega Evolution (Set)')
     expect(expansion()).toBe('Mega Evolution')
+  })
+})
+
+describe('une carte déjà copiée que la source renumérote', () => {
+  test('save compte les cartes déjà copiées dont le rang ou la série change, et elles seules', () => {
+    const writer = seriesWriter(db)
+    const series = { ...FRENCH, code: 'MEG', fullName: 'Méga-Évolution' }
+    const [un, deux, trois] = [1, 2, 3].map((id) => card({ id_card: id, sort: id }))
+    expect(writer.save('fr', 'MEG', page(series, [un!, deux!, trois!]), READ_AT, null).moved).toBe(
+      0,
+    )
+    // Les scans des cartes 1 et 2 sont copiés (la tâche `images`) ; celui de la 3 pas encore.
+    db.run("UPDATE cards SET image = 'pokecardex' WHERE id IN (1, 2)")
+    // Relue telle quelle : rien ne change.
+    expect(writer.save('fr', 'MEG', page(series, [un!, deux!, trois!]), LATER, null).moved).toBe(0)
+    // Une carte arrive en tête : les trois passent au rang suivant, deux d'entre elles sont copiées.
+    const first = card({ id_card: 4, sort: 1 })
+    const shifted = [first, ...[un!, deux!, trois!].map((c) => ({ ...c, sort: c.sort + 1 }))]
+    const pass = writer.save('fr', 'MEG', page(series, shifted), LATER, null)
+    expect(pass).toEqual({ saved: 4, moved: 2 })
+    // Elles sont à chercher de nouveau, comme avant (aucun changement de comportement).
+    expect(db.query("SELECT id FROM cards WHERE image = 'pokecardex'").all()).toEqual([])
   })
 })
 
