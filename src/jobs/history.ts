@@ -5,15 +5,17 @@
  * Cardmarket porte ses prix des 180 derniers jours, presque jour par jour ; on en prend ceux de la
  * carte elle-même (`mainHistory` : son produit Cardmarket, son prix suivi, la règle que suit aussi
  * la tâche `prices`, d'où des courbes d'un seul tenant), et chacun prend son jour dans
- * l'historique, avant celui du dernier relevé (`mergePrices`) : l'historique est celui d'un produit
- * Cardmarket, que toutes les langues partagent. À la demande (après le catalogue : `bun run ingest
- * cards`) ; une page toutes les 3 s : les quelque 28 000 cartes japonaises prennent environ 23 h la
- * première fois, les quelque 25 000 françaises 21 h de plus. Chaque carte n'est lue qu'une fois
- * (`history_imports`, par langue : `historyTodo`) : un passage suivant ne lit que les nouvelles
- * cartes du catalogue, et un passage interrompu reprend là où il en était. Les séries les plus
- * récentes d'abord. Son prix d'il y a 30 jours suit, et son avancée est notée (`sources` :
- * `history`, toutes les 100 cartes et en fin de passage) : l'ETag des prix et des historiques
- * change, les courbes la montrent aussitôt.
+ * l'historique, avant celui du dernier relevé (`mergeHistory`, `mergePrices` : en une transaction,
+ * après le relevé que la tâche `prices` écrirait au même moment) : l'historique est celui d'un
+ * produit Cardmarket, que toutes les langues partagent. À la demande (après le catalogue : `bun run
+ * ingest cards`) ; une page toutes les 3 s : les quelque 28 000 cartes japonaises prennent environ
+ * 23 h la première fois, les quelque 25 000 françaises 21 h de plus. Chaque carte n'est lue qu'une
+ * fois (`history_imports`, par langue : `historyTodo`) : un passage suivant ne lit que les
+ * nouvelles cartes du catalogue, et un passage interrompu reprend là où il en était (une carte dont
+ * l'id Cardmarket change ensuite n'est pas relue : son nouveau produit n'a que les relevés
+ * suivants). Les séries les plus récentes d'abord. Son prix d'il y a 30 jours suit, et son avancée
+ * est notée (`sources` : `history`, toutes les 100 cartes et en fin de passage, même arrêté en
+ * route) : l'ETag des prix et des historiques change, les courbes la montrent aussitôt.
  */
 
 import type { Database } from 'bun:sqlite'
@@ -27,8 +29,9 @@ import { plural, TerminalProgress } from '../terminal-progress'
  * Les prix de la carte elle-même dans sa page (testé) : sa plus longue période, la série de son
  * produit Cardmarket (`cardmarket` : celui du catalogue ; s'il n'est plus celui de Pokécardex, rien)
  * sans version ni variante, au prix suivi par la tâche `prices` (« avg30 » : la tendance pour une
- * série récente, la moyenne sur 30 jours ensuite). Les versions (« Reverse Masterball ») et les
- * variantes (« Reverse ») sont d'autres prix : jamais mêlés. `null` sans historique.
+ * série récente, la moyenne sur 30 jours ensuite), aux jours écrits AAAA-MM-JJ. Les versions
+ * (« Reverse Masterball ») et les variantes (« Reverse ») sont d'autres prix : jamais mêlés. `null`
+ * sans historique.
  */
 export function mainHistory(
   page: PokecardexCardPage,
@@ -44,8 +47,10 @@ export function mainHistory(
       versionId === null && variant === 'normale' && metric === 'avg30',
   )
   if (!history || !series) return null
+  // Seulement un jour écrit AAAA-MM-JJ : une autre forme (une heure, un décalage) tomberait entre
+  // deux jours de l'année (`yearDay`), et chaque prix du jour suivant se perdrait.
   const points = history.points.flatMap(({ date, [series.id]: price }) =>
-    typeof price === 'number' && price > 0
+    /^\d{4}-\d{2}-\d{2}$/.test(date) && typeof price === 'number' && price > 0
       ? [[date, Math.round(price * 100) / 100] as [string, number]]
       : [],
   )
@@ -69,21 +74,48 @@ export function historyTodo(db: Database) {
     .all() as { lang: CardLanguage; id: number; cardmarket: number }[]
 }
 
+/**
+ * L'historique repris d'une carte (`mainHistory`) dans celui de son produit Cardmarket (testé) :
+ * ses jours avant le dernier relevé (`mergePrices`), puis son prix d'il y a 30 jours, en une
+ * transaction `IMMEDIATE`, le dernier relevé lu dedans. La tâche `prices` écrit les mêmes lignes
+ * depuis un autre processus (le service `ingest`, quand celle-ci tourne dans le conteneur `cards`) :
+ * la transaction prend le verrou d'écriture avant toute lecture, attend donc la fin de la sienne,
+ * et lit alors le prix du jour qu'elle vient d'écrire et son jour (lus avant, le prix serait effacé
+ * par la réécriture de l'année, et le prix d'il y a 30 jours compté depuis la veille). Rend le
+ * nombre de jours changés.
+ */
+export function mergeHistory(
+  db: Database,
+  cardmarket: number,
+  points: readonly [date: string, price: number][],
+) {
+  return db
+    .transaction(() => {
+      // Le jour du dernier relevé : lui et les suivants restent ceux de la tâche `prices`.
+      const until = readSource(db, 'cardmarket')?.date ?? null
+      const days = mergePrices(db, cardmarket, points, until)
+      if (until) {
+        db.query('UPDATE cardmarket_prices SET month_ago = ? WHERE id = ?').run(
+          historyStore(db).monthAgo(cardmarket, until),
+          cardmarket,
+        )
+      }
+      return days
+    })
+    .immediate()
+}
+
 export async function history(db: Database) {
   const todo = historyTodo(db)
   if (!todo.length) return
   const done = db.query(
     'INSERT OR REPLACE INTO history_imports (lang, card, read_at) VALUES (?, ?, ?)',
   )
-  const writeMonthAgo = db.query('UPDATE cardmarket_prices SET month_ago = ? WHERE id = ?')
-  const store = historyStore(db)
   /** L'avancée de la reprise, que suit l'ETag des prix et des historiques (`pricesTag`). */
   const progress = () => {
     const now = new Date().toISOString()
     writeSource(db, 'history', { stamp: now, date: now.slice(0, 10) })
   }
-  // Le jour du dernier relevé : lui et les suivants restent ceux de la tâche `prices`.
-  const until = readSource(db, 'cardmarket')?.date ?? null
   let read = 0
   let days = 0
   let inARow = 0
@@ -93,10 +125,7 @@ export async function history(db: Database) {
     for (const [index, card] of todo.entries()) {
       try {
         const points = mainHistory(await readCard(card.lang, card.id), card.cardmarket)
-        if (points) {
-          days += mergePrices(db, card.cardmarket, points, until)
-          if (until) writeMonthAgo.run(store.monthAgo(card.cardmarket, until), card.cardmarket)
-        }
+        if (points) days += mergeHistory(db, card.cardmarket, points)
         done.run(card.lang, card.id, new Date().toISOString())
         read++
         inARow = 0
@@ -122,8 +151,11 @@ export async function history(db: Database) {
   } catch (error) {
     bar.stop()
     throw error
+  } finally {
+    // Même arrêtée en route (10 pages en échec d'affilée), l'avancée est notée : les jours repris
+    // depuis la dernière centaine changent l'ETag des prix, et les clients ne gardent pas l'ancien.
+    progress()
   }
-  progress()
   console.log(
     `Historique (Pokécardex) : ${plural(read, 'carte lue', 'cartes lues')}, ` +
       plural(days, 'jour écrit', 'jours écrits'),

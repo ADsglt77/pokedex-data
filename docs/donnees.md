@@ -251,15 +251,24 @@ jours** au plus, presque jour par jour. Pour chaque carte du catalogue, dans les
 un id Cardmarket (environ 28 000 japonaises et 25 000 françaises), une fois : la série de la carte
 elle-même (`mainHistory`, testé : son produit Cardmarket, celui du catalogue, sans variante
 « Reverse » ni version, au prix suivi « avg30 », la même règle que `prices`, pour une française
-comme pour une japonaise), et chaque jour avant le dernier relevé prend son prix (`mergePrices`,
-testé : celui-là et les suivants restent ceux du relevé). Une page toutes les 3 s : environ 23 h
-pour les japonaises la première fois, 21 h de plus pour les françaises ; les séries les plus
-récentes d'abord, toutes langues mêlées ; chaque carte lue une fois (`history_imports`, une ligne
-par langue et par carte : `historyTodo`, testé, l'id 7091 japonais lu ne fait pas sauter le
-français), un passage suivant ne lit que les nouvelles ; 10 pages en échec d'affilée arrêtent la
-lecture ; des cartes en échec font échouer la tâche (relues au passage suivant). Le prix d'il y a
-30 jours de chaque carte reprise suit, et l'avancée est notée (`sources` : `history`, toutes les
-100 cartes), que suit l'ETag des prix.
+comme pour une japonaise ; seulement les jours écrits AAAA-MM-JJ, une autre forme tomberait entre
+deux jours), et chaque jour avant le dernier relevé prend son prix (`mergePrices`, testé :
+celui-là et les suivants restent ceux du relevé). L'année de la carte est lue, fusionnée et
+réécrite, avec son prix d'il y a 30 jours, en une transaction `IMMEDIATE` où se lit aussi le jour
+du dernier relevé (`mergeHistory`, testé avec deux processus) : la tâche `prices` (le service
+`ingest`) écrit les mêmes lignes pendant que `history` tourne dans le conteneur `cards`, et une
+année lue avant sa transaction effacerait le prix du jour en se réécrivant. Une page toutes les
+3 s : environ 23 h pour les japonaises la première fois, 21 h de plus pour les françaises ; les
+séries les plus récentes d'abord, toutes langues mêlées ; chaque carte lue une fois
+(`history_imports`, une ligne par langue et par carte : `historyTodo`, testé, l'id 7091 japonais
+lu ne fait pas sauter le français), un passage suivant ne lit que les nouvelles ; 10 pages en
+échec d'affilée arrêtent la lecture ; des cartes en échec font échouer la tâche (relues au passage
+suivant). Le prix d'il y a 30 jours de chaque carte reprise suit, et l'avancée est notée
+(`sources` : `history`, toutes les 100 cartes et en fin de passage, même arrêté par les échecs),
+que suit l'ETag des prix. Une carte reprise ne l'est plus : si son id Cardmarket change ensuite
+(le catalogue adopte celui que Pokécardex a corrigé), les 180 jours de son nouveau produit ne sont
+pas repris, seulement les relevés suivants (le corriger demanderait une étape du schéma : le
+produit repris dans `history_imports`).
 
 L'historique est celui d'un **produit Cardmarket** (`cardmarket_history`, par id produit) : une
 carte française qui partage son produit avec une autre carte (de toute langue) en reprend les prix

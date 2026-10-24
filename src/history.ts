@@ -90,9 +90,12 @@ export function historyStore(db: Database) {
 
 /**
  * Des prix repris d'ailleurs (`[jour, prix]` : l'historique de Pokécardex, `jobs/history.ts`) dans
- * l'historique de la carte `id`, en une transaction : chaque jour avant `until` (le jour du
- * dernier relevé, qui garde le dernier mot, lui et les suivants) prend le prix repris ; les autres
- * jours restent tels quels. Rend le nombre de jours changés.
+ * l'historique de la carte `id` : chaque jour avant `until` (le jour du dernier relevé, qui garde
+ * le dernier mot, lui et les suivants) prend le prix repris ; les autres jours restent tels quels.
+ * Les années lues, fusionnées et réécrites en une transaction `IMMEDIATE` (une étape de celle qui
+ * l'appelle, `mergeHistory`) : chaque année est réécrite entière, et lue avant le relevé du jour
+ * qu'un autre processus écrit (la tâche `prices`), elle l'effacerait. Rend le nombre de jours
+ * changés.
  */
 export function mergePrices(
   db: Database,
@@ -100,25 +103,27 @@ export function mergePrices(
   points: readonly [date: string, price: number][],
   until: string | null,
 ) {
-  const store = historyStore(db)
-  const years = new Map<number, HistoryYear | undefined>()
-  const changed = new Set<number>()
-  let days = 0
-  for (const [date, price] of points) {
-    if (until !== null && date >= until) continue
-    const [year, day] = yearDay(date)
-    if (!years.has(year)) years.set(year, store.year(id, year))
-    const known = years.get(year)
-    const next = withPrice(known, year, day, price)
-    if (next === known) continue
-    years.set(year, next)
-    changed.add(year)
-    days++
-  }
-  db.transaction(() => {
-    for (const year of changed) store.save(id, years.get(year)!)
-  })()
-  return days
+  return db
+    .transaction(() => {
+      const store = historyStore(db)
+      const years = new Map<number, HistoryYear | undefined>()
+      const changed = new Set<number>()
+      let days = 0
+      for (const [date, price] of points) {
+        if (until !== null && date >= until) continue
+        const [year, day] = yearDay(date)
+        if (!years.has(year)) years.set(year, store.year(id, year))
+        const known = years.get(year)
+        const next = withPrice(known, year, day, price)
+        if (next === known) continue
+        years.set(year, next)
+        changed.add(year)
+        days++
+      }
+      for (const year of changed) store.save(id, years.get(year)!)
+      return days
+    })
+    .immediate()
 }
 
 /**
