@@ -20,6 +20,9 @@ services:
   # L'API (`src/index.ts`) : elle lit la base et les images que remplit `ingest`, sans rien
   # télécharger. Ses tokens (`API_TOKENS`) viennent du fichier `.env` du clone (README) : sans eux,
   # docker compose refuse de démarrer. Son état (`docker compose ps`) : sain tant qu'elle répond.
+  # Une sonde toutes les 30 s, la première 30 s après le démarrage : le déploiement, qui attend
+  # 2 min au plus qu'elle soit saine (`deploy/deploy.sh`), en voit trois ou quatre, et une sonde
+  # manquée (les étapes du schéma au démarrage) n'en fait pas échouer un qui se remet.
   api:
     <<: *bun
     healthcheck:
@@ -28,7 +31,7 @@ services:
         - bun
         - -e
         - "fetch('http://127.0.0.1:3001/v1/health').then(() => process.exit(0), () => process.exit(1))"
-      interval: 1m
+      interval: 30s
       timeout: 10s
       start_period: 30s
       retries: 3

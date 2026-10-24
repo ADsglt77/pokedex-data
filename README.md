@@ -149,11 +149,16 @@ nouveau VPS, à installer avant le site.
    ```
 
 **Les cartes françaises, sur un VPS déjà en place** (une seule fois) : déployer l'API des données
-d'abord (ses routes japonaises ne changent pas : le site d'avant continue de tourner), puis le
-site. Au démarrage, l'API passe l'étape 17 du schéma, qui ajoute la langue aux clés du catalogue
-(les cartes japonaises deviennent `ja`, rien ne se perd). **Cette étape ne se défait pas en
-redéployant le code d'avant** : l'image d'avant refuse alors de démarrer (« data.db en est à
-l'étape 17 du schéma, ce code n'en connaît que 16 »). Avant de lancer le déploiement, sur le VPS :
+d'abord, puis, **seulement une fois le catalogue et les images français en place, le site** (plus
+bas). Les routes japonaises de l'API ne changent pas, sauf la copie d'images à la demande,
+supprimée : entre les deux déploiements, une image que la tâche `images` n'a pas encore copiée
+répond 404 au site d'avant (il montre la carte de substitution) au lieu d'être copiée. Au
+démarrage, l'API passe deux étapes du schéma : la 16 (le signe de vie des tâches) et la 17 (la
+langue dans les clés du catalogue : les cartes japonaises deviennent `ja`, rien ne se perd). Le
+code d'avant (celui d'`origin/main` du 20 octobre 2026) n'en connaît que 15. **Ces étapes ne se
+défont pas en redéployant le code d'avant** : l'image d'avant refuse alors de démarrer (« data.db
+en est à l’étape 17 du schéma, ce code n’en connaît que 15 (un code plus ancien ?) »). Avant de
+lancer le déploiement, sur le VPS :
 
 1. Aucune tâche lancée à la main ne doit tourner : le déploiement ne redémarre que `api` et
    `ingest`, et un conteneur ponctuel garderait le code d'avant, qui écrirait le catalogue sans
@@ -161,19 +166,23 @@ l'étape 17 du schéma, ce code n'en connaît que 16 »). Avant de lancer le dé
    un autre conteneur lancé par `docker compose run` (une tâche, `setup`) ; sinon, l'arrêter
    (`docker stop pokedex-data-cards`, puis `docker rm` : relancée après le déploiement, la tâche
    reprend où elle en était).
-2. Une copie de la base d'avant l'étape, sortie du volume et gardée à part. La sauvegarde
+2. Une copie de la base d'avant les étapes, sortie du volume et gardée à part. La sauvegarde
    quotidienne ne suffit pas : un fichier par jour (`data-AAAA-MM-JJ.db.gz`, le jour en UTC),
    remplacé quand la tâche repasse le même jour ; celle du jour peut donc devenir, après le
-   déploiement, une copie d'après l'étape. Ici, hors du dossier `sauvegardes`, que la copie de
+   déploiement, une copie d'après les étapes. Ici, hors du dossier `sauvegardes`, que la copie de
    chaque nuit vide (« Sauvegardes ») :
    ```sh
    docker compose run --rm ingest bun src/ingest.ts backups
    docker compose cp ingest:/backups/data-$(date -u +%F).db.gz ~/data-avant-catalogue-francais.db.gz
    ```
+3. Le commit du code en place, celui d'un retour en arrière (plus bas), gardé avec la copie :
+   ```sh
+   git rev-parse HEAD > ~/data-avant-catalogue-francais.commit
+   ```
 
-Puis déployer (le workflow, plus bas). Le catalogue français n'est pas encore lu : ses routes
-(`/v1/catalog/fr/…`) répondent 404 tant que `catalog` n'a pas tourné, et le site le dit. Le
-premier remplissage français, dans un conteneur ponctuel (comme à l'étape 6) :
+Puis déployer l'API (le workflow, plus bas). Tant que `catalog` n'a pas tourné, les routes
+françaises (`/v1/catalog/fr/…`) répondent 404 ; le site d'avant ne les demande pas. Le premier
+remplissage français, dans un conteneur ponctuel (comme à l'étape 6) :
 
 ```sh
 docker compose run -d --name pokedex-data-cards ingest bun src/ingest.ts cards
@@ -186,14 +195,63 @@ japonaises ont déjà n'est pas refait, et chaque étape reprend où elle en ét
 s'arrête. Le cache d'images du nginx du site est passé à 12 Go (`deploy/nginx.conf.template`) :
 vérifier la place libre du VPS avant, les images et la base y sont sur le même disque.
 
-**Revenir en arrière** (au code d'avant les cartes françaises) : seulement en remettant la copie
-d'avant l'étape, puis en déployant le code d'avant. Tout ce que la base a reçu depuis la copie est
-perdu : les cartes françaises (relues si l'on redéploie un jour), et surtout les jours du guide
-des prix lus depuis (l'historique, irremplaçable), sauf celui du jour, relu à la fin.
+**Le site ensuite, quand le catalogue et les images français sont en place** (l'historique, 21 h
+de plus, n'est pas un préalable : il continue après). L'API ne copie aucune image à la demande :
+un site déployé avant montrerait « Catalogue indisponible » pour les cartes françaises, et des
+cartes de substitution à la place de leurs scans. Le journal de `cards` donne chaque étape et son
+issue :
 
-1. Sur GitHub, ramener `main` au code d'avant (un `git revert` de la fusion), sans déployer.
+```sh
+docker logs pokedex-data-cards 2>&1 | grep -E '^\[[0-9]/3\]|Terminée|Échec|Étape ignorée'
+```
+
+Attendre `[3/3] Historique des prix`, précédé de deux `✓ Terminée` :
+
+```
+[1/3] Catalogue
+✓ Terminée en 15 min 02 s
+[2/3] Images copiées
+✓ Terminée en 1 h 10 min
+[3/3] Historique des prix
+```
+
+Puis déployer le site (son README). Un `✗ Échec` (une série ou une image en erreur) ou une
+`✗ Étape ignorée` (la même tâche, ou `history` pour `catalog`, déjà en cours ailleurs) :
+arrêter le conteneur (`docker stop pokedex-data-cards`, puis `docker rm pokedex-data-cards`) et
+relancer `cards`, qui ne refait que ce qui manque, jusqu'à ces deux `✓`.
+
+**Les images ne s'ajoutent que par la tâche `images`.** Des fichiers déposés autrement dans le
+volume `images` (`docker cp`, `rsync`, copiés d'une autre machine) y appartiennent à `root` : la
+tâche, qui tourne en tant que `bun` sans aucun droit (`cap_drop: ALL`), ne peut plus écrire dans
+leurs dossiers, chaque image y échoue (`EACCES`) et elle s'arrête à la 20e erreur. Après un tel
+dépôt, rendre le volume à `bun` (le seul droit ajouté, le temps de la commande : changer un
+propriétaire) :
+
+```sh
+docker compose run --rm --no-deps --user root --cap-add CHOWN ingest chown -R bun:bun /images
+```
+
+Un dépôt n'épargne d'ailleurs que les scans des cartes déjà notées dans la base : celui d'une
+carte pas encore notée est recopié de toute façon (une renumérotation de sa série a pu laisser à
+son chemin le scan d'une autre carte : « Images », `docs/donnees.md`).
+
+**Revenir en arrière** (au code d'avant les cartes françaises) : seulement en remettant la copie
+d'avant les étapes, puis en déployant le code d'avant. Tout ce que la base a reçu depuis la copie
+est perdu : les cartes françaises (relues si l'on redéploie un jour), et surtout les jours du
+guide des prix lus depuis (l'historique, irremplaçable), sauf celui du jour, relu à la fin.
+
+1. Ramener `main` au code d'avant, sans déployer : sur un clone à jour (pas celui du VPS),
+   annuler en un seul commit tous les commits venus depuis celui noté avant le déploiement
+   (`~/data-avant-catalogue-francais.commit` sur le VPS ; l'historique est linéaire, sans commit
+   de fusion à annuler), puis pousser. Un nouveau commit, jamais une réécriture de `main` : le
+   VPS ne fait que `git pull --ff-only`.
+   ```sh
+   git revert --no-commit <commit noté>..HEAD
+   git commit -m "Retour au code d'avant les cartes françaises"
+   git push
+   ```
 2. Sur le VPS, arrêter l'API et les tâches, puis remettre la copie, **sans** `docker compose up`
-   (l'image en place, celle des cartes françaises, repasserait l'étape) :
+   (l'image en place, celle des cartes françaises, repasserait les étapes) :
    ```sh
    docker compose stop api ingest
    docker rm -f pokedex-data-cards   # s'il existe : une tâche du code des cartes françaises
@@ -206,7 +264,11 @@ des prix lus depuis (l'historique, irremplaçable), sauf celui du jour, relu à 
 **Ensuite, à chaque déploiement** (`.github/workflows/deploy.yml`, lancé à la main depuis l'onglet
 Actions) : GitHub se connecte au VPS en SSH, fait `git pull` et lance `deploy/deploy.sh`. La
 construction lance d'abord les tests, TypeScript, ESLint et knip ; si elle échoue, l'ancienne
-version reste en ligne. Une fois les conteneurs redémarrés, le script vérifie que l'API répond. Les
+version reste en ligne. Une fois les conteneurs redémarrés, le script vérifie que l'API répond.
+Il ne redémarre que `api` et `ingest` : un conteneur ponctuel (`pokedex-data-cards`, ou une autre
+tâche lancée par `docker compose run`, que montre `docker ps`) garde le code d'avant et continue
+d'écrire la base. Le script le signale pour `pokedex-data-cards` ; l'arrêter (`docker stop`, puis
+`docker rm`) et relancer sa tâche après le déploiement : elle reprend où elle en était. Les
 secrets du dépôt (Settings › Secrets and variables › Actions) : `VPS_HOST`, `VPS_USER`, `VPS_PORT`
 et `VPS_FINGERPRINT`, les mêmes valeurs que pour le site ; `VPS_PATH`, le dossier de ce clone ; et
 `VPS_SSH_KEY`, **une clé propre à ce dépôt, jamais celle du site**.
