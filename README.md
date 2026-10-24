@@ -129,9 +129,10 @@ nouveau VPS, à installer avant le site.
    ```
 6. Le reste des cartes, japonaises et françaises (le catalogue est déjà lu ; leurs images, 2,5 à
    3 Go en tout ; puis leur historique : environ 44 h la première fois, 23 pour les japonaises et
-   21 pour les françaises), dans un conteneur ponctuel, sans garder la connexion SSH ouverte :
+   21 pour les françaises), dans un conteneur ponctuel, sans garder la connexion SSH ouverte
+   (`-T` : sans terminal, son journal a des lignes simples, pas une barre redessinée) :
    ```sh
-   docker compose run -d --name pokedex-data-cards ingest bun src/ingest.ts cards
+   docker compose run -d -T --name pokedex-data-cards ingest bun src/ingest.ts cards
    docker logs -f pokedex-data-cards
    ```
    Ce conteneur-là, Docker ne le relance pas (un `docker compose run` n'a pas de politique de
@@ -145,7 +146,7 @@ nouveau VPS, à installer avant le site.
    image ou carte en échec suffit). Relancer `cards`, qui ne refait que ce qui manque (les séries
    pas encore lues, les images absentes, l'historique des cartes pas encore lues), jusqu'à `0` :
    ```sh
-   docker compose run -d --name pokedex-data-cards ingest bun src/ingest.ts cards
+   docker compose run -d -T --name pokedex-data-cards ingest bun src/ingest.ts cards
    ```
 
 **Les cartes françaises, sur un VPS déjà en place** (une seule fois) : déployer l'API des données
@@ -185,7 +186,7 @@ françaises (`/v1/catalog/fr/…`) répondent 404 ; le site d'avant ne les deman
 remplissage français, dans un conteneur ponctuel (comme à l'étape 6) :
 
 ```sh
-docker compose run -d --name pokedex-data-cards ingest bun src/ingest.ts cards
+docker compose run -d -T --name pokedex-data-cards ingest bun src/ingest.ts cards
 docker logs -f pokedex-data-cards
 ```
 
@@ -199,10 +200,11 @@ vérifier la place libre du VPS avant, les images et la base y sont sur le même
 de plus, n'est pas un préalable : il continue après). L'API ne copie aucune image à la demande :
 un site déployé avant montrerait « Catalogue indisponible » pour les cartes françaises, et des
 cartes de substitution à la place de leurs scans. Le journal de `cards` donne chaque étape et son
-issue :
+issue (sans `^` : lancé avec un terminal, sans `-T`, chaque en-tête d'étape commence par un code
+de couleur ; `-a` : `grep` lit alors quand même le journal comme du texte) :
 
 ```sh
-docker logs pokedex-data-cards 2>&1 | grep -E '^\[[0-9]/3\]|Terminée|Échec|Étape ignorée'
+docker logs pokedex-data-cards 2>&1 | grep -aE '\[[0-9]/3\]|Terminée|Échec|Étape ignorée'
 ```
 
 Attendre `[3/3] Historique des prix`, précédé de deux `✓ Terminée` :
@@ -231,9 +233,9 @@ propriétaire) :
 docker compose run --rm --no-deps --user root --cap-add CHOWN ingest chown -R bun:bun /images
 ```
 
-Un dépôt n'épargne d'ailleurs que les scans des cartes déjà notées dans la base : celui d'une
-carte pas encore notée est recopié de toute façon (une renumérotation de sa série a pu laisser à
-son chemin le scan d'une autre carte : « Images », `docs/donnees.md`).
+Un dépôt n'épargne d'ailleurs que les scans des cartes déjà notées avec leur scan : celui d'une
+carte à chercher est recopié de toute façon (une renumérotation de sa série a pu laisser à son
+chemin le scan d'une autre carte : « Images », `docs/donnees.md`).
 
 **Revenir en arrière** (au code d'avant les cartes françaises) : seulement en remettant la copie
 d'avant les étapes, puis en déployant le code d'avant. Tout ce que la base a reçu depuis la copie
@@ -291,7 +293,7 @@ restrict,command="cd /chemin/du/clone/pokedex-data && git pull --ff-only && sh d
 ```
 
 **Lancer une tâche à la main** (de nouvelles cartes, relire tout le catalogue…) ; une longue, comme
-plus haut, avec `-d --name …` au lieu de `--rm` :
+plus haut, avec `-d -T --name …` au lieu de `--rm` :
 
 ```sh
 docker compose run --rm ingest bun src/ingest.ts cards

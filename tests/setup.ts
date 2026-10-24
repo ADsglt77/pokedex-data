@@ -16,9 +16,9 @@ process.env.DATA_DIR = dir
 // Les images et les sauvegardes aussi : jamais celles du `.env`.
 process.env.IMAGES_DIR = join(dir, 'images')
 process.env.BACKUP_DIR = join(dir, 'backups')
-// Bun ne garde que 20 requêtes compilées par base (`db.query`), et une requête sortie de ce cache
-// n'est pas fermée avec la base : sous Windows, sa base resterait ouverte et le dossier ne se
-// retirerait pas. Les tests d'un fichier en compilent davantage sur la même base.
+// Bun ne garde en cache que les 20 premières requêtes compilées d'une base (`db.query`) ; les
+// suivantes ne le sont jamais, et `close()` ne les ferme pas : sous Windows, la base resterait
+// ouverte et le dossier ne se retirerait pas. Les tests d'un fichier en compilent davantage.
 Database.MAX_QUERY_CACHE_SIZE = 1000
 
 afterAll(() => rmSync(dir, { recursive: true, force: true }))
