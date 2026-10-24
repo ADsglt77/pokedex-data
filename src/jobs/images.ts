@@ -16,9 +16,9 @@
  * (même si son fichier existe : après une renumérotation de sa série, celui de son rang est le scan
  * d'une autre carte), deux à la fois : Pokécardex prête ses images, on ne l'inonde pas. Une carte
  * que le catalogue déplace pendant sa copie n'est pas notée : elle reste à chercher, à sa nouvelle
- * place. Le premier passage (environ 1,5 Go pour les japonaises, 1 à 1,4 Go de plus
- * pour les françaises) prend une heure ou plus. Une image en erreur (panne, réponse qui n'est pas une
- * image) n'empêche pas les autres : rien n'est noté pour elle, la tâche échoue à la fin pour être
+ * place. Le premier passage (environ 1,5 Go pour les japonaises, 1 à 1,4 Go de plus pour les
+ * françaises) prend une heure ou plus. Une image en erreur (panne, réponse qui n'est pas une image)
+ * n'empêche pas les autres : rien n'est noté pour elle, la tâche échoue à la fin pour être
  * relancée, et l'image est redemandée. À la 20e erreur, la source est sans doute en panne : la
  * tâche s'arrête là. En fin de tâche, même arrêtée, les réponses du catalogue sont recalculées
  * (`saveCatalog`).
