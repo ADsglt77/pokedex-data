@@ -152,8 +152,8 @@ const imageFile = (path: string) => join(IMAGES_DIR, path.slice('/images/'.lengt
  * si la source ne l'a pas (404). Une autre erreur (panne, réponse qui n'est pas une image) est
  * levée : réessayer plus tard. Écrite d'un coup : l'API (`serveImage`) ne sert jamais une image à
  * moitié écrite, que le nginx du site garderait ensuite (90 jours sans demande). `force` : copiée
- * même si le fichier existe, qu'elle remplace (le scan d'une carte pas encore notée : son chemin,
- * celui de son rang, a pu être celui d'une autre carte de la série, avant une renumérotation).
+ * même si le fichier existe, qu'elle remplace (le scan d'une carte : son chemin, celui de son rang,
+ * a pu être celui d'une autre carte de la série, avant une renumérotation).
  */
 export async function mirror(path: string, { force = false } = {}): Promise<boolean> {
   const file = imageFile(path)
@@ -181,6 +181,12 @@ export async function mirror(path: string, { force = false } = {}): Promise<bool
   }
   return true
 }
+
+/**
+ * Retire la copie d'un chemin local, s'il y en a une : le scan d'une carte que la source n'a pas
+ * (le fichier de son rang serait celui d'une autre carte).
+ */
+export const removeImage = (path: string) => rm(imageFile(path), { force: true })
 
 /**
  * Gardées un an par les navigateurs (et par le nginx du site, `proxy_cache`), sans redemande : une

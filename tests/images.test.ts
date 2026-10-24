@@ -5,7 +5,8 @@
  * télécharger (la tâche `images` les copie toutes d'avance) ; l'adresse d'origine de chaque chemin
  * (le scan français est celui du dossier `FR`, jamais celui sans langue, qui n'est pas lui). Après
  * une renumérotation d'une série par la source, la tâche `images` recopie le scan de chaque carte
- * remise à chercher (le fichier de son rang était celui d'une autre carte), et ne note jamais une
+ * cherchée (le fichier de son rang était celui d'une autre carte), ne garde aucun fichier pour une
+ * carte que la source n'a pas (ni à sa recherche de la semaine suivante), et ne note jamais une
  * carte que le catalogue a déplacée pendant la copie. Jamais le réseau : `fetch` est remplacé.
  */
 
@@ -155,8 +156,12 @@ describe('une série renumérotée par la source', () => {
   const READ_AT = '2026-10-20T10:00:00.000Z'
   const LATER = '2026-10-21T10:00:00.000Z'
 
-  /** La série X chez la source : ses cartes, dans son ordre (leur rang : 1, 2…). */
-  let source: [id: number, name: string][] = []
+  /**
+   * La série X chez la source : ses cartes, dans son ordre (leur rang : 1, 2…), et les tailles de
+   * leur scan qu'elle a (toutes, sans précision).
+   */
+  type SourceCard = [id: number, name: string, sizes?: ('md' | 'hd')[]]
+  let source: SourceCard[] = []
 
   /** La page de la série X telle que la source la donne à ce moment. */
   const seriesPage = (): PokecardexSeries => ({
@@ -180,16 +185,16 @@ describe('une série renumérotée par la source', () => {
   })
 
   /** La source change : ses cartes, et la lecture de la série par le catalogue. */
-  const sourceHas = (db: Database, cards: [number, string][], readAt: string) => {
+  const sourceHas = (db: Database, cards: SourceCard[], readAt: string) => {
     source = cards
     seriesWriter(db).save('ja', 'X', seriesPage(), readAt, null)
   }
 
-  /** Le scan de chaque rang de la série X chez la source : « scan de <carte> ». */
+  /** Le scan de chaque rang de la série X chez la source : « scan de <carte> », sinon 404. */
   const scanOf = (url: string) => {
-    const rank = Number(/\/sets_jp\/X\/(\d+)\.jpg/.exec(url)?.[1])
-    const card = source[rank - 1]
-    return card
+    const [, rank, size] = /\/sets_jp\/X\/(\d+)\.jpg\?class=(md|hd)/.exec(url)!
+    const card = source[Number(rank) - 1]
+    return card && (card[2] ?? ['md', 'hd']).includes(size as 'md' | 'hd')
       ? new Response(`scan de ${card[1]}`, { headers: { 'Content-Type': 'image/webp' } })
       : new Response(null, { status: 404 })
   }
@@ -268,6 +273,46 @@ describe('une série renumérotée par la source', () => {
       { id: 11, sort: 3, image: 'pokecardex' },
     ])
   })
+
+  /**
+   * Pichu arrive en tête sans scan chez la source (`sizes` : seulement ces tailles) : le fichier du
+   * rang 1, celui de Pikachu, n'est jamais servi pour lui ni gardé, même à la recherche de la
+   * semaine suivante.
+   */
+  async function arrivedWithoutScan(sizes: ('md' | 'hd')[]) {
+    const db = database()
+    await copiedBesidesScans()
+    sourceAnswers()
+    sourceHas(db, [[10, 'Pikachu']], READ_AT)
+    await images(db)
+    sourceHas(
+      db,
+      [
+        [12, 'Pichu', sizes],
+        [10, 'Pikachu'],
+      ],
+      LATER,
+    )
+    await images(db)
+    const files = [404, 404, 'scan de Pikachu', 'scan de Pikachu']
+    const notes = [
+      { id: 12, sort: 1, image: 'none' },
+      { id: 10, sort: 2, image: 'pokecardex' },
+    ]
+    expect(await scans(db, 2)).toEqual(files)
+    expect(noted(db)).toEqual(notes)
+    // La semaine suivante, la carte sans scan est cherchée de nouveau ; la source ne l'a toujours pas.
+    db.run("UPDATE cards SET image_checked = '2026-01-01T00:00:00.000Z' WHERE image = 'none'")
+    await images(db)
+    expect(await scans(db, 2)).toEqual(files)
+    expect(noted(db)).toEqual(notes)
+  }
+
+  test('une carte arrivée en tête sans scan chez la source : jamais celui de sa voisine', () =>
+    arrivedWithoutScan([]))
+
+  test('une carte arrivée en tête avec un seul de ses deux scans : jamais celui de sa voisine', () =>
+    arrivedWithoutScan(['md']))
 
   test('une carte que le catalogue déplace pendant sa copie n’est pas notée à son ancien rang', async () => {
     const db = database()

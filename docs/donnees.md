@@ -107,15 +107,18 @@ dossier `fr/` de plus, les japonais n'ont pas changé.
 - **Une série renumérotée** (testé) : le chemin d'un scan suit le rang de la carte. Quand la
   source change le rang ou la série d'une carte (une carte arrivée en tête de série décale les
   suivantes), le catalogue la remet à chercher (`cards.image` nul), et le fichier de son nouveau
-  chemin est souvent le scan de la carte qui avait ce rang : la tâche recopie donc le scan de
-  toute carte pas encore notée, même si son fichier existe (`mirror`, `force`), en le remplaçant
-  d'un coup. Elle note une carte seulement si elle est encore à la place copiée (sa série et son
-  rang : le catalogue, dans un autre processus, a pu la déplacer entre-temps ; elle reste alors à
-  chercher). Les chemins ne changent pas (décision du propriétaire, octobre 2026 : aucun rang
-  changé du 19 au 24 octobre) : un navigateur qui avait l'ancien scan d'un chemin le garde jusqu'à
-  ce que son cache se vide (`immutable`, un an), le nginx du site jusqu'à son prochain
-  déploiement, qui vide son cache. Un fichier déposé à la main pour une carte pas encore notée est
-  donc recopié aussi.
+  chemin est souvent le scan de la carte qui avait ce rang : la tâche recopie donc chaque scan
+  qu'elle cherche (une carte pas encore notée, une carte sans scan cherchée de nouveau chaque
+  semaine), même si son fichier existe (`mirror`, `force`), en le remplaçant d'un coup ; une carte
+  dont la source n'a pas ses deux scans n'en garde aucun (`removeImage` : le fichier de son rang,
+  celui d'une autre carte, serait servi pour elle, et pris pour le sien la semaine suivante). Elle
+  note une carte seulement si elle est encore à la place copiée (sa série et son rang : le
+  catalogue, dans un autre processus, a pu la déplacer entre-temps ; elle reste alors à chercher).
+  Les chemins ne changent pas (choix fait lors des corrections d'octobre 2026, aucun rang n'ayant
+  changé du 19 au 24 octobre) : un navigateur qui avait l'ancien scan d'un chemin le garde
+  jusqu'à ce que son cache se vide (`immutable`, un an), le nginx du site jusqu'à son prochain
+  déploiement, qui vide son cache. Un fichier déposé à la main pour une carte à chercher est donc
+  recopié aussi.
 - **Aucune copie à la demande** (décision du propriétaire, octobre 2026) : `serveImage` sert le
   fichier s'il existe, sinon 404 sans rien télécharger (une réponse sans cache : l'image est servie
   dès que la tâche l'a copiée) ; le site montre alors la carte de substitution. Seulement pour un
