@@ -12,8 +12,11 @@
  *   (`md` pour les grilles, `hd` pour la fiche), ou aucun. Le résultat est noté (`cards.image`) :
  *   l'app sait d'avance quelle carte n'a pas d'image. Une carte sans scan est recherchée chaque
  *   semaine (Pokécardex en ajoute).
- * Seules les images qui manquent sont téléchargées, deux à la fois : Pokécardex prête ses images,
- * on ne l'inonde pas. Le premier passage (environ 1,5 Go pour les japonaises, 1 à 1,4 Go de plus
+ * Seules les images qui manquent sont téléchargées, et le scan de chaque carte pas encore notée
+ * (même si son fichier existe : après une renumérotation de sa série, celui de son rang est le scan
+ * d'une autre carte), deux à la fois : Pokécardex prête ses images, on ne l'inonde pas. Une carte
+ * que le catalogue déplace pendant sa copie n'est pas notée : elle reste à chercher, à sa nouvelle
+ * place. Le premier passage (environ 1,5 Go pour les japonaises, 1 à 1,4 Go de plus
  * pour les françaises) prend une heure ou plus. Une image en erreur (panne, réponse qui n'est pas une
  * image) n'empêche pas les autres : rien n'est noté pour elle, la tâche échoue à la fin pour être
  * relancée, et l'image est redemandée. À la 20e erreur, la source est sans doute en panne : la
@@ -38,9 +41,9 @@ export async function images(db: Database) {
   const failed: string[] = []
   let active: TerminalProgress | null = null
   /** Copie une image : `true`, `false` si la source ne l'a pas, `null` en erreur. */
-  const copy = async (path: string) => {
+  const copy = async (path: string, force = false) => {
     try {
-      return await mirror(path)
+      return await mirror(path, { force })
     } catch (error) {
       failed.push(path)
       active?.clear()
@@ -103,27 +106,41 @@ export async function images(db: Database) {
     })
     active.finish()
 
-    // Les cartes jamais cherchées, et celles sans scan cherché il y a plus d'une semaine.
+    // Les cartes jamais cherchées (dont celles que le catalogue remet à chercher : leur série ou leur
+    // rang a changé), et celles sans scan cherché il y a plus d'une semaine.
     const cards = db
       .query(
-        `SELECT lang, id, set_id AS 'set', sort FROM cards
+        `SELECT lang, id, set_id AS 'set', sort, image FROM cards
          WHERE image IS NULL OR (image = 'none' AND image_checked < ?)`,
       )
-      .all(weekAgo) as { lang: CardLanguage; id: number; set: string; sort: number }[]
+      .all(weekAgo) as {
+      lang: CardLanguage
+      id: number
+      set: string
+      sort: number
+      image: 'none' | null
+    }[]
+    // Seulement si la carte est encore à cette place : le catalogue, dans un autre processus, a pu
+    // la déplacer pendant la copie (elle reste alors à chercher, à sa nouvelle place).
     const write = db.query(
-      'UPDATE cards SET image = ?, image_checked = ? WHERE lang = ? AND id = ?',
+      `UPDATE cards SET image = ?, image_checked = ?
+       WHERE lang = ? AND id = ? AND set_id = ? AND sort = ?`,
     )
     let found = 0
     let done = 0
     active = new TerminalProgress('Scans des cartes', cards.length)
-    await mapPool(cards, 2, async ({ lang, id, set, sort }) => {
+    await mapPool(cards, 2, async ({ lang, id, set, sort, image }) => {
+      // Une carte pas encore notée : son scan est recopié même si son fichier existe. Les chemins
+      // suivent le rang ; après une renumérotation de la série (une carte arrivée, une carte
+      // déplacée), ce fichier est le scan de la carte qui avait ce rang.
+      const force = image === null
       const copied =
-        (await copy(cardScan(lang, set, sort, 'md'))) &&
-        (await copy(cardScan(lang, set, sort, 'hd')))
+        (await copy(cardScan(lang, set, sort, 'md'), force)) &&
+        (await copy(cardScan(lang, set, sort, 'hd'), force))
       // Noté carte par carte : un premier passage interrompu reprend où il en était. En erreur,
       // rien n'est noté : la carte est cherchée de nouveau au prochain passage.
       if (copied !== null) {
-        write.run(copied ? 'pokecardex' : 'none', new Date().toISOString(), lang, id)
+        write.run(copied ? 'pokecardex' : 'none', new Date().toISOString(), lang, id, set, sort)
       }
       if (copied) found++
       active?.update(++done)

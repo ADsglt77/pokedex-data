@@ -3,17 +3,32 @@
  * à leur fichier, plausibles seulement si leur langue a la série (sinon une carte française
  * montrerait le scan d'une japonaise) ; une image qui n'est pas copiée répond 404 sans rien
  * télécharger (la tâche `images` les copie toutes d'avance) ; l'adresse d'origine de chaque chemin
- * (le scan français est celui du dossier `FR`, jamais celui sans langue, qui n'est pas lui).
- * Jamais le réseau : `fetch` est remplacé.
+ * (le scan français est celui du dossier `FR`, jamais celui sans langue, qui n'est pas lui). Après
+ * une renumérotation d'une série par la source, la tâche `images` recopie le scan de chaque carte
+ * remise à chercher (le fichier de son rang était celui d'une autre carte), et ne note jamais une
+ * carte que le catalogue a déplacée pendant la copie. Jamais le réseau : `fetch` est remplacé.
  */
 
 import { Database } from 'bun:sqlite'
 import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test'
 import { mkdirSync, rmSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { CARD_TYPES } from '../src/config/catalog'
+import { SPECIES_IDS } from '../src/config/pokedex'
 import type { CardLanguage } from '../src/contract'
 import { DATA_STEPS, migrate } from '../src/db'
-import { cardScan, mirror, serveImage, setLogo } from '../src/images'
+import {
+  artworkUrl,
+  cardScan,
+  mirror,
+  serveImage,
+  setLogo,
+  spriteUrl,
+  typeIcon,
+} from '../src/images'
+import { seriesWriter } from '../src/jobs/catalog'
+import { images } from '../src/jobs/images'
+import type { PokecardexSeries } from '../src/lib/pokecardex'
 // Pour sa garde : les fichiers de ces tests vont dans le dossier temporaire de `setup.ts`.
 import './server'
 
@@ -131,6 +146,167 @@ describe('les chemins par langue', () => {
       expect([path, await served(db, path)]).toEqual([path, 404])
     }
     expect(network).not.toHaveBeenCalled()
+  })
+})
+
+describe('une série renumérotée par la source', () => {
+  // Les chemins des scans suivent le rang : après l'arrivée d'une carte en tête de série, le
+  // fichier du rang 1 est celui de l'ancienne première carte, qu'il ne faut jamais garder.
+  const READ_AT = '2026-10-20T10:00:00.000Z'
+  const LATER = '2026-10-21T10:00:00.000Z'
+
+  /** La série X chez la source : ses cartes, dans son ordre (leur rang : 1, 2…). */
+  let source: [id: number, name: string][] = []
+
+  /** La page de la série X telle que la source la donne à ce moment. */
+  const seriesPage = (): PokecardexSeries => ({
+    currentSeries: { shortName: 'X', fullName: 'Série X', releaseDateFR: '2026-10-01 00:00:00' },
+    cartes: source.map(([id_card, name], index) => ({
+      id_card,
+      sort: index + 1,
+      num_card: `${index + 1}/100`,
+      name_card_fr: name,
+      name_card_en: name,
+      name_card_de: name,
+      id_pokedex_list: [],
+      id_cardmarket: null,
+      cardmarket_url: null,
+      only_english: 0,
+      id_rarete: null,
+      id_type: null,
+      nom_illustrateur: '',
+      versions: [],
+    })),
+  })
+
+  /** La source change : ses cartes, et la lecture de la série par le catalogue. */
+  const sourceHas = (db: Database, cards: [number, string][], readAt: string) => {
+    source = cards
+    seriesWriter(db).save('ja', 'X', seriesPage(), readAt, null)
+  }
+
+  /** Le scan de chaque rang de la série X chez la source : « scan de <carte> ». */
+  const scanOf = (url: string) => {
+    const rank = Number(/\/sets_jp\/X\/(\d+)\.jpg/.exec(url)?.[1])
+    const card = source[rank - 1]
+    return card
+      ? new Response(`scan de ${card[1]}`, { headers: { 'Content-Type': 'image/webp' } })
+      : new Response(null, { status: 404 })
+  }
+
+  /** `fetch` remplacé par la source : `meanwhile` (ce qui y change à ce moment), puis le scan. */
+  const sourceAnswers = (meanwhile = () => {}) =>
+    network.mockImplementation((async (url: string | URL | Request) => {
+      meanwhile()
+      return scanOf(String(url))
+    }) as typeof fetch)
+
+  /** Déjà copiées : les images d'avant les scans (logo, icônes, Pokémon), sans requête. */
+  const copiedBesidesScans = () =>
+    Promise.all([
+      put(setLogo('ja', 'X', 'md'), 'logo'),
+      put(setLogo('ja', 'X', 'hd'), 'logo'),
+      ...[...CARD_TYPES].map((type) => put(typeIcon(type), 'icône')),
+      ...SPECIES_IDS.flatMap((id) => [put(spriteUrl(id), 'sprite'), put(artworkUrl(id), 'art')]),
+    ])
+
+  const scans = async (db: Database, ranks: number) => {
+    const files: (string | number)[] = []
+    for (let rank = 1; rank <= ranks; rank++) {
+      files.push(await served(db, cardScan('ja', 'X', rank, 'md')))
+      files.push(await served(db, cardScan('ja', 'X', rank, 'hd')))
+    }
+    return files
+  }
+
+  const noted = (db: Database) =>
+    db.query("SELECT id, sort, image FROM cards WHERE lang = 'ja' ORDER BY sort").all()
+
+  test('une carte arrivée en tête : chaque carte retrouve son scan, recopié par la tâche', async () => {
+    const db = database()
+    await copiedBesidesScans()
+    sourceAnswers()
+    sourceHas(
+      db,
+      [
+        [10, 'Pikachu'],
+        [11, 'Raichu'],
+      ],
+      READ_AT,
+    )
+    await images(db)
+    expect(await scans(db, 2)).toEqual([
+      'scan de Pikachu',
+      'scan de Pikachu',
+      'scan de Raichu',
+      'scan de Raichu',
+    ])
+
+    // Pichu arrive en tête : Pikachu passe au rang 2, Raichu au 3 (le catalogue les remet à
+    // chercher), Pichu prend le rang 1, dont le fichier est celui de Pikachu.
+    sourceHas(
+      db,
+      [
+        [12, 'Pichu'],
+        [10, 'Pikachu'],
+        [11, 'Raichu'],
+      ],
+      LATER,
+    )
+    await images(db)
+    expect(await scans(db, 3)).toEqual([
+      'scan de Pichu',
+      'scan de Pichu',
+      'scan de Pikachu',
+      'scan de Pikachu',
+      'scan de Raichu',
+      'scan de Raichu',
+    ])
+    expect(noted(db)).toEqual([
+      { id: 12, sort: 1, image: 'pokecardex' },
+      { id: 10, sort: 2, image: 'pokecardex' },
+      { id: 11, sort: 3, image: 'pokecardex' },
+    ])
+  })
+
+  test('une carte que le catalogue déplace pendant sa copie n’est pas notée à son ancien rang', async () => {
+    const db = database()
+    await copiedBesidesScans()
+    sourceHas(db, [[10, 'Pikachu']], READ_AT)
+    // Le catalogue, dans un autre processus, relit la série pendant la copie du scan de Pikachu
+    // (rang 1) : Pichu arrive en tête, Pikachu passe au rang 2.
+    let moved = false
+    sourceAnswers(() => {
+      if (!moved) {
+        moved = true
+        sourceHas(
+          db,
+          [
+            [12, 'Pichu'],
+            [10, 'Pikachu'],
+          ],
+          LATER,
+        )
+      }
+    })
+    await images(db)
+    // Le rang 1 copié est celui de Pichu ; Pikachu, au rang 2, reste à chercher.
+    expect(noted(db)).toEqual([
+      { id: 12, sort: 1, image: null },
+      { id: 10, sort: 2, image: null },
+    ])
+
+    await images(db)
+    expect(await scans(db, 2)).toEqual([
+      'scan de Pichu',
+      'scan de Pichu',
+      'scan de Pikachu',
+      'scan de Pikachu',
+    ])
+    expect(noted(db)).toEqual([
+      { id: 12, sort: 1, image: 'pokecardex' },
+      { id: 10, sort: 2, image: 'pokecardex' },
+    ])
   })
 })
 

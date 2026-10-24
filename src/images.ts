@@ -151,11 +151,13 @@ const imageFile = (path: string) => join(IMAGES_DIR, path.slice('/images/'.lengt
  * Copie chez nous l'image d'un chemin local : `true` si elle y est (déjà, ou maintenant), `false`
  * si la source ne l'a pas (404). Une autre erreur (panne, réponse qui n'est pas une image) est
  * levée : réessayer plus tard. Écrite d'un coup : l'API (`serveImage`) ne sert jamais une image à
- * moitié écrite, que le nginx du site garderait ensuite (90 jours sans demande).
+ * moitié écrite, que le nginx du site garderait ensuite (90 jours sans demande). `force` : copiée
+ * même si le fichier existe, qu'elle remplace (le scan d'une carte pas encore notée : son chemin,
+ * celui de son rang, a pu être celui d'une autre carte de la série, avant une renumérotation).
  */
-export async function mirror(path: string): Promise<boolean> {
+export async function mirror(path: string, { force = false } = {}): Promise<boolean> {
   const file = imageFile(path)
-  if (await Bun.file(file).exists()) return true
+  if (!force && (await Bun.file(file).exists())) return true
   // Toujours un chemin connu : bâti par `cardScan`… (tâche `images`).
   const { upstream, parts } = upstreamOf(path)!
   const url = upstream.url(...parts)
@@ -182,7 +184,11 @@ export async function mirror(path: string): Promise<boolean> {
 
 /**
  * Gardées un an par les navigateurs (et par le nginx du site, `proxy_cache`), sans redemande : une
- * image copiée ne change jamais (`mirror` ne réécrit pas un fichier qui existe).
+ * image copiée ne change pas, sauf le scan d'une carte dont la source a changé le rang ou la série
+ * (`jobs/images.ts` le recopie). Ce cas, jamais vu (aucun rang changé du 19 au 24 octobre 2026),
+ * est accepté : un navigateur qui avait l'ancien scan de ce chemin le garde jusqu'à ce que son
+ * cache se vide, le nginx du site jusqu'à son prochain déploiement (son cache, dans son conteneur,
+ * y est vidé).
  */
 const IMAGE_HEADERS = { 'Cache-Control': 'public, max-age=31536000, immutable' }
 
