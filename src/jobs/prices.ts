@@ -17,6 +17,7 @@ import { addDays } from '@/lib/time'
 import { readSource, writeSource } from '../db'
 import { historyStore, withPrice, yearDay } from '../history'
 import { download } from '../lib/net'
+import { plural } from '../terminal-progress'
 
 const DOWNLOADS = 'https://downloads.s3.cardmarket.com/productCatalog'
 const PRICE_GUIDE_URL = `${DOWNLOADS}/priceGuide/price_guide_6.json`
@@ -89,12 +90,32 @@ export async function prices(db: Database) {
 
   const [guide, products] = await Promise.all([
     download(PRICE_GUIDE_URL).then((response) => response.json() as Promise<PriceGuide>),
-    download(PRODUCTS_URL).then((response) => response.json() as Promise<ProductList>),
+    // La liste des produits ne sert qu'à la liste de souhaits : illisible (renommée, en panne), le
+    // guide des prix, dont chaque jour manqué l'est pour toujours, s'enregistre sans elle.
+    download(PRODUCTS_URL)
+      .then((response) => response.json() as Promise<ProductList>)
+      .catch((error: unknown) => {
+        console.warn(
+          'Cardmarket : liste des produits illisible :',
+          error instanceof Error ? error.message : error,
+        )
+        return null
+      }),
   ])
   // Sans date de mise à jour (l'en-tête absent), l'heure du guide : deux guides d'un même jour
   // n'ont pas le même tampon, ni les réponses tirées des prix le même ETag.
-  const { date, cards, written } = savePriceGuide(db, guide, products, stamp || guide.createdAt)
+  const { date, cards, written, unsavedProducts } = savePriceGuide(
+    db,
+    guide,
+    products,
+    stamp || guide.createdAt,
+  )
   console.log(`Cardmarket, prix du ${date} : ${cards} cartes, ${written} historiques mis à jour`)
+  if (unsavedProducts) {
+    console.warn(
+      `Cardmarket : liste des produits pas enregistrée (${unsavedProducts}) : celle d’avant reste, relue au prochain guide`,
+    )
+  }
 }
 
 /**
@@ -103,12 +124,16 @@ export async function prices(db: Database) {
  * jour, le prix du jour remplacé), et `sources` note le passage (`stamp`). Les cartes à l'unité
  * seulement, leur prix selon la règle de Pokécardex (`guidePrice` ; `0` : pas de prix), avec le
  * prix d'il y a 30 jours (`monthAgo`). Moins de la moitié des prix d'avant : rien n'est écrit,
- * une erreur (le format a changé).
+ * une erreur (le format a changé). La liste des produits, elle, n'arrête jamais les prix (testé) :
+ * illisible (`null`), tronquée (moins de la moitié des produits qu'elle donnait : sinon tous les
+ * autres perdraient leur extension, et leur ligne de liste de souhaits) ou impossible à
+ * enregistrer (un champ renommé), celle d'avant reste ; `unsavedProducts` dit pourquoi (`null` :
+ * enregistrée).
  */
 export function savePriceGuide(
   db: Database,
   guide: PriceGuide,
-  products: ProductList,
+  products: ProductList | null,
   stamp: string,
 ) {
   const date = guide.createdAt.slice(0, 10)
@@ -144,13 +169,32 @@ export function savePriceGuide(
     throw new Error(`Guide des prix : ${cards.length} prix, contre ${before} (format changé ?)`)
   }
 
+  // Les produits que donnait la liste d'avant (sortis de la liste : sans extension).
+  const listed = (
+    db
+      .query('SELECT COUNT(*) AS count FROM cardmarket_products WHERE expansion IS NOT NULL')
+      .get() as { count: number }
+  ).count
+  let unsavedProducts: string | null = null
+  if (!products || !Array.isArray(products.products)) unsavedProducts = 'illisible'
+  else if (products.products.length < listed / 2) {
+    unsavedProducts = `${plural(products.products.length, 'produit', 'produits')}, contre ${listed}`
+  }
+
   const store = historyStore(db)
   const writePrice = db.query(
     'INSERT INTO cardmarket_prices (id, price, low, month_ago) VALUES (?, ?, ?, ?)',
   )
   let written = 0
   db.transaction(() => {
-    saveProducts(db, products)
+    if (!unsavedProducts) {
+      // Dans sa propre étape (un point de reprise) : une erreur n'annule qu'elle, pas les prix.
+      try {
+        db.transaction(() => saveProducts(db, products!))()
+      } catch (error) {
+        unsavedProducts = error instanceof Error ? error.message : String(error)
+      }
+    }
     db.run('DELETE FROM cardmarket_prices')
     for (const [id, price, low] of cards) {
       const known = store.year(id, year)
@@ -163,5 +207,5 @@ export function savePriceGuide(
     }
     writeSource(db, 'cardmarket', { stamp, date })
   })()
-  return { date, cards: cards.length, written }
+  return { date, cards: cards.length, written, unsavedProducts }
 }

@@ -243,7 +243,12 @@ seulement les cartes à l'unité (catégorie 51) :
   puis sur 1 jour (jamais la tendance d'une carte ancienne à sa place). Vérifié : pour une même
   carte un même jour, la valeur de Pokécardex.
 - Les gardes : relancée le même jour, la tâche remplace le prix du jour ; moins de la moitié des
-  prix d'avant (le format du guide a changé), rien n'est écrit et la tâche échoue. L'écriture,
+  prix d'avant (le format du guide a changé), rien n'est écrit et la tâche échoue. La liste des
+  produits, qui ne sert qu'à la liste de souhaits, n'arrête jamais les prix du jour (testé) :
+  illisible (téléchargement en échec, fichier renommé, format changé), tronquée (moins de la
+  moitié des produits qu'elle donnait : les autres perdraient leur extension, et leur ligne) ou
+  impossible à enregistrer, celle d'avant reste, le journal le dit, et elle est relue au guide
+  suivant. L'écriture,
   séparée du téléchargement (`savePriceGuide`), est testée. Rien n'est retéléchargé (29 Mo) tant
   que le guide n'a pas changé (`sources` : son `Last-Modified`).
 - Les réponses : `/v1/prices?ids=…` (`readPrices` : le jour, et une clé par carte demandée,

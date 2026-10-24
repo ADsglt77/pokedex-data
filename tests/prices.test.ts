@@ -3,7 +3,9 @@
  * demandées (`/v1/prices`), une clé pour chacune (`null` sans
  * prix : aucun prix n'est inventé, jamais celui d'une autre carte), avec un ETag qui change avec
  * eux. L'écriture quotidienne du guide des prix, et de l'historique (irremplaçable : Cardmarket
- * n'en garde pas) ; la série « récente » d'une carte (sa tendance) se juge dans sa langue.
+ * n'en garde pas) ; la série « récente » d'une carte (sa tendance) se juge dans sa langue ; une
+ * liste des produits illisible, tronquée ou impossible à enregistrer n'arrête jamais les prix du
+ * jour, et ne remplace pas celle d'avant.
  */
 
 import { describe, expect, test } from 'bun:test'
@@ -270,6 +272,48 @@ describe('savePriceGuide : les prix du jour et l’historique', () => {
     expect(history(1)).toEqual({ name: 'Carte 1', from: '2026-10-12', prices: [1] })
     expect(priceRow(2)).toEqual({ price: 2, low: null, monthAgo: null })
     expect(readSource(data, 'cardmarket')).toEqual({ stamp: 'a', date: '2026-10-12' })
+  })
+
+  describe('la liste des produits, sans laquelle les prix du jour s’enregistrent quand même', () => {
+    const day = (date: string) =>
+      guide(date, [
+        [1, { avg30: 1 }],
+        [2, { avg30: 2 }],
+        [3, { avg30: 3 }],
+      ])
+    const product = (id: number) =>
+      data.query('SELECT name, expansion, metacard FROM cardmarket_products WHERE id = ?').get(id)
+
+    test('illisible (téléchargement en échec, format changé) : celle d’avant reste', () => {
+      reset()
+      savePriceGuide(data, day('2026-10-12'), products([1, 2, 3]), 'a')
+      expect(savePriceGuide(data, day('2026-10-13'), null, 'b').unsavedProducts).toBe('illisible')
+      expect(history(1)).toEqual({ name: 'Carte 1', from: '2026-10-12', prices: [1, 1] })
+      expect(readSource(data, 'cardmarket')).toEqual({ stamp: 'b', date: '2026-10-13' })
+      expect(product(3)).toEqual({ name: 'Carte 3', expansion: 7, metacard: 3 })
+    })
+
+    test('moins de la moitié des produits qu’elle donnait (tronquée) : celle d’avant reste', () => {
+      reset()
+      savePriceGuide(data, day('2026-10-12'), products([1, 2, 3]), 'a')
+      const saved = savePriceGuide(data, day('2026-10-13'), products([1]), 'b')
+      expect(saved.unsavedProducts).toBe('1 produit, contre 3')
+      expect(history(3)).toEqual({ name: 'Carte 3', from: '2026-10-12', prices: [3, 3] })
+      expect(product(2)).toEqual({ name: 'Carte 2', expansion: 7, metacard: 2 })
+    })
+
+    test('un produit qui ne s’enregistre pas (un champ renommé) : la liste entière est écartée', () => {
+      reset()
+      savePriceGuide(data, day('2026-10-12'), products([1, 2, 3]), 'a')
+      const renamed = products([1, 2, 3])
+      // `name` renommé chez Cardmarket : absent, il ne passerait pas `NOT NULL`.
+      delete (renamed.products[2] as Partial<ProductList['products'][number]>).name
+      renamed.products[0]!.name = 'Carte 1 renommée'
+      const saved = savePriceGuide(data, day('2026-10-13'), renamed, 'b')
+      expect(saved.unsavedProducts).toContain('NOT NULL')
+      expect(history(1)).toEqual({ name: 'Carte 1', from: '2026-10-12', prices: [1, 1] })
+      expect(product(1)).toEqual({ name: 'Carte 1', expansion: 7, metacard: 1 })
+    })
   })
 
   test('un produit que la liste ne donne plus : son nom reste, son extension part', () => {
