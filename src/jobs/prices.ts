@@ -128,7 +128,8 @@ export async function prices(db: Database) {
  * illisible (`null`), tronquée (moins de la moitié des produits qu'elle donnait : sinon tous les
  * autres perdraient leur extension, et leur ligne de liste de souhaits) ou impossible à
  * enregistrer (un champ renommé), celle d'avant reste ; `unsavedProducts` dit pourquoi (`null` :
- * enregistrée).
+ * enregistrée). Une erreur qui annule toute la transaction (base pleine) arrête tout : rien n'est
+ * écrit (testé).
  */
 export function savePriceGuide(
   db: Database,
@@ -188,10 +189,13 @@ export function savePriceGuide(
   let written = 0
   db.transaction(() => {
     if (!unsavedProducts) {
-      // Dans sa propre étape (un point de reprise) : une erreur n'annule qu'elle, pas les prix.
+      // Dans sa propre étape (un point de reprise) : une erreur n'annule qu'elle, pas les prix. Sauf
+      // si SQLite a annulé toute la transaction (base pleine, disque en erreur, mémoire épuisée) :
+      // la suite s'écrirait alors ligne à ligne, hors d'elle ; l'erreur arrête tout.
       try {
         db.transaction(() => saveProducts(db, products!))()
       } catch (error) {
+        if (!db.inTransaction) throw error
         unsavedProducts = error instanceof Error ? error.message : String(error)
       }
     }

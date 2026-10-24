@@ -252,7 +252,8 @@ seulement les cartes à l'unité (catégorie 51) :
   illisible (téléchargement en échec, fichier renommé, format changé), tronquée (moins de la
   moitié des produits qu'elle donnait : les autres perdraient leur extension, et leur ligne) ou
   impossible à enregistrer, celle d'avant reste, le journal le dit, et elle est relue au guide
-  suivant. L'écriture,
+  suivant (une erreur qui annule toute la transaction, la base ou le disque pleins, arrête tout :
+  rien n'est écrit, la tâche échoue). L'écriture,
   séparée du téléchargement (`savePriceGuide`), est testée. Rien n'est retéléchargé (29 Mo) tant
   que le guide n'a pas changé (`sources` : son `Last-Modified`).
 - Les réponses : `/v1/prices?ids=…` (`readPrices` : le jour, et une clé par carte demandée,

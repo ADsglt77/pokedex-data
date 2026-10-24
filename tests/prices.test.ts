@@ -5,13 +5,15 @@
  * eux. L'écriture quotidienne du guide des prix, et de l'historique (irremplaçable : Cardmarket
  * n'en garde pas) ; la série « récente » d'une carte (sa tendance) se juge dans sa langue ; une
  * liste des produits illisible, tronquée ou impossible à enregistrer n'arrête jamais les prix du
- * jour, et ne remplace pas celle d'avant.
+ * jour, et ne remplace pas celle d'avant ; une base pleine pendant son écriture n'écrit rien du
+ * jour.
  */
 
+import { Database } from 'bun:sqlite'
 import { describe, expect, test } from 'bun:test'
 import { Elysia } from 'elysia'
 import type { PriceFile } from '@/contract'
-import { readSource, writeSource } from '../src/db'
+import { DATA_STEPS, migrate, readSource, writeSource } from '../src/db'
 import { historyReader, historyStore } from '../src/history'
 import { savePriceGuide, type PriceGuide, type ProductList } from '../src/jobs/prices'
 import { referenceRoutes } from '../src/reference'
@@ -313,6 +315,26 @@ describe('savePriceGuide : les prix du jour et l’historique', () => {
       expect(saved.unsavedProducts).toContain('NOT NULL')
       expect(history(1)).toEqual({ name: 'Carte 1', from: '2026-10-12', prices: [1, 1] })
       expect(product(1)).toEqual({ name: 'Carte 1', expansion: 7, metacard: 1 })
+    })
+
+    test('la base pleine pendant son écriture : une erreur, rien d’écrit du jour', () => {
+      // Une base à part, bornée : SQLite annule alors toute la transaction (`SQLITE_FULL`), et rien
+      // de ce qui suivrait ne doit s'écrire hors d'elle, une ligne à la fois.
+      const full = new Database(':memory:', { strict: true })
+      migrate(full, 'pleine', DATA_STEPS)
+      savePriceGuide(full, day('2026-10-12'), products([1, 2, 3]), 'a')
+      const { page_count } = full.query('PRAGMA page_count').get() as { page_count: number }
+      full.run(`PRAGMA max_page_count = ${page_count + 3}`)
+      const big = products(Array.from({ length: 20_000 }, (_, index) => index + 1))
+      for (const product of big.products)
+        product.name = `Carte ${product.idProduct} ${'x'.repeat(200)}`
+      expect(() => savePriceGuide(full, day('2026-10-13'), big, 'b')).toThrow('full')
+      expect(full.inTransaction).toBe(false)
+      expect(readSource(full, 'cardmarket')).toEqual({ stamp: 'a', date: '2026-10-12' })
+      expect(full.query('SELECT id, year, first, prices FROM cardmarket_history').all()).toEqual(
+        [1, 2, 3].map((id) => ({ id, year: 2026, first: 284, prices: `[${id}]` })),
+      )
+      full.close()
     })
   })
 
