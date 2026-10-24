@@ -163,6 +163,9 @@ function saveLanguage(db: Database, lang: CardLanguage) {
   const byId = new Map(sets.map((set) => [set.id, set]))
   const bySpecies = cardsBySpecies(cards, byId)
   const setPrefix = snapshotName(lang, 'sets/')
+  // `IMMEDIATE` : chaque réponse est relue (`saveSnapshot`) avant d'être écrite ; une transaction
+  // ordinaire échouerait aussitôt si un autre processus écrivait entre les deux (la tâche `prices`,
+  // `history`), au lieu d'attendre son tour.
   db.transaction(() => {
     // Chaque Pokémon, même sans carte : la fenêtre d'ajout dit alors qu'il n'en a pas (404 :
     // catalogue pas disponible).
@@ -183,7 +186,7 @@ function saveLanguage(db: Database, lang: CardLanguage) {
       `DELETE FROM snapshots WHERE name LIKE ? || '%'
        AND name NOT IN (SELECT ? || set_id FROM cards WHERE lang = ?)`,
     ).run(setPrefix, setPrefix, lang)
-  })()
+  }).immediate()
 }
 
 /** Les raretés de ces cartes : `[nom, rang]` par numéro. */
@@ -382,7 +385,9 @@ export function seriesWriter(db: Database) {
   /**
    * La page d'une série, enregistrée d'un coup : son nombre de cartes. En français, sans les cartes
    * qui n'existent qu'en anglais ; `englishName` : le nom anglais d'une série française, que les
-   * adresses Cardmarket de ses cartes doivent confirmer (`null` : indisponible ce passage).
+   * adresses Cardmarket de ses cartes doivent confirmer (`null` : indisponible ce passage). En une
+   * transaction `IMMEDIATE` : elle lit la série (ses cartes, son nom d'extension) avant de l'écrire,
+   * et attend ainsi son tour si un autre processus écrit (sinon, une série comptée illisible).
    */
   const save = db.transaction(
     (
@@ -446,7 +451,7 @@ export function seriesWriter(db: Database) {
       forget.run(lang, code, readAt)
       return saved
     },
-  )
+  ).immediate
 
   return {
     known,

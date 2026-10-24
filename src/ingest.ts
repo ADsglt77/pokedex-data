@@ -138,7 +138,14 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
 }
 
 if (arg === '--loop') {
-  saveCatalog(db)
+  // Hors d'une tâche : une erreur (la base occupée plus de 5 s par l'écriture d'un autre processus)
+  // n'arrête pas le service, que Docker relancerait en boucle ; les réponses d'avant restent,
+  // refaites au prochain démarrage ou au prochain passage de `catalog`.
+  try {
+    saveCatalog(db)
+  } catch (error) {
+    console.error('Réponses du catalogue pas refaites :', error)
+  }
   // Les espèces sont enregistrées telles que les lit le code : repassées avec le code déployé.
   await runJob(db, 'species')
   for (;;) {

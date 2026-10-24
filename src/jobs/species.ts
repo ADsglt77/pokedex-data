@@ -128,7 +128,9 @@ export async function species(db: Database) {
   }
 
   // Ensemble : la liste et les détails restent d'accord. Dans la forme que lit l'app (`satisfies`) :
-  // une clé renommée ne passerait pas la compilation.
+  // une clé renommée ne passerait pas la compilation. `IMMEDIATE` : chaque réponse est relue avant
+  // d'être écrite (`saveSnapshot`), et l'écriture d'un autre processus entre les deux ferait
+  // échouer la tâche au lieu de la faire attendre.
   db.transaction(() => {
     saveSnapshot(db, 'species', {
       species: rows.map(({ entry }) => entry),
@@ -136,6 +138,6 @@ export async function species(db: Database) {
     saveSnapshot(db, 'species-details', {
       details: rows.map(({ details }) => details),
     } satisfies SpeciesDetailsFile)
-  })()
+  }).immediate()
   console.log(`${rows.length} espèces enregistrées`)
 }
