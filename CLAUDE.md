@@ -3,8 +3,10 @@
 L'API privée des données du Pokédex de cartes Pokémon japonaises et françaises (le site : le dépôt
 `pokedex`, à côté) : espèces (PokéAPI), catalogue et images des cartes japonaises et françaises
 (Pokécardex), prix Cardmarket et leur historique. Bun, Elysia, SQLite. Tout est privé : chaque
-route exige un token (`src/auth.ts`), sauf `/v1/health`. Le site est son seul client : son nginx et
-son serveur la joignent avec leur token, le navigateur ne la voit jamais.
+route exige un token (`src/auth.ts`), sauf `/v1/health`. Deux entrées : le site (son nginx et son
+serveur, par le réseau Docker, avec son token ; le navigateur ne la voit jamais) ; ses autres
+clients, chacun son token, par `https://api.pokecodex.fr` (Caddy, puis un second port, limité par
+adresse : `src/limits.ts`).
 
 ## Commandes
 
@@ -14,7 +16,7 @@ Bun est le gestionnaire de paquets (`bun.lock`).
 bun install
 bun run dev            # l'API sur le port 3001, `.env` : API_TOKENS
 bun run setup          # première installation : espèces, catalogue, prix, images, historique
-bun run ingest <tâche> # species, catalog, images, prices, history, backups ; `cards` : les trois à la demande
+bun run ingest <tâche> # species, catalog, images, prices, history ; `cards` : les trois à la demande
 bun test               # tests de tests/, relancés par le build Docker
 bun run typecheck      # tsc
 bun run lint           # ESLint, puis knip : à lancer après chaque changement
@@ -44,8 +46,10 @@ bun run format         # Prettier sur src/ et tests/
   (guide des prix, liste des produits : pas de scraping, pas d'API). Seulement les cartes
   japonaises et françaises.
 - **Les rythmes** (`config/jobs.ts`, décision de l'utilisateur, octobre 2026) : `species` chaque
-  mois, `prices` toutes les 6 h, `backups` chaque jour ; `catalog`, `images` et `history` à la
+  mois, `prices` toutes les 6 h ; `catalog`, `images` et `history` à la
   demande seulement (`bun run ingest cards`), jamais dans la boucle.
+- **Aucune sauvegarde** (décision de l'utilisateur, octobre 2026) : ni copie de la base, ni tâche
+  `backups`, ni procédure de restauration. Ne pas en réintroduire sans demande.
 - **Aucun prix inventé** : une carte sans prix ce jour n'en a pas ; jamais celui d'une autre carte.
   Le prix suivi : la règle de Pokécardex (`guidePrice`), la même pour l'historique repris.
 - Tests (`tests/`) : seulement ce où une erreur coûte (prix d'une carte, écriture de l'historique,
@@ -60,6 +64,7 @@ bun run format         # Prettier sur src/ et tests/
 |---|---|
 | `index.ts`, `app.ts` | Lance l'API ; ses routes sous `/v1`, la garde du token avant toute route, 404 et 500 sans corps |
 | `auth.ts` | Les clients (`API_TOKENS`), le token comparé à temps constant, 401 au journal |
+| `limits.ts` | L'entrée d'Internet (`PUBLIC_PORT`, `https://api.pokecodex.fr`) : limites par adresse, 429 |
 | `status.ts` | `/v1/status` (chaque tâche : rythme, état, dates) et `/v1/health` |
 | `reference.ts` | Espèces, catalogue, prix, historiques, liste de souhaits ; ETag des réponses tirées des prix (`pricesTag`) |
 | `images.ts` | Les images copiées d'avance (`IMAGES_DIR`), leurs chemins neutres (français : `fr/`), leurs adresses d'origine (`UPSTREAMS`) ; 404 pour une image absente, jamais de copie à la demande |
@@ -74,5 +79,6 @@ bun run format         # Prettier sur src/ et tests/
 | `contract.ts`, `config/*` | Le contrat ; les tâches, les types de cartes, le Pokédex |
 
 Le détail de chaque domaine : `docs/donnees.md` (à lire avant d'y toucher, et à tenir à jour).
-Déploiement : README (même VPS que le site, réseau Docker `pokedex-net`, aucun port publié ;
+Déploiement : README (même VPS que le site, réseau Docker `pokedex-net`, un seul port publié, sur
+127.0.0.1 : l'entrée d'Internet, que relaie Caddy ;
 **jamais `docker compose down -v`**).

@@ -1,7 +1,9 @@
-# L'API des données, sur le même VPS que le site, sans aucun port publié : seul le site la joint,
-# par le réseau Docker `pokedex-net` (créé une fois : `docker network create pokedex-net`, README),
-# à l'adresse `http://data-api:3001`.
-# Les volumes portent des données irremplaçables (l'historique des prix) : jamais `down -v`.
+# L'API des données, sur le même VPS que le site : le site la joint par le réseau Docker
+# `pokedex-net` (créé une fois : `docker network create pokedex-net`, README), à l'adresse
+# `http://data-api:3001` ; ses autres clients, par `https://api.pokecodex.fr` (Caddy, relayé vers
+# son entrée d'Internet, publiée sur le VPS seulement).
+# Le volume `data` porte des données irremplaçables (l'historique des prix), sans aucune
+# sauvegarde : jamais `down -v`.
 # Les journaux de chaque service : 3 fichiers de 10 Mo au plus (`ingest` tourne en boucle).
 # Aucun service ne peut gagner de droits en cours de route (`no-new-privileges`), et ils n'en
 # gardent aucun (`cap_drop`), sans droits d'administrateur (Dockerfile). Les deux services partagent
@@ -37,6 +39,12 @@ services:
       retries: 3
     environment:
       API_TOKENS: ${API_TOKENS:?les tokens des clients, dans .env (voir le README)}
+      # L'entrée d'Internet : la même API, limitée par adresse (`src/limits.ts`).
+      PUBLIC_PORT: 3002
+    # Seulement sur 127.0.0.1 : seul Caddy, sur le VPS, y accède (`https://api.pokecodex.fr`) ;
+    # jamais Internet directement. Le port 3001, celui du site, n'est pas publié.
+    ports:
+      - '127.0.0.1:${API_PUBLIC_PORT:-3002}:3002'
     volumes:
       - data:/data
       - images:/images
@@ -45,8 +53,8 @@ services:
         aliases: [data-api]
 
   # Les tâches d'ingestion (`src/ingest.ts`) à rythme : les espèces chaque mois, les prix toutes
-  # les 6 h (ils changent une fois par jour ; la tâche ne retélécharge que ce qui a changé), la
-  # sauvegarde de la base chaque jour. Après un échec, de nouveau 10 min plus tard, puis 20, 40…
+  # les 6 h (ils changent une fois par jour ; la tâche ne retélécharge que ce qui a changé). Après
+  # un échec, de nouveau 10 min plus tard, puis 20, 40…
   # jusqu'à 6 h. Les autres, à la demande, avec la même image :
   #   docker compose run --rm ingest bun src/ingest.ts cards
   ingest:
@@ -55,7 +63,6 @@ services:
     volumes:
       - data:/data
       - images:/images
-      - backups:/backups
 
 networks:
   # Partagé avec le site (son `compose.yaml`) : créé une fois, à la main (README).
@@ -68,5 +75,3 @@ volumes:
   # Les images copiées chez nous (2,5 à 3 Go : environ 1,5 Go pour les cartes japonaises, 1 à
   # 1,4 Go pour les françaises) : cartes, logos, icônes, Pokémon.
   images:
-  # Les sauvegardes de la base, chaque jour (tâche `backups`) : à copier aussi hors du VPS.
-  backups:

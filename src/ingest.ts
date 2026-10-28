@@ -25,7 +25,6 @@ import type { Database } from 'bun:sqlite'
 import { INGEST_JOB_NAMES, INGEST_JOBS, type IngestJob } from '@/config/jobs'
 import { HOUR, MINUTE } from '@/lib/time'
 import { openData } from './db'
-import { backups } from './jobs/backups'
 import { catalog, saveCatalog } from './jobs/catalog'
 import { history } from './jobs/history'
 import { images } from './jobs/images'
@@ -40,7 +39,6 @@ const RUNS: Record<IngestJob, (db: Database) => Promise<void>> = {
   images,
   prices,
   history,
-  backups,
 }
 
 /** Les tâches de `cards`, dans l'ordre : les images et l'historique suivent le catalogue. */

@@ -6,7 +6,7 @@
 
 import { DAY, HOUR } from '@/lib/time'
 
-export type IngestJob = 'species' | 'catalog' | 'images' | 'prices' | 'history' | 'backups'
+export type IngestJob = 'species' | 'catalog' | 'images' | 'prices' | 'history'
 
 export const INGEST_JOBS: Record<
   IngestJob,
@@ -27,8 +27,6 @@ export const INGEST_JOBS: Record<
   // Les 180 derniers jours de chaque carte, lus une fois par carte (la première fois, environ 23 h
   // pour les japonaises, 21 h de plus pour les françaises).
   history: { label: 'Historique des prix', every: null },
-  // La base, copiée chaque jour (`BACKUP_DIR`).
-  backups: { label: 'Sauvegardes', every: DAY },
 }
 
 /** Leurs noms, dans l'ordre d'`INGEST_JOBS`. */

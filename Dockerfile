@@ -12,7 +12,7 @@ RUN bun test && bun run typecheck && bun run lint
 
 # 2. L'API et les tâches d'ingestion (services `api` et `ingest`) : Bun lance le code tel quel ;
 #    `tsconfig.json` lui donne l'alias `@/` vers `src/`. La base vit dans le volume `data`
-#    (`DATA_DIR`), les images dans `images`, les sauvegardes dans `backups`. Son `package.json`
+#    (`DATA_DIR`), les images dans `images`. Son `package.json`
 #    vient de l'étape 1 : elle passe donc d'abord, et un test en échec arrête aussi cette image (un
 #    `docker compose run ingest` ne lancerait pas du code non testé).
 FROM oven/bun:1.3-alpine
@@ -23,9 +23,9 @@ COPY tsconfig.json ./
 COPY src src
 # `production` : des tokens de 32 caractères au moins. `HOST` : l'API écoute toutes les adresses de
 # son conteneur, pour le site (hors Docker, la machine seulement).
-ENV NODE_ENV=production HOST=0.0.0.0 DATA_DIR=/data IMAGES_DIR=/images BACKUP_DIR=/backups
+ENV NODE_ENV=production HOST=0.0.0.0 DATA_DIR=/data IMAGES_DIR=/images
 # Sans droits d'administrateur (l'utilisateur `bun` de l'image) : une faille de l'API ne donnerait
 # pas la main sur le conteneur. Les points de montage lui appartiennent, et un volume neuf en hérite.
-RUN mkdir -p /data /images /backups && chown bun:bun /data /images /backups
+RUN mkdir -p /data /images && chown bun:bun /data /images
 USER bun
 CMD ["bun", "src/index.ts"]

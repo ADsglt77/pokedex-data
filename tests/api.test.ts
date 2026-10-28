@@ -1,5 +1,7 @@
 /**
- * L'accès à l'API : sans token, aucune donnée (`auth.ts`) ; seul `/v1/health` passe sans. Et l'état
+ * L'accès à l'API : sans token, aucune donnée (`auth.ts`) ; seul `/v1/health` passe sans. Sur
+ * l'entrée d'Internet (`api.pokecodex.fr`, `limits.ts`), le token toujours, et une limite par
+ * adresse : une limite fausse bloquerait un client, ou laisserait un afflux occuper l'API. Et l'état
  * des tâches (`status.ts`), que montre la page Données du site : une tâche à la demande n'est
  * jamais en retard, un passage arrêté net est un échec, et la surveillance ne compte que celles à
  * rythme. Et les routes du catalogue : chaque langue rend ses réponses (`/v1/catalog/…` les
@@ -10,6 +12,7 @@ import { describe, expect, test } from 'bun:test'
 import { readClients } from '../src/auth'
 import { createApp } from '../src/app'
 import type { ServerStatus } from '../src/contract'
+import { publicLimits } from '../src/limits'
 import { saveSnapshot } from '../src/snapshots'
 import { DAY, HOUR, MINUTE } from '../src/lib/time'
 import { testData } from './server'
@@ -77,6 +80,84 @@ describe('le token', () => {
       'autre',
     ])
   })
+
+  test('un token qui contient « : » est gardé entier : son début ne suffit pas', async () => {
+    const entier = `${TOKEN}:suite`
+    const app = createApp(data, readClients(`moi:${entier}`, true))
+    const status = async (token: string) =>
+      (
+        await app.handle(
+          new Request('http://localhost/v1/status', {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+        )
+      ).status
+    runs()
+    expect(await status(entier)).toBe(200)
+    expect(await status(TOKEN)).toBe(401)
+  })
+})
+
+describe('l’entrée d’Internet (api.pokecodex.fr)', () => {
+  let now = 0
+  const entry = createApp(
+    data,
+    readClients(`moi:${TOKEN}`, true),
+    publicLimits(() => now),
+  )
+  /** `token` : `null`, sans token. */
+  const from = (address: string, path: string, token: string | null = TOKEN) =>
+    entry.handle(
+      new Request(`http://localhost${path}`, {
+        headers: {
+          'x-forwarded-for': address,
+          ...(token === null ? {} : { Authorization: `Bearer ${token}` }),
+        },
+      }),
+    )
+  /** Les statuts de `count` demandes d'une adresse, au même instant. */
+  const burst = async (count: number, address: string, path: string) => {
+    const statuses: number[] = []
+    for (let i = 0; i < count; i++) statuses.push((await from(address, path)).status)
+    return statuses
+  }
+
+  test('le token y est exigé, comme sur le réseau du site', async () => {
+    runs()
+    expect((await from('203.0.113.1', '/v1/status', null)).status).toBe(401)
+    expect((await from('203.0.113.1', '/v1/status', 'faux')).status).toBe(401)
+    expect((await from('203.0.113.1', '/v1/status')).status).toBe(200)
+  })
+
+  test('300 d’un coup par adresse, puis 429 sans corps et Retry-After ; une autre adresse passe', async () => {
+    runs()
+    expect((await burst(300, '203.0.113.2', '/v1/status')).every((s) => s === 200)).toBe(true)
+    const over = await from('203.0.113.2', '/v1/status')
+    expect(over.status).toBe(429)
+    expect(over.headers.get('retry-after')).toBe('1')
+    expect(await over.text()).toBe('')
+    // Sans token non plus : la limite passe avant lui.
+    expect((await from('203.0.113.2', '/v1/status', null)).status).toBe(429)
+    expect((await from('203.0.113.3', '/v1/status')).status).toBe(200)
+  })
+
+  test('le seau se remplit : 20 par seconde', async () => {
+    runs()
+    await burst(300, '203.0.113.4', '/v1/status')
+    expect((await from('203.0.113.4', '/v1/status')).status).toBe(429)
+    now += 1000
+    expect((await burst(20, '203.0.113.4', '/v1/status')).every((s) => s === 200)).toBe(true)
+    expect((await from('203.0.113.4', '/v1/status')).status).toBe(429)
+  })
+
+  test('les routes coûteuses : 10 d’un coup, sans gêner les autres', async () => {
+    const heavy = await burst(11, '203.0.113.5', '/v1/histories?ids=1')
+    expect(heavy.slice(0, 10).every((s) => s !== 429)).toBe(true)
+    expect(heavy[10]).toBe(429)
+    expect((await from('203.0.113.5', '/v1/wants?ids=1')).status).toBe(429)
+    runs()
+    expect((await from('203.0.113.5', '/v1/status')).status).toBe(200)
+  })
 })
 
 describe('l’état des tâches', () => {
@@ -89,6 +170,8 @@ describe('l’état des tâches', () => {
       ['prices', 1, HOUR],
       ['species', 1, 61 * DAY],
       ['catalog', 1, 90 * DAY],
+      ['history', 0, HOUR],
+      // Une tâche retirée (les sauvegardes, octobre 2026) : ses passages restent, sans compter.
       ['backups', 0, HOUR],
     )
     const current = await status()
@@ -98,7 +181,6 @@ describe('l’état des tâches', () => {
       'images',
       'prices',
       'history',
-      'backups',
     ])
     expect(current.jobs.find((row) => row.job === 'catalog')).toEqual({
       job: 'catalog',
@@ -110,11 +192,11 @@ describe('l’état des tâches', () => {
     // À la demande : jamais en retard, même passée il y a longtemps.
     expect(stateOf(current, 'catalog')).toBe('ok')
     expect(stateOf(current, 'images')).toBe('never')
-    expect(stateOf(current, 'backups')).toBe('failed')
+    expect(stateOf(current, 'history')).toBe('failed')
   })
 
   test('une tâche planifiée jamais passée est en retard', async () => {
-    runs(['prices', 1, HOUR], ['backups', 1, HOUR])
+    runs(['prices', 1, HOUR])
     const current = await status()
     expect(stateOf(current, 'catalog')).toBe('never')
     expect(stateOf(current, 'images')).toBe('never')
@@ -143,9 +225,10 @@ describe('l’état des tâches', () => {
   })
 
   test('la surveillance : 503 pour une tâche à rythme en retard, jamais pour une à la demande', async () => {
-    runs(['species', 1, HOUR], ['prices', 1, HOUR], ['backups', 1, HOUR])
+    // Sans passage d'une tâche retirée (les sauvegardes) : elle ne compte plus.
+    runs(['species', 1, HOUR], ['prices', 1, HOUR])
     expect((await get('/v1/health')).status).toBe(200)
-    runs(['species', 1, HOUR], ['prices', 1, 13 * HOUR], ['backups', 1, HOUR])
+    runs(['species', 1, HOUR], ['prices', 1, 13 * HOUR])
     const late = await get('/v1/health')
     expect(late.status).toBe(503)
     expect(await late.json()).toEqual({ ok: false, late: ['prices'] })

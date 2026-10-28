@@ -13,9 +13,8 @@ import { join } from 'node:path'
 
 const dir = mkdtempSync(join(tmpdir(), 'pokedex-data-tests-'))
 process.env.DATA_DIR = dir
-// Les images et les sauvegardes aussi : jamais celles du `.env`.
+// Les images aussi : jamais celles du `.env`.
 process.env.IMAGES_DIR = join(dir, 'images')
-process.env.BACKUP_DIR = join(dir, 'backups')
 // Bun ne garde en cache que les 20 premières requêtes compilées d'une base (`db.query`) ; les
 // suivantes ne le sont jamais, et `close()` ne les ferme pas : sous Windows, la base resterait
 // ouverte et le dossier ne se retirerait pas. Les tests d'un fichier en compilent davantage.

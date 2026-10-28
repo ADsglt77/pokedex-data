@@ -5,7 +5,8 @@
  *
  *   16/10 14:03:12  ▲  accès       Token refusé                  route="GET /v1/prices"
  *
- * - `accès` : une demande sans token valide (`auth.ts`) ;
+ * - `accès` : une demande sans token valide (`auth.ts`), ou au-delà des limites de l'entrée
+ *   d'Internet (`limits.ts`) ;
  * - `serveur` : une erreur imprévue de l'API.
  * Pas les requêtes une à une : seulement ce qui se passe. Ce qu'un client peut provoquer à volonté
  * (un token refusé) : une ligne par minute au plus (`journalOnce`). Jamais un token. Sans couleurs
@@ -112,7 +113,16 @@ export function journalOnce(key: string, entry: JournalEntry, windowMs: number) 
 }
 
 /** Le démarrage du serveur : son adresse, ses clients, le mode, la version de Bun. */
-export function banner({ api, clients }: { api: string; clients: string[] }) {
+export function banner({
+  api,
+  entry,
+  clients,
+}: {
+  api: string
+  /** L'entrée d'Internet (`PUBLIC_PORT`), si elle est ouverte. */
+  entry: string | null
+  clients: string[]
+}) {
   const mode = process.env.NODE_ENV === 'production' ? 'production' : 'développement'
   console.log(
     [
@@ -120,6 +130,7 @@ export function banner({ api, clients }: { api: string; clients: string[] }) {
       `  ${bold('Pokédex · données')} ${dim('· l’API privée')}`,
       `  ${dim('─'.repeat(38))}`,
       `  ${dim('API      ')}${api}`,
+      ...(entry ? [`  ${dim('Internet ')}${entry} ${dim('· limitée par adresse')}`] : []),
       `  ${dim('Clients  ')}${clients.length ? clients.join(', ') : yellow('aucun : API_TOKENS manque')}`,
       `  ${dim(`${mode} · Bun ${Bun.version} · prêt en ${Math.round(performance.now())} ms`)}`,
       '',

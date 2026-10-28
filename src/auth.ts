@@ -1,7 +1,9 @@
 /**
  * Les clients de l'API : sans token, aucune donnée. Chacun a le sien, dans `API_TOKENS` (le `.env`
- * de l'API) : `nom:token,…`, aujourd'hui un seul, `pokedex` (le site, qui le garde dans son propre
- * `.env`, `DATA_API_TOKEN`). Un token se tire au hasard (`openssl rand -hex 32`), 32 caractères au
+ * de l'API) : `nom:token,…` : `pokedex` (le site, qui le garde dans son propre `.env`,
+ * `DATA_API_TOKEN`), et chaque client qui passe par `https://api.pokecodex.fr` (un script, une autre
+ * app : un token chacun, retiré d'`API_TOKENS` pour le révoquer, au redémarrage de l'API). Un token
+ * se tire au hasard (`openssl rand -hex 32`), 32 caractères au
  * moins en production. Chaque requête le porte (`Authorization: Bearer <token>`), comparé à temps
  * constant à chacun des tokens connus : sans lui, ou un autre, 401 sans corps, et une ligne au
  * journal (une par minute et par raison au plus). Jamais un token écrit nulle part.
@@ -26,7 +28,10 @@ export function readClients(text: string, production: boolean): Clients {
     .map((entry) => entry.trim())
     .filter(Boolean)
     .map((entry) => {
-      const [name, token] = entry.split(':')
+      // Coupé au premier `:` seulement : un token qui en contient un est gardé entier (sinon, son
+      // début suffirait).
+      const [name, ...rest] = entry.split(':')
+      const token = rest.join(':')
       if (!name || !token) throw new Error('API_TOKENS : « nom:token,… »')
       if (production && token.length < MIN_TOKEN) {
         throw new Error(`API_TOKENS : le token de ${name} a moins de ${MIN_TOKEN} caractères`)

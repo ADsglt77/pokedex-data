@@ -3,8 +3,8 @@
 L'API privée des données du Pokédex de cartes Pokémon japonaises et françaises (PokéCodex, en ligne
 à https://pokecodex.fr) : les espèces (PokéAPI), le catalogue des cartes japonaises et françaises et
 leurs images (Pokécardex), les prix Cardmarket du jour et leur historique. Elle les relit à son
-rythme, les range dans une base SQLite et les rend au site, et à lui seul : sans token, aucune
-donnée. Bun, Elysia, SQLite.
+rythme, les range dans une base SQLite et les rend au site, et aux clients qui ont un token, à
+https://api.pokecodex.fr : sans token, aucune donnée. Bun, Elysia, SQLite.
 
 ```sh
 bun install
@@ -23,8 +23,27 @@ bun run format         # Prettier
 
 Chaque requête porte un token : `Authorization: Bearer <token>`. Sans lui, ou avec un autre :
 401, sans corps (une adresse inconnue aussi : rien ne dit ce qui existe). Les tokens des clients
-sont dans `API_TOKENS` (le `.env`), un par client : `nom:token,…` ; aujourd'hui un seul,
-`pokedex`, le site. Un token se tire au hasard : `openssl rand -hex 32`.
+sont dans `API_TOKENS` (le `.env`), un par client : `nom:token,…` ; `pokedex`, le site, et un par
+client de https://api.pokecodex.fr (plus bas). Un token se tire au hasard : `openssl rand -hex 32`.
+
+**Deux entrées, la même API.** Le site la joint par le réseau Docker (`http://data-api:3001`, sans
+autre limite que celles de son nginx). Les autres clients (un script, une autre app), par
+**https://api.pokecodex.fr** : Caddy la relaie vers son entrée d'Internet (`127.0.0.1:3002`,
+publiée sur le VPS seulement), où s'ajoutent des limites par adresse (`src/limits.ts`) : 20
+demandes par seconde, 300 d'un coup ; `/v1/histories` et `/v1/wants`, 2 par seconde, 10 d'un coup ;
+au-delà, 429 avec `Retry-After`. Lecture seule : tout autre verbe que `GET` ou `HEAD`, 405 (Caddy).
+Pas de CORS : une page d'un autre site ne la lit pas, un client HTTP oui.
+
+```sh
+curl -H "Authorization: Bearer $TOKEN" https://api.pokecodex.fr/v1/catalog/fr/sets
+curl -H "Authorization: Bearer $TOKEN" https://api.pokecodex.fr/docs/json > pokecodex-api.json
+```
+
+La seconde ligne rend la description de l'API (OpenAPI), à importer dans un client HTTP (Bruno,
+Insomnia, Postman). Un token se révoque en le retirant d'`API_TOKENS`, puis
+`docker compose up -d api` (l'API ne lit ses tokens qu'au démarrage). Ne jamais mettre un cache
+partagé (CDN) devant cette adresse : les images y sont `public, immutable`, il les rendrait sans
+token.
 
 | Route | Réponse |
 |---|---|
@@ -57,7 +76,6 @@ l'API connaît leur adresse d'origine.
 | `images` | à la demande | Les images qui manquent, toutes d'avance : logos, icônes, Pokémon, scans des cartes japonaises et françaises (environ 1,5 Go la première fois pour les japonaises, 1 à 1,4 Go de plus pour les françaises) |
 | `prices` | toutes les 6 h | Le guide des prix public de Cardmarket, et l'historique du jour |
 | `history` | à la demande | Les 180 derniers jours de prix de chaque carte, une fois par carte, d'après Pokécardex (environ 23 h la première fois pour les japonaises, 21 h de plus pour les françaises) |
-| `backups` | chaque jour | Une copie de la base (7 gardées) |
 
 Quand de nouvelles cartes sortent : `bun run ingest cards` enchaîne le catalogue, puis les images
 et l'historique (seulement ce qui manque : les nouvelles cartes). Chaque tâche reste lançable
@@ -86,10 +104,11 @@ couleurs avec `NO_COLOR=1`.
 
 ## Déploiement (le VPS du site)
 
-L'API tourne sur le même VPS que le site, dans ses propres conteneurs, **sans aucun port
-publié** : le site la joint par un réseau Docker commun, `pokedex-net`, à l'adresse
-`http://data-api:3001` (le public passe par Caddy, puis le nginx du site, puis elle). Sur un
-nouveau VPS, à installer avant le site.
+L'API tourne sur le même VPS que le site, dans ses propres conteneurs : le site la joint par un
+réseau Docker commun, `pokedex-net`, à l'adresse `http://data-api:3001` (le public passe par
+Caddy, puis le nginx du site, puis elle) ; un seul port publié, **sur 127.0.0.1 seulement**,
+`3002`, son entrée d'Internet, que Caddy relaie à `https://api.pokecodex.fr`. Sur un nouveau VPS,
+à installer avant le site.
 
 **Une fois, sur le VPS**
 
@@ -121,7 +140,7 @@ nouveau VPS, à installer avant le site.
    docker compose run --rm ingest bun src/ingest.ts catalog
    ```
 5. Puis, tout de suite, l'API et les tâches à rythme (le service `ingest` : les espèces, les prix
-   toutes les 6 h, la sauvegarde chaque jour). Elles n'attendent pas les cartes : un guide des
+   toutes les 6 h). Elles n'attendent pas les cartes : un guide des
    prix pas lu le jour même manque pour toujours à l'historique. Docker relance ces deux services
    après un arrêt ou un redémarrage du VPS (`restart: unless-stopped`).
    ```sh
@@ -158,28 +177,15 @@ démarrage, l'API passe deux étapes du schéma : la 16 (le signe de vie des tâ
 langue dans les clés du catalogue : les cartes japonaises deviennent `ja`, rien ne se perd). Le
 code d'avant (celui d'`origin/main` du 20 octobre 2026) n'en connaît que 15. **Ces étapes ne se
 défont pas en redéployant le code d'avant** : l'image d'avant refuse alors de démarrer (« data.db
-en est à l’étape 17 du schéma, ce code n’en connaît que 15 (un code plus ancien ?) »). Avant de
-lancer le déploiement, sur le VPS :
-
-1. Aucune tâche lancée à la main ne doit tourner : le déploiement ne redémarre que `api` et
-   `ingest`, et un conteneur ponctuel garderait le code d'avant, qui écrirait le catalogue sans
-   sa langue sur des clés qui l'exigent. `docker ps` ne doit montrer ni `pokedex-data-cards`, ni
-   un autre conteneur lancé par `docker compose run` (une tâche, `setup`) ; sinon, l'arrêter
-   (`docker stop pokedex-data-cards`, puis `docker rm` : relancée après le déploiement, la tâche
-   reprend où elle en était).
-2. Une copie de la base d'avant les étapes, sortie du volume et gardée à part. La sauvegarde
-   quotidienne ne suffit pas : un fichier par jour (`data-AAAA-MM-JJ.db.gz`, le jour en UTC),
-   remplacé quand la tâche repasse le même jour ; celle du jour peut donc devenir, après le
-   déploiement, une copie d'après les étapes. Ici, hors du dossier `sauvegardes`, que la copie de
-   chaque nuit vide (« Sauvegardes ») :
-   ```sh
-   docker compose run --rm ingest bun src/ingest.ts backups
-   docker compose cp ingest:/backups/data-$(date -u +%F).db.gz ~/data-avant-catalogue-francais.db.gz
-   ```
-3. Le commit du code en place, celui d'un retour en arrière (plus bas), gardé avec la copie :
-   ```sh
-   git rev-parse HEAD > ~/data-avant-catalogue-francais.commit
-   ```
+en est à l’étape 17 du schéma, ce code n’en connaît que 15 (un code plus ancien ?) »), et aucune
+copie de la base d'avant n'existe (plus de sauvegarde, « Sauvegardes : aucune ») : la seule voie
+après un problème est de corriger en avant. Avant de lancer le déploiement, sur le VPS, aucune
+tâche lancée à la main ne doit tourner : le déploiement ne redémarre que `api` et `ingest`, et un
+conteneur ponctuel garderait le code d'avant, qui écrirait le catalogue sans sa langue sur des
+clés qui l'exigent. `docker ps` ne doit montrer ni `pokedex-data-cards`, ni un autre conteneur
+lancé par `docker compose run` (une tâche, `setup`) ; sinon, l'arrêter (`docker stop
+pokedex-data-cards`, puis `docker rm` : relancée après le déploiement, la tâche reprend où elle en
+était).
 
 Puis déployer l'API (le workflow, plus bas). Tant que `catalog` n'a pas tourné, les routes
 françaises (`/v1/catalog/fr/…`) répondent 404 ; le site d'avant ne les demande pas. Le premier
@@ -237,32 +243,6 @@ Un dépôt n'épargne d'ailleurs que les scans des cartes déjà notées avec le
 carte à chercher est recopié de toute façon (une renumérotation de sa série a pu laisser à son
 chemin le scan d'une autre carte : « Images », `docs/donnees.md`).
 
-**Revenir en arrière** (au code d'avant les cartes françaises) : seulement en remettant la copie
-d'avant les étapes, puis en déployant le code d'avant. Tout ce que la base a reçu depuis la copie
-est perdu : les cartes françaises (relues si l'on redéploie un jour), et surtout les jours du
-guide des prix lus depuis (l'historique, irremplaçable), sauf celui du jour, relu à la fin.
-
-1. Ramener `main` au code d'avant, sans déployer : sur un clone à jour (pas celui du VPS),
-   annuler en un seul commit tous les commits venus depuis celui noté avant le déploiement
-   (`~/data-avant-catalogue-francais.commit` sur le VPS ; l'historique est linéaire, sans commit
-   de fusion à annuler), puis pousser. Un nouveau commit, jamais une réécriture de `main` : le
-   VPS ne fait que `git pull --ff-only`.
-   ```sh
-   git revert --no-commit <commit noté>..HEAD
-   git commit -m "Retour au code d'avant les cartes françaises"
-   git push
-   ```
-2. Sur le VPS, arrêter l'API et les tâches, puis remettre la copie, **sans** `docker compose up`
-   (l'image en place, celle des cartes françaises, repasserait les étapes) :
-   ```sh
-   docker compose stop api ingest
-   docker rm -f pokedex-data-cards   # s'il existe : une tâche du code des cartes françaises
-   mkdir -p sauvegardes && cp ~/data-avant-catalogue-francais.db.gz sauvegardes/
-   docker compose run --rm --no-deps -v "$PWD/sauvegardes:/restore:ro" api sh -c 'rm -f /data/data.db-wal /data/data.db-shm && gunzip -c /restore/data-avant-catalogue-francais.db.gz > /data/data.db'
-   ```
-3. Déployer (le workflow) : l'image d'avant démarre sur la base d'avant. Puis relire le guide du
-   jour : `docker compose run --rm ingest bun src/ingest.ts prices`.
-
 **Ensuite, à chaque déploiement** (`.github/workflows/deploy.yml`, lancé à la main depuis l'onglet
 Actions) : GitHub se connecte au VPS en SSH, fait `git pull` et lance `deploy/deploy.sh`. La
 construction lance d'abord les tests, TypeScript, ESLint et knip ; si elle échoue, l'ancienne
@@ -305,46 +285,47 @@ deux les pages de Pokécardex (une toutes les 3 s en tout), ne tournent jamais e
 `catalog --refresh` lancé pendant l'historique d'un conteneur `cards` ne lance rien (le relancer
 après). Arrêtée net (conteneur tué, VPS redémarré), une tâche ne bloque plus sa relance au bout de
 5 min (elle donne signe de vie chaque minute).
+
+**L'adresse https://api.pokecodex.fr** (une fois, dans cet ordre) :
+
+1. Dans la zone DNS OVH, un enregistrement `A` : `api.pokecodex.fr` vers l'IPv4 du VPS (la même
+   que `pokecodex.fr`).
+2. Le Caddyfile du site (`deploy/Caddyfile` du dépôt `pokedex`, qui a le bloc `api.pokecodex.fr`),
+   installé et rechargé (son README, étape 3) : Caddy obtient le certificat ; l'adresse répond 502
+   tant que l'étape 4 n'est pas faite.
+3. Un token par client, ajouté à `API_TOKENS` dans `.env` (`openssl rand -hex 32`), par exemple
+   `API_TOKENS=pokedex:<token du site>,moi:<un autre token>` ; jamais celui du site.
+4. Le déploiement (`deploy/deploy.sh`) : il publie le port 3002 et vérifie, à travers Caddy, que
+   `https://api.pokecodex.fr/v1/status` répond 401 sans token (en rouge sinon).
+5. Un essai : `curl -H "Authorization: Bearer <token>" https://api.pokecodex.fr/v1/status`.
+
+`Strict-Transport-Security` (`includeSubDomains`, posé par le site) couvre déjà ce sous-domaine,
+servi en https par Caddy.
+
 **La surveillance** : `/v1/health` (par le
 site : `https://pokecodex.fr/api/health`) répond 200 quand chaque tâche à rythme a réussi
-récemment (deux intervalles au plus : les prix en 12 h, les sauvegardes en 2 jours, les espèces en
-60 jours) et que le guide des prix n'est pas figé, 503 sinon, avec les tâches en retard. Un trou
+récemment (deux intervalles au plus : les prix en 12 h, les espèces en 60 jours) et que le guide des prix n'est pas figé, 503 sinon, avec les tâches en retard. Un trou
 dans l'historique des prix ne se rattrape jamais (Cardmarket n'en garde pas).
 
 Ne jamais lancer `docker compose down -v`, qui effacerait les volumes (`data` : la base et
-l'historique des prix ; `backups` ; `images`).
+l'historique des prix, sans aucune sauvegarde ; `images`).
 
-## Sauvegardes
+## Sauvegardes : aucune
 
-Chaque jour, le service `ingest` copie la base dans le volume `backups` : `data-AAAA-MM-JJ.db.gz`
-(7 gardées), vérifiée (`PRAGMA quick_check`) et écrite sous un nom provisoire avant de prendre sa
-place (`tmp-…` tant qu'elle s'écrit). Ce volume est sur le même disque que la base : copiez-le
-aussi ailleurs. Pour en sortir les fichiers, dans `./sauvegardes` (que git ignore ; vidé d'abord,
-il ne garde que ce qu'a le volume, sans une copie en cours d'écriture), avec `docker compose cp`,
-qui les écrit au nom de l'utilisateur qui le lance. Les conteneurs ne le pourraient pas, même
-`--user root` : ils n'ont aucun droit (`cap_drop: ALL`), ni d'écrire dans un dossier du VPS qui
-ne leur appartient pas, ni de changer un propriétaire.
+Plus aucune sauvegarde (octobre 2026, décision de l'utilisateur) : ni copie quotidienne de la
+base, ni copie hors du VPS, ni procédure de restauration. Une panne du disque du VPS, une base
+abîmée ou un `docker compose down -v` perdent pour toujours l'historique des prix (Cardmarket
+n'en garde pas) ; les espèces, le catalogue et les images se relisent (`setup`, environ deux
+jours), l'historique de Pokécardex sur 180 jours seulement.
 
-```sh
-rm -rf sauvegardes && mkdir sauvegardes
-docker compose cp ingest:/backups/. sauvegardes/ && rm -f sauvegardes/tmp-*
-```
-
-Chaque nuit, hors du VPS, avec `rclone` (configuré une fois, `rclone config`) : dans la crontab de
-l'utilisateur du déploiement (`crontab -e`), ici à 4 h 45, le dossier du clone à adapter. Le
-stockage distant garde 90 jours :
+Sur un VPS installé avec l'ancien système, une fois ce code déployé, ce qui en reste ne se retire
+qu'à la main : la ligne de la crontab qui copiait les sauvegardes (`crontab -e` : celle qui finit
+par `rclone … distant:pokedex-data-sauvegardes`), le dossier `sauvegardes` du clone et le volume
+des copies, que Compose ne supprime jamais seul (son nom vient du dossier du clone :
+`docker volume ls`). Les copies déjà envoyées sur le stockage distant y restent jusqu'à ce qu'on
+les supprime (`rclone purge distant:pokedex-data-sauvegardes`).
 
 ```sh
-45 4 * * * cd /chemin/du/clone/pokedex-data && rm -rf sauvegardes && mkdir sauvegardes && docker compose cp ingest:/backups/. sauvegardes/ && rm -f sauvegardes/tmp-* && rclone copy sauvegardes distant:pokedex-data-sauvegardes && rclone delete --min-age 90d distant:pokedex-data-sauvegardes
-```
-
-**Restaurer une sauvegarde** : arrêter l'API et les tâches (une tâche lancée à la main aussi :
-`docker stop pokedex-data-cards`), remettre la copie à la place de la base, sans les fichiers
-`-wal` et `-shm` de l'ancienne, puis redémarrer. En tant que `bun`, l'utilisateur des conteneurs,
-à qui appartiennent la base et son dossier (pas de `chown`) :
-
-```sh
-docker compose stop api ingest
-docker compose run --rm --no-deps -v "$PWD/sauvegardes:/restore:ro" api sh -c 'rm -f /data/data.db-wal /data/data.db-shm && gunzip -c /restore/data-AAAA-MM-JJ.db.gz > /data/data.db'
-docker compose up -d
+rm -rf sauvegardes
+docker volume rm pokedex-data_backups
 ```
