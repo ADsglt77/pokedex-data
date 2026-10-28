@@ -1,22 +1,24 @@
 /**
- * Le journal de l'API, dans la sortie du serveur (`docker compose logs -f api`, ou le terminal de
- * `bun run dev`) : une ligne par évènement, alignée, à l'heure de Paris, son niveau en symbole de
- * couleur, son thème, un message court et ses détails en `clé=valeur` :
+ * Le journal de l'API, dans la sortie du Worker (le terminal de `bun run dev` ; en ligne, les
+ * journaux du Worker chez Cloudflare) : une ligne par évènement, alignée, à l'heure de Paris, son
+ * niveau en symbole, son thème, un message court et ses détails en `clé=valeur` :
  *
  *   16/10 14:03:12  ▲  accès       Token refusé                  route="GET /v1/prices"
  *
  * - `accès` : une demande sans token valide (`auth.ts`), ou au-delà des limites de l'entrée
  *   d'Internet (`limits.ts`) ;
- * - `serveur` : une erreur imprévue de l'API.
+ * - `serveur` : une erreur imprévue de l'API ;
+ * - `tâches` : les tâches d'ingestion (`ingest/`) : un passage commencé, réussi ou en échec (sa
+ *   cause), ce qu'il a lu et écrit, une page ou une image en erreur.
  * Pas les requêtes une à une : seulement ce qui se passe. Ce qu'un client peut provoquer à volonté
- * (un token refusé) : une ligne par minute au plus (`journalOnce`). Jamais un token. Sans couleurs
- * avec `NO_COLOR` (la convention des terminaux).
+ * (un token refusé) : une ligne par minute au plus (`journalOnce`, pour chaque exemplaire du
+ * Worker). Jamais un token. Sans couleurs : les journaux de Cloudflare les montreraient en codes.
  */
 
-type JournalTopic = 'accès' | 'serveur'
+type JournalTopic = 'accès' | 'serveur' | 'tâches'
 
-/** À surveiller (un token refusé), ou en erreur. */
-type JournalLevel = 'warn' | 'error'
+/** Réussi, simple information, à surveiller (un token refusé), ou en erreur. */
+type JournalLevel = 'ok' | 'info' | 'warn' | 'error'
 
 interface JournalEntry {
   topic: JournalTopic
@@ -27,27 +29,9 @@ interface JournalEntry {
   details?: Record<string, string | number | undefined>
 }
 
-/* Les couleurs du terminal (codes ANSI) */
+const LEVELS: Record<JournalLevel, string> = { ok: '✔', info: '•', warn: '▲', error: '✖' }
 
-const COLOR = !process.env.NO_COLOR
-const paint = (code: string) => (text: string) => (COLOR ? `\x1b[${code}m${text}\x1b[0m` : text)
-const dim = paint('2')
-const bold = paint('1')
-const red = paint('31')
-const yellow = paint('33')
-const cyan = paint('36')
-
-const LEVELS: Record<JournalLevel, string> = {
-  warn: yellow('▲'),
-  error: red('✖'),
-}
-
-const TOPICS: Record<JournalTopic, (text: string) => string> = {
-  accès: cyan,
-  serveur: red,
-}
-
-/** « 16/10 14:03:12 », à l'heure de Paris (le VPS est à l'heure universelle). */
+/** « 16/10 14:03:12 », à l'heure de Paris (Cloudflare est à l'heure universelle). */
 const TIME = new Intl.DateTimeFormat('fr-FR', {
   timeZone: 'Europe/Paris',
   day: '2-digit',
@@ -78,7 +62,7 @@ const escapeControls = (text: string) =>
 const detail = (key: string, value: string | number) => {
   const text = cut(String(value))
   const shown = /[\s="\p{Cc}]/u.test(text) ? escapeControls(JSON.stringify(text)) : text
-  return `${dim(`${key}=`)}${shown}`
+  return `${key}=${shown}`
 }
 
 /** La colonne du message : les détails commencent tous au même endroit. */
@@ -90,7 +74,7 @@ export function journal({ topic, level, message, details = {} }: JournalEntry) {
     .filter((entry): entry is [string, string | number] => entry[1] !== undefined)
     .map(([key, value]) => detail(key, value))
     .join(' ')
-  const head = `${dim(TIME.format(new Date()))}  ${LEVELS[level]}  ${TOPICS[topic](topic.padEnd(10))}`
+  const head = `${TIME.format(new Date())}  ${LEVELS[level]}  ${topic.padEnd(10)}`
   console.log(`${head}  ${message.padEnd(WIDTH)} ${rest}`.trimEnd())
 }
 
@@ -98,8 +82,8 @@ export function journal({ topic, level, message, details = {} }: JournalEntry) {
 const noted = new Map<string, { at: number; silenced: number }>()
 
 /**
- * Écrit une ligne au plus par `key` et par `windowMs` : un afflux de requêtes ne fait pas tourner
- * le journal de Docker. Les lignes tues sont comptées, et dites par la suivante (`tues=…`).
+ * Écrit une ligne au plus par `key` et par `windowMs` : un afflux de requêtes ne noie pas le
+ * journal. Les lignes tues sont comptées, et dites par la suivante (`tues=…`).
  */
 export function journalOnce(key: string, entry: JournalEntry, windowMs: number) {
   const now = Date.now()
@@ -112,28 +96,9 @@ export function journalOnce(key: string, entry: JournalEntry, windowMs: number) 
   journal({ ...entry, details: { ...entry.details, tues: known?.silenced || undefined } })
 }
 
-/** Le démarrage du serveur : son adresse, ses clients, le mode, la version de Bun. */
-export function banner({
-  api,
-  entry,
-  clients,
-}: {
-  api: string
-  /** L'entrée d'Internet (`PUBLIC_PORT`), si elle est ouverte. */
-  entry: string | null
-  clients: string[]
-}) {
-  const mode = process.env.NODE_ENV === 'production' ? 'production' : 'développement'
-  console.log(
-    [
-      '',
-      `  ${bold('Pokédex · données')} ${dim('· l’API privée')}`,
-      `  ${dim('─'.repeat(38))}`,
-      `  ${dim('API      ')}${api}`,
-      ...(entry ? [`  ${dim('Internet ')}${entry} ${dim('· limitée par adresse')}`] : []),
-      `  ${dim('Clients  ')}${clients.length ? clients.join(', ') : yellow('aucun : API_TOKENS manque')}`,
-      `  ${dim(`${mode} · Bun ${Bun.version} · prêt en ${Math.round(performance.now())} ms`)}`,
-      '',
-    ].join('\n'),
-  )
-}
+/** « 1 série », « 3 séries » : le nombre et le mot qui s'accorde. */
+export const plural = (count: number, one: string, many: string) =>
+  `${count} ${count === 1 ? one : many}`
+
+/** La raison d'un échec : le message d'une erreur. */
+export const reasonOf = (error: unknown) => (error instanceof Error ? error.message : String(error))

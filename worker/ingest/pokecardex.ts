@@ -9,7 +9,7 @@
  */
 
 import type { CardLanguage } from '@/contract'
-import { download } from './net'
+import { download, sleep } from './net'
 
 const SITE = 'https://www.pokecardex.com'
 /** Une requête toutes les 3 s au plus. */
@@ -90,12 +90,17 @@ export const asiaExclusive = (page: PokecardexSeries) =>
       .flatMap((block) => block.series.map((series) => series.shortName)),
   )
 
-let last = 0
+/**
+ * L'heure de la dernière requête, dans cet exemplaire du Worker. Au départ, celle de son chargement :
+ * une étape d'un Workflow peut tourner dans un autre exemplaire que la précédente, qui vient de lire
+ * une page.
+ */
+let last = Date.now()
 
 /** Le texte d'une adresse de Pokécardex, au plus une requête toutes les 3 s. */
 async function read(url: string) {
   const wait = last + PACE - Date.now()
-  if (wait > 0) await Bun.sleep(wait)
+  if (wait > 0) await sleep(wait)
   last = Date.now()
   return (await download(url)).text()
 }
@@ -103,9 +108,9 @@ async function read(url: string) {
 /**
  * Les codes des séries d'une langue d'après le plan du site (« SV2A », « OR1 » ; « MEG », « BS »…) :
  * `/series/jp/<code>` au Japon, `/series/<code>` en France. Seulement des majuscules, des chiffres,
- * `_` et `-`, ce que permettent les chemins des images (`UPSTREAMS`, `images.ts`) : une série d'un
+ * `_` et `-`, ce que permettent les chemins des images : une série d'un
  * autre code, chacun de ses scans ferait une erreur de la tâche `images`, qui s'arrêterait à la
- * 20e, pour les deux langues. Les pages d'index des régions (`/series/jp`, `/series/chn`), en
+ * 20e, pour les deux langues (`IMAGE_PATHS`, `src/lib/image-paths.ts`). Les pages d'index des régions (`/series/jp`, `/series/chn`), en
  * minuscules, n'en sont pas.
  */
 export function seriesIn(sitemap: string, lang: CardLanguage) {

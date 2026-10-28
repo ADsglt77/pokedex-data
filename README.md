@@ -2,48 +2,48 @@
 
 L'API privée des données du Pokédex de cartes Pokémon japonaises et françaises (PokéCodex, en ligne
 à https://pokecodex.fr) : les espèces (PokéAPI), le catalogue des cartes japonaises et françaises et
-leurs images (Pokécardex), les prix Cardmarket du jour et leur historique. Elle les relit à son
-rythme, les range dans une base SQLite et les rend au site, et aux clients qui ont un token, à
-https://api.pokecodex.fr : sans token, aucune donnée. Bun, Elysia, SQLite.
+leurs images (Pokécardex), les prix Cardmarket du jour et leur historique. Un Worker Cloudflare
+(Hono, D1, R2) les relit à leur rythme (ses tâches d'ingestion : un Cron, des Workflows), les range
+dans D1 et R2, et les rend au site, et aux clients qui ont un token, à https://api.pokecodex.fr :
+sans token, aucune donnée.
 
 ```sh
 bun install
-bun run dev            # l'API, sur http://127.0.0.1:3001 (relancée à chaque modification)
-bun run setup          # première installation complète, avec progression
-bun run ingest <tâche> # une tâche d'ingestion, tout de suite (plus bas)
+bun run dev            # le Worker, sur http://127.0.0.1:8787 (sa D1 et son R2 locaux, .wrangler/)
+bun run ingest <tâche> # un passage d'une tâche, tout de suite, dans ce Worker (plus bas)
 bun run ingest cards   # les nouvelles cartes : catalogue, puis leurs images et leur historique
-bun test               # tests (prix, historique, liste de souhaits, schéma, accès, tâches,
-                       # catalogue des deux langues, lecture de Pokécardex, images)
+bun run ingest setup   # première installation : espèces, catalogue, prix, images, historique
+bun run test           # tests, dans le moteur de Cloudflare (accès, état, prix et historique,
+                       # catalogue des deux langues, lecture de Pokécardex, images, liste de
+                       # souhaits, passages des tâches)
+bun run db:generate    # après une modification de worker/schema.ts : sa migration
 bun run typecheck      # TypeScript
 bun run lint           # ESLint, puis knip (code mort)
 bun run format         # Prettier
 ```
 
+Il faut **Node 22 ou plus** pour Wrangler et Vitest (sur un Windows ARM64, Node ARM64) ; Bun reste
+le gestionnaire de paquets.
+
 ## L'API
 
-Chaque requête porte un token : `Authorization: Bearer <token>`. Sans lui, ou avec un autre :
-401, sans corps (une adresse inconnue aussi : rien ne dit ce qui existe). Les tokens des clients
-sont dans `API_TOKENS` (le `.env`), un par client : `nom:token,…` ; `pokedex`, le site, et un par
-client de https://api.pokecodex.fr (plus bas). Un token se tire au hasard : `openssl rand -hex 32`.
-
-**Deux entrées, la même API.** Le site la joint par le réseau Docker (`http://data-api:3001`, sans
-autre limite que celles de son nginx). Les autres clients (un script, une autre app), par
-**https://api.pokecodex.fr** : Caddy la relaie vers son entrée d'Internet (`127.0.0.1:3002`,
-publiée sur le VPS seulement), où s'ajoutent des limites par adresse (`src/limits.ts`) : 20
-demandes par seconde, 300 d'un coup ; `/v1/histories` et `/v1/wants`, 2 par seconde, 10 d'un coup ;
-au-delà, 429 avec `Retry-After`. Lecture seule : tout autre verbe que `GET` ou `HEAD`, 405 (Caddy).
-Pas de CORS : une page d'un autre site ne la lit pas, un client HTTP oui.
+**Deux entrées, la même API** (`worker/index.ts`). Le site la joint par une **liaison de service**
+(`SiteEntrypoint`, que seul son Worker peut joindre) : ni token, ni réseau, ni limite. Les autres
+clients (un script, une autre app), par **https://api.pokecodex.fr**, l'entrée par défaut du
+Worker : des limites par adresse (`worker/limits.ts`, comptées par Cloudflare) : 300 demandes par
+10 s, 20 pour `/v1/histories` et `/v1/wants` ; au-delà, 429 avec `Retry-After`. Puis le token :
+`Authorization: Bearer <token>`. Sans lui, ou avec un autre : 401, sans corps (une adresse inconnue
+aussi : rien ne dit ce qui existe). Les tokens sont dans `API_TOKENS` (`nom:token,…`, un par
+client ; `.env` en développement, un secret du Worker en ligne). Un token se tire au hasard :
+`openssl rand -hex 32`, 32 caractères au moins.
 
 ```sh
 curl -H "Authorization: Bearer $TOKEN" https://api.pokecodex.fr/v1/catalog/fr/sets
-curl -H "Authorization: Bearer $TOKEN" https://api.pokecodex.fr/docs/json > pokecodex-api.json
 ```
 
-La seconde ligne rend la description de l'API (OpenAPI), à importer dans un client HTTP (Bruno,
-Insomnia, Postman). Un token se révoque en le retirant d'`API_TOKENS`, puis
-`docker compose up -d api` (l'API ne lit ses tokens qu'au démarrage). Ne jamais mettre un cache
-partagé (CDN) devant cette adresse : les images y sont `public, immutable`, il les rendrait sans
-token.
+Un token se révoque en le retirant d'`API_TOKENS`. Pas de CORS : une page d'un autre site ne la
+lit pas, un client HTTP oui. Ne jamais mettre un cache partagé devant cette adresse : les images y
+sont `public, immutable`, il les rendrait sans token.
 
 | Route | Réponse |
 |---|---|
@@ -58,14 +58,17 @@ token.
 | `GET /v1/images/…` | Une image copiée (404 tant que la tâche `images` ne l'a pas copiée : rien n'est copié à la demande) |
 | `GET /v1/health` | **Sans token** : 200, ou 503 si une tâche à rythme est en retard ou les prix figés |
 
-La forme de chaque réponse : `src/contract.ts`, dont le site garde une copie. Les grosses
-réponses portent un ETag (304 tant qu'elles n'ont pas changé) et arrivent compressées (gzip). En développement, la documentation (OpenAPI) est à `http://127.0.0.1:3001/docs`.
+La forme de chaque réponse : `src/contract.ts`, dont le site garde une copie. Les réponses portent
+un ETag (304 tant qu'elles n'ont pas changé). Où vit chaque donnée : la base (D1, `worker/schema.ts`)
+pour ce qui se lit ligne à ligne (prix, historiques, produits, état des tâches) ; R2 pour les
+images (`images/…`) et les grosses réponses calculées par les tâches (`snapshots/…` : espèces,
+catalogue).
 
 Les chemins des images ne nomment aucune source : `/v1/images/cards/<série>/<n>-<md|hd>.webp`,
 `/v1/images/sets/<série>-<md|hd>.webp` (celles des cartes japonaises ; les françaises, avec `fr/`
 avant la série : `/v1/images/cards/fr/<série>/…`, `/v1/images/sets/fr/<série>-…`),
 `/v1/images/types/<n>.webp`, `/v1/images/rarities/<n>.webp`, `/v1/images/species/<n>.png`. Seule
-l'API connaît leur adresse d'origine.
+la tâche `images` connaît leur adresse d'origine.
 
 ## Les tâches d'ingestion
 
@@ -77,32 +80,47 @@ l'API connaît leur adresse d'origine.
 | `prices` | toutes les 6 h | Le guide des prix public de Cardmarket, et l'historique du jour |
 | `history` | à la demande | Les 180 derniers jours de prix de chaque carte, une fois par carte, d'après Pokécardex (environ 23 h la première fois pour les japonaises, 21 h de plus pour les françaises) |
 
-Quand de nouvelles cartes sortent : `bun run ingest cards` enchaîne le catalogue, puis les images
-et l'historique (seulement ce qui manque : les nouvelles cartes). Chaque tâche reste lançable
-seule. Après un échec, une tâche à rythme repasse 10 min plus tard, puis 20, 40… jusqu'à 6 h.
-Arrêtée (Ctrl+C, `docker compose stop`), une tâche est notée interrompue ; arrêtée net (conteneur
-tué, VPS redémarré), elle l'est à sa relance suivante. Relancée, elle reprend où elle en était.
+Elles tournent dans le Worker (`worker/ingest/`). Chaque passage est un **Workflow** (`ingest`),
+par étapes (une série, 50 cartes, 100 Pokémon…) : une étape en échec (une panne) est réessayée
+seule, deux fois, et un passage arrêté reprend où il en était. Le **Cron** (toutes les heures,
+`worker/index.ts`) lance les tâches à rythme quand leur intervalle est écoulé ; après un échec, 10
+min plus tard, puis 20, 40… jusqu'à 6 h. Les autres, à la demande : quand de nouvelles cartes
+sortent, `bun run ingest cards` enchaîne le catalogue, puis les images et l'historique (seulement
+ce qui manque : les nouvelles cartes). Chaque tâche reste lançable seule (`bun run ingest prices`,
+`bun run ingest catalog --refresh`…). Une tâche ne tourne qu'une fois à la fois, et `catalog`
+jamais en même temps que `history` (elles lisent les mêmes pages : deux à la fois doubleraient leur
+rythme). Un passage arrêté net (son Workflow terminé, le Worker de `bun run dev` arrêté) est noté
+interrompu quand sa tâche repart.
 
 ## En développement
 
-Un fichier `.env` (ignoré par git), sur le modèle de `.env.example` :
+`bun run dev` applique les migrations à la D1 locale, puis sert le Worker sur le port 8787, sa D1
+et son R2 dans `.wrangler/` ; le site (`bun dev` dans `../pokedex`) le joint tout seul, par sa
+liaison de service. Les tâches y tournent comme en ligne, dans ce Worker (`bun run ingest …`) ; le
+Cron, lui, ne passe pas tout seul : `curl http://127.0.0.1:8787/__scheduled` le déclenche. Un
+passage se suit dans le journal du terminal et sur la page Données du site.
+
+La première fois, `bun run ingest setup` remplit tout : les espèces, le catalogue, les prix (après
+le catalogue : le prix d'une carte d'une série récente en dépend), les images et l'historique
+(environ deux jours, cartes françaises comprises, dont 44 h d'historique ; relancé après un arrêt,
+il reprend où il en était). Les images doivent toutes être copiées : l'API n'en copie aucune
+elle-même, une image qui manque répond 404.
+
+Pour essayer l'entrée d'Internet, un `.env` (ignoré par git), sur le modèle de `.env.example` :
 
 ```sh
-echo "API_TOKENS=pokedex:$(openssl rand -hex 32)" > .env
+echo "API_TOKENS=moi:$(openssl rand -hex 32)" > .env
 ```
 
-Le même token va dans le `.env` du site (`DATA_API_TOKEN`). La base vit dans `.data/` ; la remplir
-une fois avec `bun run setup`, qui enchaîne les espèces, le catalogue, les prix (après le
-catalogue : le prix d'une carte d'une série récente en dépend), les images et l'historique avec une
-progression visible (environ deux jours la première fois, cartes françaises comprises, dont 44 h
-d'historique ; arrêté, il reprend où il en était quand on le relance). Les images doivent toutes
-être copiées : l'API n'en copie aucune elle-même, une image qui manque répond 404.
-
 **Le journal** : une ligne par évènement, alignée, à l'heure de Paris (pas les requêtes une à
-une) : un token refusé (une ligne par minute au plus, jamais le token), une erreur de l'API. Sans
-couleurs avec `NO_COLOR=1`.
+une) : un token refusé, un débit dépassé (une ligne par minute au plus, jamais le token), une
+erreur de l'API.
 
 ## Déploiement (le VPS du site)
+
+> **Périmé** : l'API passera sur Cloudflare Workers, reliée à GitHub, à la fin du développement
+> (ses tâches d'ingestion aussi). Ce qui suit décrit l'ancien VPS (Docker, Caddy), qui sera
+> retiré ; il ne marche plus tel quel (l'ancien serveur, Elysia, n'existe plus).
 
 L'API tourne sur le même VPS que le site, dans ses propres conteneurs : le site la joint par un
 réseau Docker commun, `pokedex-net`, à l'adresse `http://data-api:3001` (le public passe par

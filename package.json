@@ -4,27 +4,33 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "bun --watch src/index.ts",
-    "ingest": "bun src/ingest.ts",
-    "setup": "bun src/ingest.ts setup",
+    "dev": "bun run db:migrate && wrangler dev --test-scheduled",
+    "ingest": "bun scripts/ingest.ts",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "wrangler d1 migrations apply DB --local",
     "typecheck": "tsc",
     "lint": "eslint . && knip",
     "knip": "knip",
-    "test": "bun test",
-    "format": "prettier --write src/ tests/"
+    "test": "vitest run",
+    "format": "prettier --write src/ worker/ scripts/"
   },
   "dependencies": {
-    "@elysiajs/openapi": "^1.4.16",
-    "elysia": "^1.4.30"
+    "drizzle-orm": "^0.45.4",
+    "hono": "^4.13.14"
   },
   "devDependencies": {
+    "@cloudflare/vitest-plugin": "^1.4.9",
+    "@cloudflare/workers-types": "^5.20261028.1",
     "@eslint/js": "^10.0.1",
     "@types/bun": "^1.4.3",
+    "drizzle-kit": "^0.31.11",
     "eslint": "^10.13.0",
     "globals": "^17.12.0",
     "knip": "^6.41.0",
     "prettier": "3.9.10",
     "typescript": "~6.0.2",
-    "typescript-eslint": "^8.71.2"
+    "typescript-eslint": "^8.71.2",
+    "vitest": "^5",
+    "wrangler": "^4.154.0"
   }
 }

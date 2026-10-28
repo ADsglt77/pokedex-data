@@ -1,8 +1,10 @@
 {
-  // Le serveur, les tâches et les tests, lancés par Bun tels quels (`tsc` ne fait que vérifier).
+  // Le Worker (`worker/`, ses tâches d'ingestion et ses tests) et le code qu'il partage avec le site
+  // (`src/` : le contrat, la configuration, les règles pures) : les types de Cloudflare (et de
+  // `cloudflare:test`). `scripts/ingest.ts`, que lance Bun, n'y est pas.
   "compilerOptions": {
     "strict": true,
-    "target": "es2023",
+    "target": "es2024",
     "module": "esnext",
     "moduleResolution": "bundler",
     "skipLibCheck": true,
@@ -10,8 +12,8 @@
     "verbatimModuleSyntax": true,
     "moduleDetection": "force",
     "noEmit": true,
-    "lib": ["ES2023"],
-    "types": ["bun"],
+    "lib": ["ES2024"],
+    "types": ["@cloudflare/workers-types", "@cloudflare/vitest-plugin/types"],
     "paths": { "@/*": ["./src/*"] },
 
     /* Linting */
@@ -21,5 +23,5 @@
     "noFallthroughCasesInSwitch": true,
     "noUncheckedIndexedAccess": true
   },
-  "include": ["src", "tests"]
+  "include": ["src", "worker"]
 }

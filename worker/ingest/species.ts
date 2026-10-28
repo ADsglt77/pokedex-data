@@ -1,12 +1,12 @@
 /**
  * Tâche `species` : les 1 025 espèces, d'après PokéAPI (nom en français, anglais et japonais,
- * types, génération ; catégorie, description, taille, poids…), une fois par mois : elles ne
- * changent qu'avec une nouvelle génération (à ajouter alors dans `GENERATIONS`). En fin de tâche,
- * les réponses de `/v1/species` et `/v1/species/details` sont recalculées.
+ * types, génération ; catégorie, description, taille, poids…), une fois par mois (le Cron,
+ * `index.ts`) : elles ne changent qu'avec une nouvelle génération (à ajouter alors dans
+ * `GENERATIONS`). Lues par étapes de 100 espèces (une étape en échec est reprise seule), puis les
+ * réponses de `/v1/species` et `/v1/species/details` sont recalculées.
  */
 
-import type { Database } from 'bun:sqlite'
-import { GENERATIONS, POKEMON_TYPES, SPECIES_IDS, TOTAL_SPECIES } from '@/config/pokedex'
+import { GENERATIONS, POKEMON_TYPES, SPECIES_IDS } from '@/config/pokedex'
 import type {
   PokemonSpecies,
   PokemonSpeciesDetails,
@@ -14,9 +14,10 @@ import type {
   SpeciesDetailsFile,
   SpeciesFile,
 } from '@/contract'
-import { fetchJson, mapPool } from '../lib/net'
+import { journal } from '../journal'
 import { saveSnapshot } from '../snapshots'
-import { TerminalProgress } from '../terminal-progress'
+import { fetchJson, mapPool } from './net'
+import type { Step } from './workflow'
 
 const API = 'https://pokeapi.co/api/v2'
 
@@ -107,37 +108,37 @@ function normalize(species: RawSpecies, pokemon: RawPokemon) {
   return { entry, details }
 }
 
-export async function species(db: Database) {
-  const progress = new TerminalProgress('Espèces PokéAPI', TOTAL_SPECIES)
-  let done = 0
-  let rows: ReturnType<typeof normalize>[]
-  try {
-    rows = await mapPool(SPECIES_IDS, 8, async (id) => {
-      const [raw, pokemon] = await Promise.all([
-        fetchJson<RawSpecies>(`${API}/pokemon-species/${id}`),
-        fetchJson<RawPokemon>(`${API}/pokemon/${id}`),
-      ])
-      const row = normalize(raw, pokemon)
-      progress.update(++done)
-      return row
-    })
-    progress.finish()
-  } catch (error) {
-    progress.stop()
-    throw error
-  }
+/** Les espèces lues par étape. */
+const PER_STEP = 100
 
-  // Ensemble : la liste et les détails restent d'accord. Dans la forme que lit l'app (`satisfies`) :
-  // une clé renommée ne passerait pas la compilation. `IMMEDIATE` : chaque réponse est relue avant
-  // d'être écrite (`saveSnapshot`), et l'écriture d'un autre processus entre les deux ferait
-  // échouer la tâche au lieu de la faire attendre.
-  db.transaction(() => {
-    saveSnapshot(db, 'species', {
-      species: rows.map(({ entry }) => entry),
-    } satisfies SpeciesFile)
-    saveSnapshot(db, 'species-details', {
+export async function species(step: Step) {
+  const rows: ReturnType<typeof normalize>[] = []
+  for (let from = 0; from < SPECIES_IDS.length; from += PER_STEP) {
+    const ids = SPECIES_IDS.slice(from, from + PER_STEP)
+    rows.push(
+      ...(await step(`espèces ${ids[0]} à ${ids.at(-1)}`, () =>
+        mapPool(ids, 6, async (id) => {
+          const [raw, pokemon] = await Promise.all([
+            fetchJson<RawSpecies>(`${API}/pokemon-species/${id}`),
+            fetchJson<RawPokemon>(`${API}/pokemon/${id}`),
+          ])
+          return normalize(raw, pokemon)
+        }),
+      )),
+    )
+  }
+  // Ensemble : la liste et les détails restent d'accord. Dans la forme que lit l'app
+  // (`satisfies`) : une clé renommée ne passerait pas la compilation.
+  await step('réponses des espèces', async () => {
+    await saveSnapshot('species', { species: rows.map(({ entry }) => entry) } satisfies SpeciesFile)
+    await saveSnapshot('species-details', {
       details: rows.map(({ details }) => details),
     } satisfies SpeciesDetailsFile)
-  }).immediate()
-  console.log(`${rows.length} espèces enregistrées`)
+    journal({
+      topic: 'tâches',
+      level: 'ok',
+      message: 'Espèces enregistrées',
+      details: { espèces: rows.length },
+    })
+  })
 }

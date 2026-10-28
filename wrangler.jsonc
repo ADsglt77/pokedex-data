@@ -1,0 +1,35 @@
+// Le Worker des données (pokedex-data), lu par Wrangler (`bun run dev`) et par ses tests
+// (`vitest.config.ts`). Le site le joint par une liaison de service (son entrée `SiteEntrypoint`) ;
+// ses autres clients par `https://api.pokecodex.fr`, avec leur token.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "pokedex-data",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-10-20",
+  // Le calcul d'une demande ou d'une étape des tâches, au plus : le guide des prix, lu en flux, et
+  // ses dizaines de milliers de cartes en demandent plus que les 30 s par défaut.
+  "limits": { "cpu_ms": 300000 },
+  // Les données de référence (`worker/schema.ts`), leurs migrations écrites par Drizzle
+  // (`bun run db:generate`).
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "pokedex-data",
+      "migrations_dir": "worker/migrations",
+    },
+  ],
+  // Les images (`images/…`) et les réponses volumineuses calculées par les tâches (`snapshots/…`).
+  "r2_buckets": [{ "binding": "FILES", "bucket_name": "pokedex-data" }],
+  // Les limites de l'entrée d'Internet, par adresse (`worker/limits.ts`) : toutes les demandes, et
+  // les routes coûteuses.
+  "ratelimits": [
+    { "name": "ANY_LIMIT", "namespace_id": "1001", "simple": { "limit": 300, "period": 10 } },
+    { "name": "HEAVY_LIMIT", "namespace_id": "1002", "simple": { "limit": 20, "period": 10 } },
+  ],
+  // Les tâches d'ingestion (`worker/ingest/workflow.ts`), et le Cron qui lance chaque heure celles
+  // à rythme qui sont dues (les prix, les espèces : `worker/index.ts`).
+  "workflows": [{ "name": "ingest", "binding": "INGEST", "class_name": "Ingest" }],
+  "triggers": { "crons": ["0 * * * *"] },
+  // Les clients et leur token (`API_TOKENS`) sont un secret du Worker, jamais dans ce fichier.
+  "observability": { "enabled": true },
+}

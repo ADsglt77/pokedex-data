@@ -1,20 +1,23 @@
 # Les données
 
-Ce que lit chaque tâche d'ingestion, ce qu'elle range dans `data.db` et ce qu'en rend l'API. À
-lire avant de toucher à ce domaine (les règles : `CLAUDE.md`).
+Ce que lit chaque tâche d'ingestion, ce qu'elle range dans la D1 et R2, et ce qu'en rend l'API. À
+lire avant de toucher à ce domaine (les règles : `CLAUDE.md`). Les tâches tournent dans le Worker
+(`worker/ingest/`, les chemins ci-dessous en partent), un Workflow par passage, par étapes : une
+étape en échec est réessayée seule, et un passage arrêté reprend où il en était.
 
-## Espèces (`jobs/species.ts`, chaque mois)
+## Espèces (`ingest/species.ts`, chaque mois)
 
 Les 1 025 espèces d'après PokéAPI (nom français, anglais et japonais, types, génération ;
-catégorie, description, taille, poids…), lues par `lib/net.ts` (cache disque d'un mois, requêtes
-identifiées) : `/v1/species` et `/v1/species/details`. Une espèce sans nom français ou anglais, ou
+catégorie, description, taille, poids…), lues par `ingest/net.ts` (requêtes identifiées, six à la
+fois, réessayées en cas de panne), par étapes de 100 espèces : `/v1/species` et
+`/v1/species/details` (des réponses enregistrées dans R2). Une espèce sans nom français ou anglais, ou
 d'un type inconnu (une nouvelle génération pas encore traduite), fait échouer la tâche : les
 espèces d'avant restent. Une nouvelle génération s'ajoute dans `GENERATIONS` (`config/pokedex.ts`).
 
-## Catalogue (`jobs/catalog.ts`, à la demande)
+## Catalogue (`ingest/catalog.ts`, à la demande)
 
 Les cartes japonaises, puis les françaises, de Pokécardex, Pokémon, dresseurs et énergies
-(`lib/pokecardex.ts`) : environ 450 séries japonaises de 1996 à aujourd'hui, decks, promos et
+(`ingest/pokecardex.ts`) : environ 450 séries japonaises de 1996 à aujourd'hui, decks, promos et
 anciennes séries compris, sans les exclusivités d'autres pays d'Asie (bloc « Asia Exclusive » de
 son menu japonais, `asiaExclusive`), et ses 249 séries françaises (sa zone française : section
 suivante) → tables `sets`, `cards`, `card_species`, `rarities`. Les ids des cartes et des raretés
@@ -58,11 +61,11 @@ et les codes des séries se répètent d'une zone à l'autre (la carte 7091, la 
   retire rien (plus de la moitié des séries connues sans cartes : la tâche échoue) ; une carte
   qu'une lecture de sa série ne voit plus est retirée. Tant qu'aucune carte d'une langue n'a été
   lue, les réponses de cette langue répondent 404.
-- Les réponses, recalculées au début et en fin de tâche, chaque langue d'après ses seules lignes
-  (`saveCatalog`, `snapshots.ts` : gardées en gzip, une réponse inchangée n'est pas recompressée ;
-  `snapshotName` : celles du japonais gardent leurs noms, `catalog/…`, celles du français, de même
+- Les réponses, recalculées en fin de tâche, chaque langue d'après ses seules lignes, une étape
+  chacune (`saveCatalog`, `saveLanguage`, testé : enregistrées dans R2, `snapshots/…`, et celles
+  d'une série retirée retirées, dans sa langue seulement ; `snapshotName` : celles du japonais gardent leurs noms, `catalog/…`, celles du français, de même
   forme, sont nommées `catalog/fr/…`, la sortie y étant celle en France ; l'API sert chacune à la
-  route de même nom, `/v1/catalog/…` et `/v1/catalog/fr/…`, mêmes paramètres, `reference.ts`) :
+  route de même nom, `/v1/catalog/…` et `/v1/catalog/fr/…`, mêmes paramètres, `worker/reference.ts`) :
   - `/v1/catalog/species/<n°>` : les cartes Pokémon d'un Pokémon (une réponse pour chacun des
     1 025, même sans carte), des plus récentes aux plus anciennes : `[série, numéro (sans numéro
     imprimé : sort), id Cardmarket (0 : aucun), nom français, numéro de son image (0 : aucune),
@@ -77,12 +80,12 @@ et les codes des séries se répètent d'une zone à l'autre (la carte 7091, la 
   site a leurs noms). Les raretés gardent les noms de Pokécardex (« C », « SAR »…, « Commune »,
   « Holographique » pour les anciennes, « Sans rareté »).
 
-## Images (`images.ts`, `jobs/images.ts`, à la demande)
+## Images (`ingest/images.ts`, à la demande)
 
-Copiées chez nous (`IMAGES_DIR`), condition de Pokécardex, **toutes d'avance** par la tâche
+Copiées chez nous (R2, `images/…`), condition de Pokécardex, **toutes d'avance** par la tâche
 `images` ; servies à `/v1/images/…`, gardées un an par les clients (`immutable` : une image
 copiée ne change pas, sauf le scan d'une carte renumérotée, plus bas). Les chemins sont neutres
-(`cardScan`…, `images.ts`) ; leur adresse d'origine n'est que dans `UPSTREAMS`. Les codes des
+(`cardScan`…, `lib/image-paths.ts`) ; leur adresse d'origine n'est que dans `UPSTREAMS`. Les codes des
 séries et les rangs se répètent d'une langue à l'autre (SVP, rang 1) : les chemins français ont un
 dossier `fr/` de plus, les japonais n'ont pas changé.
 
@@ -100,20 +103,22 @@ dossier `fr/` de plus, les japonais n'ont pas changé.
   semaine), les icônes (les types ; les raretés qu'utilisent les cartes de l'une ou l'autre
   langue, une icône par id), les sprites et illustrations des 1 025 Pokémon, puis le scan de
   chaque carte, de chaque langue, en deux tailles, noté s'il existe (`cards.image` : le catalogue
-  le dit d'avance ; une carte sans scan est recherchée chaque semaine). Chaque requête et chaque
-  note portent la langue : l'id 7091 de chaque langue est une autre carte. Une image en erreur
-  n'arrête pas les autres : rien n'est noté pour elle, la tâche échoue à la fin (à la 20e erreur,
-  elle s'arrête : la source est sans doute en panne). En fin de tâche, le catalogue est recalculé.
+  le dit d'avance ; une carte sans scan est recherchée chaque semaine), par étapes de 50 séries,
+  100 Pokémon ou 50 cartes. Chaque requête et chaque note portent la langue : l'id 7091 de chaque
+  langue est une autre carte. Une image en erreur n'arrête pas les autres : rien n'est noté pour
+  elle, la tâche échoue à la fin (à la 20e erreur, elle s'arrête : la source est sans doute en
+  panne). En fin de tâche, même arrêtée, le catalogue est recalculé.
 - **Une série renumérotée** (testé) : le chemin d'un scan suit le rang de la carte. Quand la
   source change le rang ou la série d'une carte (une carte arrivée en tête de série décale les
   suivantes), le catalogue la remet à chercher (`cards.image` nul), et le fichier de son nouveau
   chemin est souvent le scan de la carte qui avait ce rang : la tâche recopie donc chaque scan
   qu'elle cherche (une carte pas encore notée, une carte sans scan cherchée de nouveau chaque
   semaine), même si son fichier existe (`mirror`, `force`), en le remplaçant d'un coup ; une carte
-  dont la source n'a pas ses deux scans n'en garde aucun (`removeImage` : le fichier de son rang,
-  celui d'une autre carte, serait servi pour elle, et pris pour le sien la semaine suivante). Elle
-  note une carte seulement si elle est encore à la place copiée (sa série et son rang : le
-  catalogue, dans un autre processus, a pu la déplacer entre-temps ; elle reste alors à chercher).
+  dont la source n'a pas ses deux scans n'en garde aucun (tous deux retirés de R2 : le fichier de
+  son rang, celui d'une autre carte, serait servi pour elle, et pris pour le sien la semaine
+  suivante). Elle note une carte seulement si elle est encore à la place copiée (sa série et son
+  rang : le catalogue, dans un autre Workflow, a pu la déplacer entre-temps ; elle reste alors à
+  chercher, à sa nouvelle place).
   Les chemins ne changent pas (choix fait lors des corrections d'octobre 2026, aucun rang n'ayant
   changé du 19 au 24 octobre) : un navigateur qui avait l'ancien scan d'un chemin le garde
   jusqu'à ce que son cache se vide (`immutable`, un an), le nginx du site jusqu'à son prochain
@@ -122,34 +127,32 @@ dossier `fr/` de plus, les japonais n'ont pas changé.
   chemin de son image (série et rang), non la carte. Après une renumérotation à la source, les
   cartes enregistrées à un rang égal ou postérieur au point d'insertion montrent le scan de leur
   nouvelle occupante, jusqu'à ce que leur image soit choisie de nouveau ; rien ne les corrige
-  d'elles-mêmes. Pour ne pas le découvrir par hasard, la tâche `catalog` écrit au journal de
-  `cards`, à la fin de chaque langue, une ligne qui compte les cartes déjà copiées (`cards.image`
-  noté) dont la série ou le rang viennent de changer : « Séries françaises : N cartes déjà copiées
-  changent de série ou de rang (renumérotée par la source) » (`logRenumbered`, comptées par
-  `save`, testé). Le nombre seulement : rien d'autre ne change, et aucune ligne tant que rien n'a
-  bougé.
-- **Aucune copie à la demande** (décision du propriétaire, octobre 2026) : `serveImage` sert le
-  fichier s'il existe, sinon 404 sans rien télécharger (une réponse sans cache : l'image est servie
-  dès que la tâche l'a copiée) ; le site montre alors la carte de substitution. Seulement pour un
-  chemin plausible (`UPSTREAMS` : une série du catalogue **de sa langue** et un numéro
-  jusqu'au plus grand des siens, le logo d'une série du catalogue de sa langue, un type de
-  `CARD_TYPES`, une rareté connue d'une langue ou de l'autre, un Pokémon de 1 à 1 025). Une image
-  est écrite d'un coup (un fichier provisoire propre à chaque copie, deux cartes pouvant partager
-  un scan, NRGY 41 au Japon ; retiré si l'écriture échoue : l'API ne sert jamais une image à
-  moitié écrite).
+  d'elles-mêmes. Pour ne pas le découvrir par hasard, la tâche `catalog` écrit au journal, à la
+  fin de chaque langue, une ligne qui compte les cartes déjà copiées (`cards.image` noté) dont la
+  série ou le rang viennent de changer : « Série renumérotée par la source », avec la langue et le
+  nombre de cartes (`logTotals`, comptées par `saveSeries`, testé). Le nombre seulement : rien
+  d'autre ne change, et aucune ligne tant que rien n'a bougé.
+- **Aucune copie à la demande** (décision du propriétaire, octobre 2026) : le Worker
+  (`worker/images.ts`) sert l'image depuis R2 si elle y est, sinon 404 sans rien télécharger (une
+  réponse sans cache : l'image est servie dès que la tâche l'a copiée) ; le site montre alors la
+  carte de substitution. Seulement pour un chemin plausible (`IMAGE_PATHS` : une série du
+  catalogue **de sa langue** et un numéro jusqu'au plus grand des siens, le logo d'une série du
+  catalogue de sa langue, un type de `CARD_TYPES`, une rareté connue d'une langue ou de l'autre,
+  un Pokémon de 1 à 1 025). Une image est écrite d'un coup dans R2 : l'API ne sert jamais une
+  image à moitié écrite.
 
 ## La zone française de Pokécardex (repérée le 22 octobre 2026)
 
 Accord du propriétaire pour les cartes françaises comme pour les japonaises : mêmes pages, même
 méthode. Repérage sur `/series/MEG` (récente) et `/series/BS` (ancienne), avec un script à part ;
-`lib/pokecardex.ts` lit une série, une carte et le plan du site dans une langue (`CardLanguage`,
+`ingest/pokecardex.ts` lit une série, une carte et le plan du site dans une langue (`CardLanguage`,
 `ja` ou `fr` : `seriesIn`, `seriesCodes`, `readSeries`, `readCard`, `menuBlocks`). Les tâches
 `catalog`, `images` et `history` lisent cette zone (sections Catalogue, Images et Historique repris).
 Ce qui suit est ce que le repérage a établi.
 
 - **Les pages** : `/series/<code>` (japonaises : `/series/jp/<code>`), chiffrées de la même façon,
   avec le même script (`/react/sets/assets/index-….js`) et sa clé : la méthode de `keyOf` et de
-  `pageData` (`lib/pokecardex.ts`) déchiffre ces pages sans changement. Le document a les mêmes
+  `pageData` (`ingest/pokecardex.ts`) déchiffre ces pages sans changement. Le document a les mêmes
   clés que celui d'une page japonaise (`currentSeries`, `seriesMenu`, `cartes`, `raretes`…) et les
   cartes les mêmes champs (`id_card`, `num_card`, `sort`, `name_card_fr/en/de`, `id_pokedex_list`,
   `id_cardmarket`, `cardmarket_url`, `id_rarete`, `id_type`, `nom_illustrateur`, `versions`,
@@ -172,7 +175,7 @@ Ce qui suit est ce que le repérage a établi.
     japonaise SV2A : `fullName` « Pokémon Card 151 », segment « Pokemon-Card-151 »), sans doute les
     signes comme « & », et les apostrophes (« Champion's Path » : « Champions-Path ») : il ne donne
     pas le nom, mais **confirme** celui qu'on a (`cardmarketSlug` et `expansionNameOf`,
-    `lib/pokecardex.ts`, testés) ;
+    `ingest/pokecardex.ts`, testés) ;
   - `nameUS` du bloc de la série dans le menu (« Mega Evolution ») : celui du **bloc**, donné à toutes
     ses séries (les neuf du bloc « Méga-Évolution » : « Mega Evolution »), donc l'extension seulement
     pour MEG, pas pour PFL, ASC… (dont l'extension a son nom) : écarté ;
@@ -184,7 +187,7 @@ Ce qui suit est ce que le repérage a établi.
     (`seriesMenu.blocksByRegion.FR[].series[].fullName` : « Pitch Black », « Phantasmal Flames »,
     « Black Bolt »… ; 91 sont identiques au français) et des `link` vers `/en/series/<code>` : la
     tâche `catalog` lit donc une seule page anglaise par passage, au lieu de 249
-    (`readEnglishSeriesNames`, `lib/pokecardex.ts`, retenu).
+    (`readEnglishSeriesNames`, `ingest/pokecardex.ts`, retenu).
 - **Le scan d'une carte** : `https://pokecardex-scans.b-cdn.net/sets/<série>/FR/<sort>.jpg?class=<md|hd>`
   (la fonction du script : dossier `sets/`, puis `nom_court` de la carte, c'est-à-dire le code de sa
   série, puis `FR`, puis `sort` de la carte, **non** son numéro imprimé : le 188e de MEG, « 188/132 »,
@@ -197,8 +200,9 @@ Ce qui suit est ce que le repérage a établi.
   jamais construit par le site pour la zone française : BS y répond 200 (le fichier n'a pas la
   taille de celui de `FR`), MEG y répond 404 ; ne pas l'employer. Le logo : `logos/<série>.png` dans
   `https://pokecardex.b-cdn.net/assets/images/` (`logos_jp/` pour les japonaises). Ce sont les
-  adresses que copie la tâche `images` (`UPSTREAMS`, `images.ts`, testées dans
-  `tests/images.test.ts`) : le scan sans version, pas ceux des versions (`FR/<id_version>/…`).
+  adresses que copie la tâche `images` (`UPSTREAMS`, `ingest/images.ts`, testées dans
+  `worker/tests/images.test.ts`) : le scan sans version, pas ceux des versions
+  (`FR/<id_version>/…`).
 - **Le menu** (`seriesMenu.blocksByRegion`) : `{ FR: 19 blocs, JP: 19 blocs, CHN: 5 blocs }`. Un bloc
   français : `{ id: "bloc-19-fr", name: "Méga-Évolution", nameUS: "Mega Evolution", series: [{ id,
   shortName, fullName, commercialName?, link }] }` ; `link` est `https://www.pokecardex.com/series/<shortName>`.
@@ -229,7 +233,7 @@ Ce qui suit est ce que le repérage a établi.
   38 à 40, 43 : « Double Rare », « Illustration Rare »…) n'existent qu'ici. `id_type` : les mêmes
   numéros que les japonaises (`CARD_TYPES`), sauf le 17 sur BS (Double Colorless Energy), qui n'y
   est pas.
-- **Les requêtes du repérage** (6, 3,5 s d'écart, User-Agent de `lib/net.ts`) : `GET` du script
+- **Les requêtes du repérage** (6, 3,5 s d'écart, User-Agent des tâches) : `GET` du script
   `/react/sets/assets/index-Ck3W_Plh.js` (200, 1,5 Mo) ; `HEAD` sur `sets/MEG/FR/1.jpg?class=md` (200,
   `image/webp`), `sets/BS/FR/1.jpg?class=md` (200), `sets/MEG/FR/1.jpg?class=hd` (200),
   `sets/MEG/FR/2/1.jpg?class=md` (200, d'une autre taille que `FR/1.jpg`), `sets/MEG/FR/188.jpg?class=md`
@@ -237,9 +241,9 @@ Ce qui suit est ce que le repérage a établi.
   enregistrés plus tôt le même jour par un premier relevé (avec trois `HEAD` : `sets/MEG/1.jpg` 404,
   `sets/BS/1.jpg` 200, `logos/MEG.png` 200). La page anglaise `/en/series/MEG` (200, 377 Ko, même
   script `index-Ck3W_Plh.js`, donc sans le redemander) : 1 requête de plus, le même jour (`download`
-  de `lib/net.ts`, son User-Agent).
+  des tâches, son User-Agent).
 
-## Prix (`jobs/prices.ts`, toutes les 6 h)
+## Prix (`ingest/prices.ts`, toutes les 6 h)
 
 Le guide des prix public de Cardmarket et sa liste des produits (`products_singles_6.json`),
 seulement les cartes à l'unité (catégorie 51) :
@@ -248,8 +252,8 @@ seulement les cartes à l'unité (catégorie 51) :
   (`idMetacard`), pour la liste de souhaits ; vides pour un produit sorti de la liste.
 - `cardmarket_prices` : le prix du jour de chaque carte, son plus bas et son prix d'il y a 30 jours
   (`month_ago`, d'après l'historique, une semaine plus tôt au plus : `priceBefore`).
-- `cardmarket_history` (`history.ts`) : l'historique, irremplaçable (Cardmarket n'en garde pas),
-  une ligne par carte et par année, à partir de son premier jour avec un prix.
+- `cardmarket_history` (`ingest/years.ts`) : l'historique, irremplaçable (Cardmarket n'en garde
+  pas), une ligne par carte et par année, à partir de son premier jour avec un prix.
 - **Le prix suivi, partout le même** (décision de l'utilisateur, octobre 2026) : la règle de
   Pokécardex (`guidePrice`, testée), la tendance Cardmarket pour une carte d'une série sortie depuis
   moins de 31 jours (d'après le catalogue), sa moyenne sur 30 jours ensuite, à défaut sur 7 jours,
@@ -261,19 +265,22 @@ seulement les cartes à l'unité (catégorie 51) :
   illisible (téléchargement en échec, fichier renommé, format changé), tronquée (moins de la
   moitié des produits qu'elle donnait : les autres perdraient leur extension, et leur ligne) ou
   impossible à enregistrer, celle d'avant reste, le journal le dit, et elle est relue au guide
-  suivant (une erreur qui annule toute la transaction, la base ou le disque pleins, arrête tout :
-  rien n'est écrit, la tâche échoue). L'écriture,
-  séparée du téléchargement (`savePriceGuide`), est testée. Rien n'est retéléchargé (29 Mo) tant
-  que le guide n'a pas changé (`sources` : son `Last-Modified`).
+  suivant. L'historique s'écrit par paquets de 200 cartes ; les prix du jour, mis de côté
+  (`cardmarket_prices_next`), ne remplacent ceux de la veille, avec le passage noté, qu'une fois
+  tous écrits, d'un seul tenant : arrêtée en route, la tâche n'a rien changé des prix (testé), et
+  relancée, elle refait l'historique du jour à l'identique. L'écriture, séparée du téléchargement
+  (`savePriceGuide`), est testée. Le guide et la liste (29 Mo) sont lus en flux (`json-stream.ts`,
+  testé : entiers, ils ne tiendraient pas dans la mémoire du Worker), et rien n'est retéléchargé
+  tant que le guide n'a pas changé (`sources` : son `Last-Modified`).
 - Les réponses : `/v1/prices?ids=…` (`readPrices` : le jour, et une clé par carte demandée,
   `[prix, plus bas, prix d'il y a 30 jours]` ou `null` sans prix ; 404 tant que le guide n'a
   jamais été lu) ; `/v1/prices/<id>` (l'historique d'une carte) et `/v1/histories?ids=…` (ceux de
   plusieurs, une clé par id, `null` sans historique). Les ids : des entiers de 1 à 9 chiffres sans
   zéro devant, 1 025 au plus (422 sinon). Leur ETag est tiré du passage de la tâche `prices` et de
-  l'avancée de la tâche `history` (`pricesTag`, lu dans la même transaction que la réponse) : 304
-  tant que rien n'a changé.
+  l'avancée de la tâche `history` (`pricesAnswer`, lu avant la réponse : au pire des prix neufs
+  sous l'ancien ETag, jamais d'anciens sous le nouveau) : 304 tant que rien n'a changé.
 
-## Historique repris (`jobs/history.ts`, à la demande)
+## Historique repris (`ingest/history.ts`, à la demande)
 
 Accord de Pokécardex, octobre 2026 : il relève le guide chaque jour, et la page de chacune de ses
 cartes, japonaise (`/carte/jp/<id>`) ou française (`/carte/<id>`, de la même forme :
@@ -283,25 +290,22 @@ un id Cardmarket (environ 28 000 japonaises et 25 000 françaises), une fois : l
 elle-même (`mainHistory`, testé : son produit Cardmarket, celui du catalogue, sans variante
 « Reverse » ni version, au prix suivi « avg30 », la même règle que `prices`, pour une française
 comme pour une japonaise ; seulement les jours écrits AAAA-MM-JJ, une autre forme tomberait entre
-deux jours), et chaque jour avant le dernier relevé prend son prix (`mergePrices`, testé :
-celui-là et les suivants restent ceux du relevé). L'année de la carte est lue, fusionnée et
-réécrite, avec son prix d'il y a 30 jours, en une transaction `IMMEDIATE` où se lit aussi le jour
-du dernier relevé (`mergeHistory`, testé avec deux processus) : la tâche `prices` (le service
-`ingest`) écrit les mêmes lignes pendant que `history` tourne dans le conteneur `cards`, et une
-année lue avant sa transaction effacerait le prix du jour en se réécrivant. Une page toutes les
-3 s : environ 23 h pour les japonaises la première fois, 21 h de plus pour les françaises ; les
-séries les plus récentes d'abord, toutes langues mêlées ; chaque carte lue une fois
+deux jours), et chaque jour avant le dernier relevé prend son prix (`mergeHistory`, testé :
+celui-là et les suivants restent ceux du relevé). La tâche `prices` peut écrire les mêmes lignes
+pendant que `history` tourne : l'année de la carte est lue avec le jour du dernier relevé,
+fusionnée, puis réécrite seulement si personne n'y a touché entre-temps (`writeYears`, testé),
+sinon relue et refaite (une année réécrite d'après une lecture d'avant effacerait le prix du
+jour) ; son prix d'il y a 30 jours suit. Une page toutes les 3 s : environ 23 h pour les
+japonaises la première fois, 21 h de plus pour les françaises ; les séries les plus récentes
+d'abord, toutes langues mêlées, par étapes de 50 cartes ; chaque carte lue une fois
 (`history_imports`, une ligne par langue et par carte : `historyTodo`, testé, l'id 7091 japonais
 lu ne fait pas sauter le français), un passage suivant ne lit que les nouvelles ; 10 pages en
 échec d'affilée arrêtent la lecture ; des cartes en échec font échouer la tâche (relues au passage
-suivant). Le prix d'il y a 30 jours de chaque carte reprise suit, et l'avancée est notée
-(`sources` : `history`, toutes les 100 cartes et en fin de passage, même arrêté par les échecs ;
-si cette note échoue alors à son tour, la base occupée ou pleine, son erreur est écrite à part, et
-celle qui a arrêté le passage reste sa cause dans `runs.message`), que suit l'ETag des prix. Une
-carte reprise ne l'est plus : si son id Cardmarket change ensuite
-(le catalogue adopte celui que Pokécardex a corrigé), les 180 jours de son nouveau produit ne sont
-pas repris, seulement les relevés suivants (le corriger demanderait une étape du schéma : le
-produit repris dans `history_imports`).
+suivant). L'avancée est notée à chaque étape (`sources` : `history`), que suit l'ETag des prix.
+Une carte reprise ne l'est plus : si son id Cardmarket change ensuite (le catalogue adopte celui
+que Pokécardex a corrigé), les 180 jours de son nouveau produit ne sont pas repris, seulement les
+relevés suivants (le corriger demanderait une migration : le produit repris dans
+`history_imports`).
 
 L'historique est celui d'un **produit Cardmarket** (`cardmarket_history`, par id produit) : une
 carte française qui partage son produit avec une autre carte (de toute langue) en reprend les prix
@@ -314,7 +318,7 @@ l'autre langue.
 Pour chaque id Cardmarket demandé, sa ligne pour « Ajouter une deck list » de la liste de souhaits
 de Cardmarket, ou `null` quand aucune ne désignerait sûrement cette carte-là (une mauvaise version
 achèterait une autre carte ; règles pures `wantsLine` et `wantsVersion`, et le SQL qui en réunit
-les données : `tests/wants.test.ts`). Le format, vérifié par l'utilisateur sur cardmarket.com
+les données : `worker/tests/wants.test.ts`). Le format, vérifié par l'utilisateur sur cardmarket.com
 (octobre 2026) : `1x <nom du produit, sans crochets, « | » devenu une espace> (V.<n>) (<extension>)`.
 Le produit 719621 donne `1x Charmander Blazing Destruction Steady Firebreathing (V.2) (Pokémon Card
 151)`, que Cardmarket ajoute comme « Salamèche (sv2a 168) ». Toujours `1x`.
@@ -347,24 +351,27 @@ Le produit 719621 donne `1x Charmander Blazing Destruction Steady Firebreathing 
 - Calculée à chaque demande (`Cache-Control: no-cache`), requêtes préparées une fois, chaque id et
   chaque extension une fois par demande : 1 025 ids en moins de 0,1 s.
 
-## État des tâches (`status.ts`)
+## État des tâches (`worker/status.ts`)
 
-`runs` note chaque passage (`runs.ts`, `ingest.ts`) : son début, sa fin, s'il a réussi, et la
-cause d'un échec (`message` : celui de l'erreur, ou « interrompue » pour un passage arrêté).
-Pendant qu'il tourne, il donne signe de vie chaque minute (`alive_at`) : une tâche n'est pas lancée
-deux fois à la fois (deux processus doubleraient le rythme des requêtes), ni `catalog` pendant
-`history` ou l'inverse (testé : toutes deux lisent les pages de Pokécardex, une toutes les 3 s en
-tout, rythme que chaque processus ne tient que pour lui ; une étape de `cards` qui trouve l'autre
-en cours est alors passée, comme une tâche déjà en cours), mais un passage sans
-signe de vie depuis 5 min a été arrêté net (conteneur tué, mémoire épuisée, machine redémarrée) :
-il ne bloque plus sa tâche, et il est noté interrompu à son passage suivant (testé).
+`runs` note chaque passage (`ingest/runs.ts`, `ingest/workflow.ts`) : son début, sa fin, s'il a
+réussi, et la cause d'un échec (`message` : celui de l'erreur, ou « interrompue » pour un passage
+arrêté). Pendant qu'il tourne, il donne signe de vie à chacune de ses étapes (`alive_at`) : une
+tâche n'est pas lancée deux fois à la fois (deux Workflows doubleraient le rythme des requêtes),
+ni `catalog` pendant `history` ou l'inverse (testé : toutes deux lisent les pages de Pokécardex,
+une toutes les 3 s en tout, rythme que chaque Workflow ne tient que pour lui ; une tâche de `cards`
+qui trouve l'autre en cours est alors passée, comme une tâche déjà en cours), mais un passage sans
+signe de vie depuis 5 min a été arrêté net (son Workflow terminé, ou en échec sans avoir pu noter
+sa fin) : il ne bloque plus sa tâche, et il est noté interrompu à son passage suivant (testé).
+
+Le Cron (toutes les heures, `worker/index.ts`) lance une tâche à rythme quand sa dernière réussite
+a plus que son intervalle (`INGEST_JOBS`) ; après un échec, 10 min plus tard, puis 20, 40…
+jusqu'à 6 h (`isDue`, testé : une panne qui dure ne fait pas solliciter la source à chaque fois).
 
 `/v1/status` rend seulement le nom, le libellé et l'état de chaque tâche, dans l'ordre
 d'`INGEST_JOBS`. Les détails de calcul restent internes à l'API. Un passage en cours ne compte pas
 encore : l'état reste celui du passage d'avant. Les états : `never` (tâche à la demande jamais
 passée), `failed` (le dernier passage, ou un passage arrêté net ; sa cause n'est pas rendue : elle
-est dans `runs.message` et dans la sortie de l'ingestion, le journal du service `ingest` ou celui
-du conteneur d'une tâche à la demande), `late` (deux intervalles sans réussite ; jamais pour une
-tâche à la demande), `frozen` (les prix : le guide inchangé depuis plus de deux jours, chaque jour
-perdu manque pour toujours à l'historique), `ok`. `/v1/health`, sans token : 503 si une tâche à
-rythme est en retard ou les prix figés.
+est dans `runs.message` et dans le journal du Worker), `late` (deux intervalles sans réussite ;
+jamais pour une tâche à la demande), `frozen` (les prix : le guide inchangé depuis plus de deux
+jours, chaque jour perdu manque pour toujours à l'historique), `ok`. `/v1/health`, sans token :
+503 si une tâche à rythme est en retard ou les prix figés.

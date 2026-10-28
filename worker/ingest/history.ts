@@ -5,25 +5,27 @@
  * Cardmarket porte ses prix des 180 derniers jours, presque jour par jour ; on en prend ceux de la
  * carte elle-même (`mainHistory` : son produit Cardmarket, son prix suivi, la règle que suit aussi
  * la tâche `prices`, d'où des courbes d'un seul tenant), et chacun prend son jour dans
- * l'historique, avant celui du dernier relevé (`mergeHistory`, `mergePrices` : en une transaction,
- * après le relevé que la tâche `prices` écrirait au même moment) : l'historique est celui d'un
+ * l'historique, avant celui du dernier relevé (`mergeHistory`) : l'historique est celui d'un
  * produit Cardmarket, que toutes les langues partagent. À la demande (après le catalogue : `bun run
  * ingest cards`) ; une page toutes les 3 s : les quelque 28 000 cartes japonaises prennent environ
  * 23 h la première fois, les quelque 25 000 françaises 21 h de plus. Chaque carte n'est lue qu'une
  * fois (`history_imports`, par langue : `historyTodo`) : un passage suivant ne lit que les
  * nouvelles cartes du catalogue, et un passage interrompu reprend là où il en était (une carte dont
  * l'id Cardmarket change ensuite n'est pas relue : son nouveau produit n'a que les relevés
- * suivants). Les séries les plus récentes d'abord. Son prix d'il y a 30 jours suit, et son avancée
- * est notée (`sources` : `history`, toutes les 100 cartes et en fin de passage, même arrêté en
- * route) : l'ETag des prix et des historiques change, les courbes la montrent aussitôt.
+ * suivants). Les séries les plus récentes d'abord, par étapes de 50 cartes. Son prix d'il y a
+ * 30 jours suit, et son avancée est notée à chaque étape (`sources` : `history`) : l'ETag des prix
+ * et des historiques change, les courbes la montrent aussitôt.
  */
 
-import type { Database } from 'bun:sqlite'
+import { env } from 'cloudflare:workers'
 import type { CardLanguage } from '@/contract'
-import { readSource, writeSource } from '../db'
-import { historyStore, mergePrices } from '../history'
-import { MAX_FAILURES_IN_A_ROW, readCard, type PokecardexCardPage } from '../lib/pokecardex'
-import { plural, TerminalProgress } from '../terminal-progress'
+import { priceBefore, withPrice, yearDay, type HistoryYear } from '@/lib/history'
+import { addDays } from '@/lib/time'
+import { journal, plural, reasonOf } from '../journal'
+import { MAX_FAILURES_IN_A_ROW, readCard, type PokecardexCardPage } from './pokecardex'
+import { readSource, writeSource } from './sources'
+import type { Step } from './workflow'
+import { readYears, writeYears, type YearWrite } from './years'
 
 /**
  * Les prix de la carte elle-même dans sa page (testé) : sa plus longue période, la série de son
@@ -58,114 +60,147 @@ export function mainHistory(
 }
 
 /**
- * Les cartes à reprendre (testé) : celles du catalogue avec un id Cardmarket, absentes de
- * `history_imports` pour leur langue (l'id 7091 de chaque langue est une autre carte), les séries
- * les plus récentes d'abord.
+ * L'historique repris d'une carte (`mainHistory`) dans celui de son produit Cardmarket (testé) :
+ * chaque jour avant `until` (le jour du dernier relevé de la tâche `prices`, qui garde le dernier
+ * mot, lui et les suivants) prend le prix repris ; les autres restent tels quels. Puis son prix
+ * d'il y a 30 jours. Les années lues, fusionnées et réécrites seulement si personne ne les a
+ * changées entre-temps (`writeYears`) : sinon (la tâche `prices` y écrivait le prix du jour),
+ * relues et refaites. Rend le nombre de jours changés.
  */
-export function historyTodo(db: Database) {
-  return db
-    .query(
-      `SELECT cards.lang, cards.id, cards.cardmarket
-       FROM cards JOIN sets ON sets.lang = cards.lang AND sets.id = cards.set_id
-       WHERE cards.cardmarket != 0 AND NOT EXISTS (
-         SELECT 1 FROM history_imports WHERE lang = cards.lang AND card = cards.id)
-       ORDER BY sets.released DESC, cards.lang, cards.id`,
-    )
-    .all() as { lang: CardLanguage; id: number; cardmarket: number }[]
+export async function mergeHistory(cardmarket: number, points: readonly [string, number][]) {
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    const until = (await readSource('cardmarket'))?.date ?? null
+    const kept = points.filter(([date]) => until === null || date < until)
+    const years = new Set(kept.map(([date]) => yearDay(date)[0]))
+    // Le prix d'il y a 30 jours lit aussi l'année du dernier relevé, et celle d'avant en janvier.
+    if (until) [addDays(until, -37), until].forEach((date) => years.add(yearDay(date)[0]))
+    const stored = await readYears([cardmarket], [...years])
+    const merged = new Map<number, HistoryYear>(stored.map((row) => [row.year, row]))
+    const changed = new Set<number>()
+    let days = 0
+    for (const [date, price] of kept) {
+      const [year, day] = yearDay(date)
+      const known = merged.get(year)
+      const next = withPrice(known, year, day, price)
+      if (next === known) continue
+      merged.set(year, next)
+      changed.add(year)
+      days++
+    }
+    const writes = [...changed].map((year): YearWrite => {
+      const { first, prices } = merged.get(year)!
+      const old = stored.find((row) => row.year === year)?.text ?? null
+      return { id: cardmarket, year, first, prices: JSON.stringify(prices), old }
+    })
+    if ((await writeYears(writes)).length) continue
+    if (until) {
+      await env.DB.prepare('UPDATE cardmarket_prices SET month_ago = ? WHERE id = ?')
+        .bind(priceBefore([...merged.values()], until), cardmarket)
+        .run()
+    }
+    return days
+  }
+  throw new Error(`Historique de ${cardmarket} changé sans cesse pendant sa reprise`)
+}
+
+/** Une carte à reprendre, et sa place dans l'ordre de la reprise. */
+interface Todo {
+  released: string
+  lang: CardLanguage
+  id: number
+  cardmarket: number
 }
 
 /**
- * L'historique repris d'une carte (`mainHistory`) dans celui de son produit Cardmarket (testé) :
- * ses jours avant le dernier relevé (`mergePrices`), puis son prix d'il y a 30 jours, en une
- * transaction `IMMEDIATE`, le dernier relevé lu dedans. La tâche `prices` écrit les mêmes lignes
- * depuis un autre processus (le service `ingest`, quand celle-ci tourne dans le conteneur `cards`) :
- * la transaction prend le verrou d'écriture avant toute lecture, attend donc la fin de la sienne,
- * et lit alors le prix du jour qu'elle vient d'écrire et son jour (lus avant, le prix serait effacé
- * par la réécriture de l'année, et le prix d'il y a 30 jours compté depuis la veille). Rend le
- * nombre de jours changés.
+ * Les 50 cartes à reprendre après `after` (testé) : celles du catalogue avec un id Cardmarket,
+ * absentes de `history_imports` pour leur langue (l'id 7091 de chaque langue est une autre carte),
+ * les séries les plus récentes d'abord.
  */
-export function mergeHistory(
-  db: Database,
-  cardmarket: number,
-  points: readonly [date: string, price: number][],
-) {
-  return db
-    .transaction(() => {
-      // Le jour du dernier relevé : lui et les suivants restent ceux de la tâche `prices`.
-      const until = readSource(db, 'cardmarket')?.date ?? null
-      const days = mergePrices(db, cardmarket, points, until)
-      if (until) {
-        db.query('UPDATE cardmarket_prices SET month_ago = ? WHERE id = ?').run(
-          historyStore(db).monthAgo(cardmarket, until),
-          cardmarket,
-        )
-      }
-      return days
-    })
-    .immediate()
+export async function historyTodo(after: Todo | null) {
+  const { results } = await env.DB.prepare(
+    `SELECT sets.released, cards.lang, cards.id, cards.cardmarket
+     FROM cards JOIN sets ON sets.lang = cards.lang AND sets.id = cards.set_id
+     WHERE cards.cardmarket != 0 AND NOT EXISTS (
+       SELECT 1 FROM history_imports WHERE lang = cards.lang AND card = cards.id)
+       AND (?1 IS NULL OR sets.released < ?1
+            OR (sets.released = ?1 AND (cards.lang, cards.id) > (?2, ?3)))
+     ORDER BY sets.released DESC, cards.lang, cards.id LIMIT 50`,
+  )
+    .bind(after?.released ?? null, after?.lang ?? '', after?.id ?? 0)
+    .all<Todo>()
+  return results
 }
 
-export async function history(db: Database) {
-  const todo = historyTodo(db)
-  if (!todo.length) return
-  const done = db.query(
+/** Ce qu'une étape a repris. */
+interface Batch {
+  after: Todo | null
+  read: number
+  days: number
+  failed: number
+  /** Les pages en échec d'affilée, à la fin de l'étape. */
+  inARow: number
+}
+
+/**
+ * Reprend l'historique de 50 cartes après `after`, puis note l'avancée (`sources` : `history`).
+ * Une carte en échec n'est pas notée : relue au prochain passage. `inARow` : les pages en échec
+ * d'affilée jusque-là ; à la 10e, l'étape s'arrête.
+ */
+async function historyBatch(after: Todo | null, inARow: number): Promise<Batch> {
+  const todo = await historyTodo(after)
+  const batch: Batch = { after: todo.at(-1) ?? null, read: 0, days: 0, failed: 0, inARow }
+  const done = env.DB.prepare(
     'INSERT OR REPLACE INTO history_imports (lang, card, read_at) VALUES (?, ?, ?)',
   )
-  /** L'avancée de la reprise, que suit l'ETag des prix et des historiques (`pricesTag`). */
-  const progress = () => {
-    const now = new Date().toISOString()
-    writeSource(db, 'history', { stamp: now, date: now.slice(0, 10) })
+  for (const card of todo) {
+    try {
+      const points = mainHistory(await readCard(card.lang, card.id), card.cardmarket)
+      if (points) batch.days += await mergeHistory(card.cardmarket, points)
+      await done.bind(card.lang, card.id, new Date().toISOString()).run()
+      batch.read++
+      batch.inARow = 0
+    } catch (error) {
+      journal({
+        topic: 'tâches',
+        level: 'warn',
+        message: 'Historique illisible',
+        details: { langue: card.lang, carte: card.id, raison: reasonOf(error) },
+      })
+      batch.failed++
+      if (++batch.inARow >= MAX_FAILURES_IN_A_ROW) break
+    }
   }
+  const now = new Date().toISOString()
+  await writeSource('history', { stamp: now, date: now.slice(0, 10) }).run()
+  return batch
+}
+
+export async function history(step: Step) {
+  let after: Todo | null = null
   let read = 0
   let days = 0
-  let inARow = 0
   let failed = 0
-  const bar = new TerminalProgress('Historique des prix', todo.length)
-  try {
-    for (const [index, card] of todo.entries()) {
-      try {
-        const points = mainHistory(await readCard(card.lang, card.id), card.cardmarket)
-        if (points) days += mergeHistory(db, card.cardmarket, points)
-        done.run(card.lang, card.id, new Date().toISOString())
-        read++
-        inARow = 0
-        if (read % 100 === 0) progress()
-      } catch (error) {
-        bar.clear()
-        console.warn(
-          `  carte ${card.lang} ${card.id} :`,
-          error instanceof Error ? error.message : error,
-        )
-        failed++
-        if (++inARow >= MAX_FAILURES_IN_A_ROW) {
-          throw new Error(`${inARow} pages en échec d’affilée : la lecture s’arrête là`, {
-            cause: error,
-          })
-        }
-        bar.redraw()
-      } finally {
-        bar.update(index + 1)
-      }
+  let inARow = 0
+  for (let page = 1; ; page++) {
+    const from: Todo | null = after
+    const pending = inARow
+    const batch: Batch = await step(`cartes ${page}`, () => historyBatch(from, pending))
+    read += batch.read
+    days += batch.days
+    failed += batch.failed
+    inARow = batch.inARow
+    if (inARow >= MAX_FAILURES_IN_A_ROW) {
+      throw new Error(`${inARow} pages en échec d’affilée : la lecture s’arrête là`)
     }
-    bar.finish()
-  } catch (error) {
-    bar.stop()
-    // Même arrêtée en route (10 pages en échec d'affilée), l'avancée est notée : les jours repris
-    // depuis la dernière centaine changent l'ETag des prix, et les clients ne gardent pas l'ancien.
-    // Si elle échoue à son tour (la base occupée ou pleine), son erreur est écrite à part : celle
-    // d'origine reste la cause du passage (`runs.message`), au lieu d'être remplacée.
-    try {
-      progress()
-    } catch (cause) {
-      console.error('  avancée de l’historique pas notée :', cause)
-    }
-    throw error
+    after = batch.after
+    if (!after) break
   }
-  progress()
-  console.log(
-    `Historique (Pokécardex) : ${plural(read, 'carte lue', 'cartes lues')}, ` +
-      plural(days, 'jour écrit', 'jours écrits'),
-  )
+  journal({
+    topic: 'tâches',
+    level: 'ok',
+    message: 'Historique repris',
+    details: { cartes: read, jours: days },
+  })
   // Rien n'est noté pour elles : relues au prochain passage, qui ne lit qu'elles et les nouvelles.
   if (failed) {
     throw new Error(

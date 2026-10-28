@@ -1,10 +1,11 @@
 /**
- * Les tâches d'ingestion (`ingest.ts`), dans l'ordre où les montre l'état (`/v1/status`) : leur
- * nom affiché et leur rythme. Celles à la demande ne passent jamais seules : on les lance quand de
- * nouvelles cartes sortent (`bun run ingest cards`, qui enchaîne les trois).
+ * Les tâches d'ingestion (`worker/ingest/`), dans l'ordre où les montre l'état (`/v1/status`) :
+ * leur nom affiché et leur rythme (le Cron les relance quand il est écoulé). Celles à la demande ne
+ * passent jamais seules : on les lance quand de nouvelles cartes sortent (`bun run ingest cards`,
+ * qui enchaîne les trois).
  */
 
-import { DAY, HOUR } from '@/lib/time'
+import { DAY, HOUR, MINUTE } from '@/lib/time'
 
 export type IngestJob = 'species' | 'catalog' | 'images' | 'prices' | 'history'
 
@@ -31,3 +32,10 @@ export const INGEST_JOBS: Record<
 
 /** Leurs noms, dans l'ordre d'`INGEST_JOBS`. */
 export const INGEST_JOB_NAMES = Object.keys(INGEST_JOBS) as IngestJob[]
+
+/**
+ * Un passage en cours donne signe de vie à chacune de ses étapes (`worker/ingest/runs.ts`) ; sans
+ * signe de vie depuis 5 min, il est tenu pour arrêté net. Le plus ancien signe de vie d'un passage
+ * encore en cours, à `now` (ms).
+ */
+export const aliveSince = (now: number) => new Date(now - 5 * MINUTE).toISOString()
