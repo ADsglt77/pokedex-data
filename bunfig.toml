@@ -1,3 +1,0 @@
-# `bun test` : l'environnement du serveur, posé avant le premier fichier de test (`tests/setup.ts`).
-[test]
-preload = ["./tests/setup.ts"]
