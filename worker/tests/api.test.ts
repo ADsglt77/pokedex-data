@@ -1,6 +1,6 @@
 /**
  * L'accès à l'API. Sur l'entrée d'Internet (`api.pokecodex.fr`, l'entrée par défaut du Worker) :
- * lecture seule, les en-têtes d'une API sur chaque réponse (rien à afficher ni à indexer) ;
+ * https seulement, lecture seule, les en-têtes d'une API sur chaque réponse (rien à afficher ni à indexer) ;
  * sans token, aucune donnée (`auth.ts`), seul `/v1/health` passe sans ; avant le token, une limite
  * par adresse (`limits.ts`, comptée par Cloudflare) : fausse, elle bloquerait un client, ou
  * laisserait un afflux occuper l'API. L'entrée du site (sa liaison de service) : ni token ni
@@ -104,6 +104,17 @@ describe('le token', () => {
       }),
     )
     expect(response.status).toBe(405)
+  })
+
+  test('en http, 301 vers https, avant même le token', async () => {
+    const response = await worker.fetch(
+      new Request('http://api.pokecodex.fr/v1/status?x=1', {
+        headers: { 'cf-connecting-ip': '203.0.113.1' },
+      }),
+    )
+    expect(response.status).toBe(301)
+    expect(response.headers.get('location')).toBe('https://api.pokecodex.fr/v1/status?x=1')
+    expect(response.headers.get('strict-transport-security')).not.toBeNull()
   })
 
   test('les en-têtes d’une API sur chaque réponse, refusée ou non', async () => {

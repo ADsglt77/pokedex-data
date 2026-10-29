@@ -134,8 +134,9 @@ posé une fois, puis de nouveau à chaque client ajouté ou retiré :
 npx wrangler secret put API_TOKENS
 ```
 
-Sur son entrée d'Internet, le Worker fait ce que faisait Caddy (`worker/index.ts`) : lecture
-seule (405 pour tout autre verbe que `GET` et `HEAD`), et les en-têtes d'une API :
+Sur son entrée d'Internet, le Worker fait ce que faisait Caddy (`worker/index.ts`) : https
+seulement (`http://` : 301 vers `https://`), lecture seule (405 pour tout autre verbe que `GET` et
+`HEAD`), et les en-têtes d'une API :
 `Strict-Transport-Security` (un an, sous-domaines compris), `X-Content-Type-Options: nosniff`,
 `Referrer-Policy: no-referrer`,
 `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'` et

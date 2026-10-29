@@ -1,7 +1,8 @@
 /**
  * Le Worker des données. Deux entrées, la même API (`app.ts`) :
  * - par défaut, l'entrée d'Internet (`https://api.pokecodex.fr`, pour les autres clients que le
- *   site : un script, une autre app) : lecture seule (tout autre verbe : 405), les limites par
+ *   site : un script, une autre app) : en https (http : 301 vers https, comme le faisait Caddy ;
+ *   pas sur le poste du développeur), lecture seule (tout autre verbe : 405), les limites par
  *   adresse (`limits.ts`), puis le token (`auth.ts`) ; ses en-têtes, ceux d'une API (`API_HEADERS`) ;
  * - `SiteEntrypoint`, celle du site : sa liaison de service (`services` de son `wrangler.jsonc`),
  *   que rien d'autre ne peut joindre ; ni token ni limite.
@@ -31,7 +32,15 @@ const API_HEADERS = {
   'X-Robots-Tag': 'noindex, nofollow',
 }
 
+/** Le poste du développeur, en http : `bun run dev` et les tests. */
+const LOCAL = /^(localhost|127\.0\.0\.1)$/
+
 async function internet(request: Request) {
+  const url = new URL(request.url)
+  if (url.protocol === 'http:' && !LOCAL.test(url.hostname)) {
+    url.protocol = 'https:'
+    return Response.redirect(url.href, 301)
+  }
   if (!['GET', 'HEAD'].includes(request.method)) return new Response(null, { status: 405 })
   return (await limited(request)) ?? (await guard(request)) ?? app.fetch(request)
 }
