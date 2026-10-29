@@ -98,7 +98,9 @@ interrompu quand sa tâche repart.
 et son R2 dans `.wrangler/` ; le site (`bun dev` dans `../pokedex`) le joint tout seul, par sa
 liaison de service. Les tâches y tournent comme en ligne, dans ce Worker (`bun run ingest …`) ; le
 Cron, lui, ne passe pas tout seul : `curl http://127.0.0.1:8787/__scheduled` le déclenche. Un
-passage se suit dans le journal du terminal et sur la page Données du site.
+passage se suit dans le journal du terminal ; en ligne, dans le tableau de bord (Workflows ›
+`ingest`) ou par `npx wrangler tail pokedex-data`. La page Réglages du site ne montre que les
+tâches en retard ou en échec.
 
 La première fois, `bun run ingest setup` remplit tout : les espèces, le catalogue, les prix (après
 le catalogue : le prix d'une carte d'une série récente en dépend), les images et l'historique

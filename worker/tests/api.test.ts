@@ -4,7 +4,7 @@
  * sans token, aucune donnée (`auth.ts`), seul `/v1/health` passe sans ; avant le token, une limite
  * par adresse (`limits.ts`, comptée par Cloudflare) : fausse, elle bloquerait un client, ou
  * laisserait un afflux occuper l'API. L'entrée du site (sa liaison de service) : ni token ni
- * limite. Et l'état des tâches (`status.ts`), que montre la page Données du site : une tâche à la
+ * limite. Et l'état des tâches (`status.ts`), que montre la page Réglages du site : une tâche à la
  * demande n'est jamais en retard, un passage arrêté net est un échec, et la surveillance ne compte
  * que celles à rythme. Et les routes du catalogue : chaque langue rend ses réponses
  * (`/v1/catalog/…` les japonaises, `/v1/catalog/fr/…` les françaises), sans jamais mêler les unes

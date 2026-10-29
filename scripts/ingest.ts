@@ -8,7 +8,8 @@
  *   … --refresh              catalog : relit toutes les séries, même celles lues récemment
  *   … --remote               dans le Worker en ligne, plutôt que celui de `bun run dev`
  *
- * Le passage se suit dans le terminal de `bun run dev` (le journal) et sur la page Données du site.
+ * Le passage se suit dans le journal : le terminal de `bun run dev`, ou en ligne
+ * `npx wrangler tail pokedex-data` (et le tableau de bord › Workflows › `ingest`, étape par étape).
  * Le catalogue avant les prix dans `setup` : le prix d'une carte d'une série récente est sa
  * tendance (d'après le catalogue) ; lu sans lui, il serait faux, et le resterait dans l'historique.
  */

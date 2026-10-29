@@ -683,7 +683,7 @@ export async function catalog(step: Step, refresh: boolean) {
   }
   // Plus de la moitié des séries déjà connues rendues sans cartes : le format des pages a changé
   // (le champ des cartes renommé), pas les séries. Leurs cartes d'avant restent ; la tâche échoue,
-  // pour que la page Données et la surveillance le disent (sinon, un catalogue figé sans un mot).
+  // pour que la page Réglages et la surveillance le disent (sinon, un catalogue figé sans un mot).
   if (knownEmpty > 0 && knownEmpty * 2 > knownRead) {
     throw new Error(
       `Séries déjà connues rendues sans cartes : ${knownEmpty} sur ${knownRead} (format des pages changé ?)`,
