@@ -31,5 +31,10 @@
   "workflows": [{ "name": "ingest", "binding": "INGEST", "class_name": "Ingest" }],
   "triggers": { "crons": ["0 * * * *"] },
   // Les clients et leur token (`API_TOKENS`) sont un secret du Worker, jamais dans ce fichier.
+  // En ligne à son adresse seulement (le domaine sur Cloudflare : `docs/deploiement.md` du site) :
+  // ni l'adresse `workers.dev` ni celle des aperçus.
+  "routes": [{ "pattern": "api.pokecodex.fr", "custom_domain": true }],
+  "workers_dev": false,
+  "preview_urls": false,
   "observability": { "enabled": true },
 }

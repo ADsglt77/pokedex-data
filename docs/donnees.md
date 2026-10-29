@@ -121,9 +121,8 @@ dossier `fr/` de plus, les japonais n'ont pas changé.
   chercher, à sa nouvelle place).
   Les chemins ne changent pas (choix fait lors des corrections d'octobre 2026, aucun rang n'ayant
   changé du 19 au 24 octobre) : un navigateur qui avait l'ancien scan d'un chemin le garde
-  jusqu'à ce que son cache se vide (`immutable`, un an), le nginx du site jusqu'à son prochain
-  déploiement, qui vide son cache. Un fichier déposé à la main pour une carte à chercher est donc
-  recopié aussi. **Le coût réel est dans la collection du site** : une carte enregistrée y garde le
+  jusqu'à ce que son cache se vide (`immutable`, un an). Un fichier déposé à la main pour une
+  carte à chercher est donc recopié aussi. **Le coût réel est dans la collection du site** : une carte enregistrée y garde le
   chemin de son image (série et rang), non la carte. Après une renumérotation à la source, les
   cartes enregistrées à un rang égal ou postérieur au point d'insertion montrent le scan de leur
   nouvelle occupante, jusqu'à ce que leur image soit choisie de nouveau ; rien ne les corrige

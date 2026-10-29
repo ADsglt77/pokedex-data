@@ -5,8 +5,6 @@ node_modules
 .env*
 !.env.example
 *.log
-# Le dossier des anciennes sauvegardes, s'il reste sur le VPS (README, « Sauvegardes : aucune »).
-/sauvegardes
 
 # L’état local du Worker (`bun run dev`) : sa D1, son R2 et ses Workflows.
 /.wrangler

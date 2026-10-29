@@ -5,8 +5,9 @@ L'API privée des données du Pokédex de cartes Pokémon japonaises et françai
 (Pokécardex), prix Cardmarket et leur historique. Tout tient dans un **Worker** (`worker/`,
 Cloudflare Workers : Hono, D1 par son schéma Drizzle, R2) : l'API, et les **tâches d'ingestion**
 (`worker/ingest/`), un Workflow par passage, les tâches à rythme lancées par un Cron toutes les
-heures. Mise en ligne seulement à la fin du développement. Deux entrées : le site, par sa liaison
-de service (`SiteEntrypoint`, ni token ni limite) ; ses autres clients, chacun son token, par
+heures. Pas encore en ligne : la mise en ligne attend l'offre Workers Paid (le guide :
+`../pokedex/docs/deploiement.md`). Deux entrées : le site, par sa liaison de service
+(`SiteEntrypoint`, ni token ni limite) ; ses autres clients, chacun son token, par
 `https://api.pokecodex.fr` (l'entrée par défaut : limites par adresse, puis token).
 
 ## Commandes
@@ -62,7 +63,8 @@ Le Cron ne passe pas tout seul en développement : `curl http://127.0.0.1:8787/_
   mois, `prices` toutes les 6 h (le Cron) ; `catalog`, `images` et `history` à la demande
   seulement (`bun run ingest cards`), jamais lancées par le Cron.
 - **Aucune sauvegarde** (décision de l'utilisateur, octobre 2026) : ni copie de la base, ni tâche
-  `backups`, ni procédure de restauration. Ne pas en réintroduire sans demande.
+  `backups`, ni procédure de restauration ; seul l'historique de 30 jours que Cloudflare garde de
+  lui-même (D1 Time Travel). Ne pas en réintroduire sans demande.
 - **Aucun prix inventé** : une carte sans prix ce jour n'en a pas ; jamais celui d'une autre carte.
   Le prix suivi : la règle de Pokécardex (`guidePrice`), la même pour l'historique repris.
 - Tests (`worker/tests`, dans le moteur de Cloudflare, une D1 et un R2 par fichier, partagés par
@@ -94,5 +96,5 @@ Le Cron ne passe pas tout seul en développement : `curl http://127.0.0.1:8787/_
 | `src/contract.ts`, `src/config/*` | Le contrat ; les tâches, les types de cartes, le Pokédex |
 
 Le détail de chaque domaine : `docs/donnees.md` (à lire avant d'y toucher, et à tenir à jour).
-Déploiement : le README décrit l'ancien VPS, périmé (Cloudflare Workers à la fin du
-développement ; **jamais `docker compose down -v`** tant qu'il tourne).
+Mise en ligne : le Worker `pokedex-data`, déployé par Workers Builds à chaque push sur `main`
+(`bun run ci`, puis `bun run deploy`) ; le guide : `../pokedex/docs/deploiement.md`.

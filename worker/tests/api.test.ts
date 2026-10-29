@@ -1,5 +1,6 @@
 /**
  * L'accès à l'API. Sur l'entrée d'Internet (`api.pokecodex.fr`, l'entrée par défaut du Worker) :
+ * lecture seule, les en-têtes d'une API sur chaque réponse (rien à afficher ni à indexer) ;
  * sans token, aucune donnée (`auth.ts`), seul `/v1/health` passe sans ; avant le token, une limite
  * par adresse (`limits.ts`, comptée par Cloudflare) : fausse, elle bloquerait un client, ou
  * laisserait un afflux occuper l'API. L'entrée du site (sa liaison de service) : ni token ni
@@ -93,6 +94,29 @@ describe('le token', () => {
     await runs()
     expect((await get('/v1/status', OTHER)).status).toBe(200)
     expect((await get('/v1/status', OTHER.split(':')[0]!)).status).toBe(401)
+  })
+
+  test('lecture seule : tout autre verbe, 405, même avec le token', async () => {
+    const response = await worker.fetch(
+      new Request('http://localhost/v1/status', {
+        method: 'POST',
+        headers: { 'cf-connecting-ip': '203.0.113.1', Authorization: `Bearer ${TOKEN}` },
+      }),
+    )
+    expect(response.status).toBe(405)
+  })
+
+  test('les en-têtes d’une API sur chaque réponse, refusée ou non', async () => {
+    await runs()
+    for (const response of [await get('/v1/status'), await get('/v1/status', null)]) {
+      expect(response.headers.get('strict-transport-security')).toBe(
+        'max-age=31536000; includeSubDomains',
+      )
+      expect(response.headers.get('content-security-policy')).toBe(
+        "default-src 'none'; frame-ancestors 'none'",
+      )
+      expect(response.headers.get('x-robots-tag')).toBe('noindex, nofollow')
+    }
   })
 })
 

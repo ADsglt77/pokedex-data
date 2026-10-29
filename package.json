@@ -12,7 +12,9 @@
     "lint": "eslint . && knip",
     "knip": "knip",
     "test": "vitest run",
-    "format": "prettier --write src/ worker/ scripts/"
+    "format": "prettier --write src/ worker/ scripts/",
+    "ci": "bun run typecheck && bun run lint && bun run test",
+    "deploy": "wrangler d1 migrations apply DB --remote && wrangler deploy"
   },
   "dependencies": {
     "drizzle-orm": "^0.45.4",
