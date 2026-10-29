@@ -15,6 +15,10 @@
     {
       "binding": "DB",
       "database_name": "pokedex-data",
+      "database_id": "079a5e09-90e2-4c1c-9712-ec498fa026ac",
+      // La base locale (`.wrangler/`) reste celle rangée sous le nom de la liaison : avec
+      // l'identifiant de la base en ligne, Wrangler en ouvrirait une neuve, vide.
+      "preview_database_id": "DB",
       "migrations_dir": "worker/migrations",
     },
   ],
