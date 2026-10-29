@@ -5,8 +5,8 @@ L'API privée des données du Pokédex de cartes Pokémon japonaises et françai
 (Pokécardex), prix Cardmarket et leur historique. Tout tient dans un **Worker** (`worker/`,
 Cloudflare Workers : Hono, D1 par son schéma Drizzle, R2) : l'API, et les **tâches d'ingestion**
 (`worker/ingest/`), un Workflow par passage, les tâches à rythme lancées par un Cron toutes les
-heures. Pas encore en ligne : la mise en ligne attend l'offre Workers Paid (le guide :
-`../pokedex/docs/deploiement.md`). Deux entrées : le site, par sa liaison de service
+heures. En ligne depuis le 29 octobre 2026 (le guide : `../pokedex/docs/deploiement.md`). Deux
+entrées : le site, par sa liaison de service
 (`SiteEntrypoint`, ni token ni limite) ; ses autres clients, chacun son token, par
 `https://api.pokecodex.fr` (l'entrée par défaut : limites par adresse, puis token).
 
