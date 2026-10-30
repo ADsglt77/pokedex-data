@@ -1,14 +1,13 @@
 {
-  // Le Worker (`worker/`, ses tâches d'ingestion et ses tests) et le code qu'il partage avec le site
-  // (`src/` : le contrat, la configuration, les règles pures) : les types de Cloudflare (et de
-  // `cloudflare:test`). `scripts/ingest.ts`, que lance Bun, n'y est pas.
+  // Le Worker (`worker/`, ses tâches d'ingestion et ses tests) et `src/` (le contrat, que le site
+  // vérifie contre sa copie ; la configuration et les règles pures du Worker) : les types de
+  // Cloudflare (et de `cloudflare:test`). `scripts/ingest.ts`, que lance Bun, n'y est pas.
   "compilerOptions": {
     "strict": true,
     "target": "es2024",
     "module": "esnext",
     "moduleResolution": "bundler",
     "skipLibCheck": true,
-    "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
     "moduleDetection": "force",
     "noEmit": true,

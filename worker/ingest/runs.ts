@@ -7,6 +7,7 @@
 
 import { env } from 'cloudflare:workers'
 import { aliveSince, type IngestJob } from '@/config/jobs'
+import { HOUR, MINUTE } from '@/lib/time'
 
 /**
  * Les tâches qui lisent les pages de Pokécardex : une seule à la fois. Son rythme (une page toutes
@@ -23,7 +24,8 @@ const exclusive = (job: IngestJob) => (POKECARDEX_PAGES.includes(job) ? POKECARD
  * interrompu, terminé à son dernier signe de vie. D'un seul tenant (`batch`) : deux passages lancés
  * ensemble ne commencent pas tous deux.
  */
-export async function startRun(job: IngestJob, now = Date.now()) {
+export async function startRun(job: IngestJob) {
+  const now = Date.now()
   const at = new Date(now).toISOString()
   const [, started] = await env.DB.batch([
     env.DB.prepare(
@@ -40,10 +42,10 @@ export async function startRun(job: IngestJob, now = Date.now()) {
   return (started!.results[0] as { id: number } | undefined)?.id ?? null
 }
 
-/** Note la fin d'un passage : réussi, ou la cause de son échec. */
-export async function finishRun(id: number, ok: boolean, message: string | null) {
+/** Note la fin d'un passage : réussi (`null`), ou la cause de son échec. */
+export async function finishRun(id: number, message: string | null) {
   await env.DB.prepare('UPDATE runs SET finished_at = ?, ok = ?, message = ? WHERE id = ?')
-    .bind(new Date().toISOString(), ok ? 1 : 0, message, id)
+    .bind(new Date().toISOString(), message === null ? 1 : 0, message, id)
     .run()
 }
 
@@ -59,7 +61,7 @@ export async function beat(id: number) {
  * le délai après un échec : 10 min, puis 20, 40… jusqu'à 6 h (une panne qui dure ne fait pas
  * solliciter la source à chaque fois).
  */
-export async function isDue(job: IngestJob, every: number, now = Date.now()) {
+export async function isDue(job: IngestJob, every: number) {
   const { results } = await env.DB.prepare(
     `SELECT ok, finished_at AS finishedAt FROM runs
      WHERE job = ? AND finished_at IS NOT NULL ORDER BY id DESC LIMIT 10`,
@@ -71,6 +73,6 @@ export async function isDue(job: IngestJob, every: number, now = Date.now()) {
   // Les échecs d'affilée : les passages avant la dernière réussite.
   const lastSuccess = results.findIndex((run) => run.ok === 1)
   const streak = lastSuccess < 0 ? results.length : lastSuccess
-  const wait = streak ? Math.min(10 * 60_000 * 2 ** (streak - 1), 6 * 3_600_000) : every
-  return now - Date.parse(last.finishedAt) >= wait
+  const wait = streak ? Math.min(10 * MINUTE * 2 ** (streak - 1), 6 * HOUR) : every
+  return Date.now() - Date.parse(last.finishedAt) >= wait
 }

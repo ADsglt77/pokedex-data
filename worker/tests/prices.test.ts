@@ -17,7 +17,7 @@ import { app } from '../app'
 import { readHistories } from '../history'
 import { streamArray } from '../ingest/json-stream'
 import { savePriceGuide, type PriceGuide, type ProductList } from '../ingest/prices'
-import { readSource } from '../ingest/sources'
+import { readSource, writeSource } from '../ingest/sources'
 
 /** Aucun prix lu, aucun historique, aucun produit. */
 const reset = () =>
@@ -32,15 +32,10 @@ const reset = () =>
 
 /** Le passage de la tâche `prices` (`stamp`) et le jour de son guide. */
 const priceSource = (stamp: string, date: string) =>
-  env.DB.prepare(
-    `INSERT INTO sources (name, stamp, date) VALUES ('cardmarket', ?, ?)
-     ON CONFLICT (name) DO UPDATE SET stamp = excluded.stamp, date = excluded.date`,
-  )
-    .bind(stamp, date)
-    .run()
+  writeSource('cardmarket', { stamp, date }).run()
 
 /** Les prix du jour de trois cartes, et le passage de la tâche. */
-async function writePrices(stamp = 'lundi', date = '2026-10-12') {
+async function writePrices() {
   const write = env.DB.prepare(
     'INSERT INTO cardmarket_prices (id, price, low, month_ago) VALUES (?, ?, ?, ?)',
   )
@@ -49,7 +44,7 @@ async function writePrices(stamp = 'lundi', date = '2026-10-12') {
     write.bind(719446, 99, null, null),
     write.bind(719447, 1.5, 1, 2),
   ])
-  await priceSource(stamp, date)
+  await priceSource('lundi', '2026-10-12')
 }
 
 const get = (path: string, headers: Record<string, string> = {}) =>

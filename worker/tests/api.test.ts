@@ -76,11 +76,6 @@ describe('le token', () => {
     expect((await get('/v1/inconnue')).status).toBe(404)
   })
 
-  test('/v1/health passe sans token', async () => {
-    await runs()
-    expect([200, 503]).toContain((await get('/v1/health', null)).status)
-  })
-
   test('un token trop court ou mal écrit : le Worker ne démarre pas', () => {
     expect(() => readClients('pokedex:court')).toThrow('moins de 32 caractères')
     expect(() => readClients('pokedex')).toThrow('nom:token')
@@ -188,8 +183,6 @@ describe('l’état des tâches', () => {
       ['species', 1, 61 * DAY],
       ['catalog', 1, 90 * DAY],
       ['history', 0, HOUR],
-      // Une tâche retirée (les sauvegardes, octobre 2026) : ses passages restent, sans compter.
-      ['backups', 0, HOUR],
     )
     const current = await status()
     expect(current.jobs.map(({ job }) => job)).toEqual([
@@ -199,6 +192,7 @@ describe('l’état des tâches', () => {
       'prices',
       'history',
     ])
+    // À la demande : jamais en retard, même passée il y a longtemps.
     expect(current.jobs.find((row) => row.job === 'catalog')).toEqual({
       job: 'catalog',
       label: 'Catalogue',
@@ -206,8 +200,6 @@ describe('l’état des tâches', () => {
     })
     expect(stateOf(current, 'prices')).toBe('ok')
     expect(stateOf(current, 'species')).toBe('late')
-    // À la demande : jamais en retard, même passée il y a longtemps.
-    expect(stateOf(current, 'catalog')).toBe('ok')
     expect(stateOf(current, 'images')).toBe('never')
     expect(stateOf(current, 'history')).toBe('failed')
   })

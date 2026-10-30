@@ -75,7 +75,7 @@ export type CatalogRow = [string, string, number, string, number, number, number
 /**
  * `/v1/catalog/species/<n°>` (`/v1/catalog/fr/species/<n°>` pour les françaises) : les cartes
  * Pokémon d'un Pokémon chez Pokécardex dans sa langue, avec leurs séries et leurs raretés (tâche
- * `catalog`, `jobs/catalog.ts`) : la fenêtre d'ajout.
+ * `catalog`, `worker/ingest/catalog.ts`) : la fenêtre d'ajout.
  */
 export interface CatalogFile {
   /**
@@ -161,8 +161,8 @@ export type JobState = 'ok' | 'late' | 'failed' | 'never' | 'frozen'
 export interface ServerStatus {
   /**
    * Chaque tâche, dans l'ordre de `INGEST_JOBS`. La cause d'un échec n'est pas rendue : elle est
-   * dans la sortie de l'ingestion (le journal du service `ingest`, ou le terminal d'une tâche à la
-   * demande) et dans `runs.message`.
+   * dans le journal du Worker (`npx wrangler tail pokedex-data`, ou ses journaux chez Cloudflare)
+   * et dans `runs.message`.
    */
   jobs: { job: string; label: string; state: JobState }[]
 }

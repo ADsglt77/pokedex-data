@@ -63,7 +63,6 @@ interface PokecardexBlock {
 /** Une série : sa page (`/series/jp/SV2A` au Japon, `/series/MEG` en France). */
 export interface PokecardexSeries {
   currentSeries: {
-    shortName: string
     fullName: string
     /** « 2023-06-16 00:00:00 » : sa sortie au Japon, ou en France pour une série française. */
     releaseDateFR: string | null
@@ -108,20 +107,15 @@ async function read(url: string) {
 /**
  * Les codes des séries d'une langue d'après le plan du site (« SV2A », « OR1 » ; « MEG », « BS »…) :
  * `/series/jp/<code>` au Japon, `/series/<code>` en France. Seulement des majuscules, des chiffres,
- * `_` et `-`, ce que permettent les chemins des images : une série d'un
- * autre code, chacun de ses scans ferait une erreur de la tâche `images`, qui s'arrêterait à la
- * 20e, pour les deux langues (`IMAGE_PATHS`, `src/lib/image-paths.ts`). Les pages d'index des régions (`/series/jp`, `/series/chn`), en
- * minuscules, n'en sont pas.
+ * `_` et `-`, ce que permettent les chemins des images : une série d'un autre code, chacun de ses
+ * scans ferait une erreur de la tâche `images`, qui s'arrêterait à la 20e, pour les deux langues
+ * (`IMAGE_PATHS`, `src/lib/image-paths.ts`). Les pages d'index des régions (`/series/jp`,
+ * `/series/chn`), en minuscules, n'en sont pas. Une erreur s'il n'y en a aucune.
  */
 export function seriesIn(sitemap: string, lang: CardLanguage) {
   const pattern =
     lang === 'ja' ? /\/series\/jp\/([A-Z0-9_-]+)<\/loc>/g : /\/series\/([A-Z0-9_-]+)<\/loc>/g
-  return [...new Set([...sitemap.matchAll(pattern)].map((match) => match[1]!))]
-}
-
-/** Les codes des séries d'une langue, d'après le plan du site. */
-export async function seriesCodes(lang: CardLanguage) {
-  const codes = seriesIn(await read(`${SITE}/sitemap_fr.xml`), lang)
+  const codes = [...new Set([...sitemap.matchAll(pattern)].map((match) => match[1]!))]
   if (!codes.length) {
     throw new Error(
       `Pokécardex : aucune série ${lang === 'ja' ? 'japonaise' : 'française'} dans son plan du site`,
@@ -129,6 +123,9 @@ export async function seriesCodes(lang: CardLanguage) {
   }
   return codes
 }
+
+/** Le plan du site, celui des deux langues (`seriesIn`). */
+export const readSitemap = () => read(`${SITE}/sitemap_fr.xml`)
 
 /** La clé de déchiffrement, et le script d'où elle vient. */
 let decryption: { script: string; key: CryptoKey } | null = null

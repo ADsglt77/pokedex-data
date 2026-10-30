@@ -10,7 +10,7 @@ import { env } from 'cloudflare:workers'
 import type { HistoryYear } from '@/lib/history'
 
 /** Une année lue, avec son texte tel qu'en base (`text`), pour la réécrire sans rien effacer. */
-export interface StoredYear extends HistoryYear {
+interface StoredYear extends HistoryYear {
   id: number
   text: string
 }

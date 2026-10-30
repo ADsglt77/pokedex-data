@@ -1,7 +1,8 @@
 /**
  * Le réseau des tâches d'ingestion : chaque requête s'identifie, attend 100 ms avant de partir et
  * échoue au bout de 2 min sans réponse complète ; un document JSON (PokéAPI) réessayé en cas de
- * panne ; une file à concurrence limitée (`mapPool`). Un 404 arrête la tâche.
+ * panne ; une file à concurrence limitée (`mapPool`). Un 404 n'est pas réessayé (`fetchJson`) :
+ * c'est une réponse.
  */
 
 export const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))

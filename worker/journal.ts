@@ -3,17 +3,19 @@
  * journaux du Worker chez Cloudflare) : une ligne par évènement, alignée, à l'heure de Paris, son
  * niveau en symbole, son thème, un message court et ses détails en `clé=valeur` :
  *
- *   16/10 14:03:12  ▲  accès       Token refusé                  route="GET /v1/prices"
+ *   16/10 14:03:12  ▲  accès       Débit dépassé                    route="GET /v1/prices"
  *
  * - `accès` : une demande sans token valide (`auth.ts`), ou au-delà des limites de l'entrée
  *   d'Internet (`limits.ts`) ;
  * - `serveur` : une erreur imprévue de l'API ;
- * - `tâches` : les tâches d'ingestion (`ingest/`) : un passage commencé, réussi ou en échec (sa
- *   cause), ce qu'il a lu et écrit, une page ou une image en erreur.
+ * - `tâches` : les tâches d'ingestion (`ingest/`) : un passage réussi ou en échec (sa cause), ce
+ *   qu'il a lu et écrit, une page ou une image en erreur, une tâche déjà en cours.
  * Pas les requêtes une à une : seulement ce qui se passe. Ce qu'un client peut provoquer à volonté
  * (un token refusé) : une ligne par minute au plus (`journalOnce`, pour chaque exemplaire du
  * Worker). Jamais un token. Sans couleurs : les journaux de Cloudflare les montreraient en codes.
  */
+
+import { MINUTE } from '@/lib/time'
 
 type JournalTopic = 'accès' | 'serveur' | 'tâches'
 
@@ -82,13 +84,13 @@ export function journal({ topic, level, message, details = {} }: JournalEntry) {
 const noted = new Map<string, { at: number; silenced: number }>()
 
 /**
- * Écrit une ligne au plus par `key` et par `windowMs` : un afflux de requêtes ne noie pas le
- * journal. Les lignes tues sont comptées, et dites par la suivante (`tues=…`).
+ * Écrit une ligne au plus par `key` et par minute : un afflux de requêtes ne noie pas le journal.
+ * Les lignes tues sont comptées, et dites par la suivante (`tues=…`).
  */
-export function journalOnce(key: string, entry: JournalEntry, windowMs: number) {
+export function journalOnce(key: string, entry: JournalEntry) {
   const now = Date.now()
   const known = noted.get(key)
-  if (known && now - known.at < windowMs) {
+  if (known && now - known.at < MINUTE) {
     known.silenced++
     return
   }

@@ -8,7 +8,6 @@
  */
 
 import { env } from 'cloudflare:workers'
-import { MINUTE } from '@/lib/time'
 import { journalOnce } from './journal'
 
 /** Les routes coûteuses : jusqu'à 1 025 cartes par demande, lues en base. */
@@ -22,16 +21,12 @@ export async function limited(request: Request) {
     (await env.ANY_LIMIT.limit({ key })).success &&
     (!HEAVY.test(pathname) || (await env.HEAVY_LIMIT.limit({ key })).success)
   if (allowed) return
-  journalOnce(
-    'débit',
-    {
-      topic: 'accès',
-      level: 'warn',
-      message: 'Débit dépassé',
-      details: { route: `${request.method} ${pathname}` },
-    },
-    MINUTE,
-  )
+  journalOnce('débit', {
+    topic: 'accès',
+    level: 'warn',
+    message: 'Débit dépassé',
+    details: { route: `${request.method} ${pathname}` },
+  })
   return new Response(null, {
     status: 429,
     headers: { 'Cache-Control': 'no-store', 'Retry-After': '10' },

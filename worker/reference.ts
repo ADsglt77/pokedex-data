@@ -37,12 +37,12 @@ const IDS = new RegExp(`^[1-9]\\d{0,8}(,[1-9]\\d{0,8}){0,${TOTAL_SPECIES - 1}}$`
 /** Un paramètre refusé : 422, sans corps. */
 const refused = () => new Response(null, { status: 422, headers: { 'Cache-Control': 'no-store' } })
 
-/** Les ids demandés, chacun une fois, même répété. */
-const idsOf = (ids: string) => [...new Set(ids.split(','))].map(Number)
+/** Les ids de `?ids=` (`IDS`), chacun une fois, même répété ; `null` s'il est mal écrit. */
+const idsOf = (ids = '') => (IDS.test(ids) ? [...new Set(ids.split(','))].map(Number) : null)
 
 /**
  * Ce dont dépend une réponse tirée des prix : le passage de la tâche `prices` (sa date de mise à
- * jour et le jour du guide) et l'avancée de la reprise de l'historique (`jobs/history.ts`) ;
+ * jour et le jour du guide) et l'avancée de la reprise de l'historique (`ingest/history.ts`) ;
  * `null` tant que les prix n'ont jamais été lus.
  */
 async function pricesSource() {
@@ -159,7 +159,7 @@ async function readWants(ids: number[]): Promise<WantsLines> {
         wantsLine(
           { name: row.name, number: same.find((other) => other.id === id)!.number },
           same.map(({ number }) => number),
-          (named.get(row.expansion) ?? []).map(({ name, expansions }) => ({ name, expansions })),
+          named.get(row.expansion) ?? [],
         ),
       ]
     }),
@@ -191,30 +191,28 @@ export const referenceRoutes = new Hono()
   .route('/catalog', catalogRoutes('ja'))
   .route('/catalog/fr', catalogRoutes('fr'))
   .get('/prices', (c) => {
-    const ids = c.req.query('ids') ?? ''
-    if (!IDS.test(ids)) return refused()
-    const unique = idsOf(ids)
-    return pricesAnswer(c.req.raw, `prices:${unique.join()}`, (date) => readPrices(unique, date))
+    const ids = idsOf(c.req.query('ids'))
+    if (!ids) return refused()
+    return pricesAnswer(c.req.raw, `prices:${ids.join()}`, (date) => readPrices(ids, date))
   })
   // Pas de 404 retenu : la carte peut avoir un prix au prochain passage.
   .get('/prices/:id', (c) => {
     const id = c.req.param('id')
     if (!/^[1-9]\d{0,8}$/.test(id)) return refused()
-    return pricesAnswer(c.req.raw, `history:${id}`, async () => {
-      return (await readHistories([Number(id)]))[Number(id)] ?? null
-    })
+    const card = Number(id)
+    return pricesAnswer(c.req.raw, `history:${id}`, async () => (await readHistories([card]))[card])
   })
   .get('/histories', (c) => {
-    const ids = c.req.query('ids') ?? ''
-    if (!IDS.test(ids)) return refused()
-    return pricesAnswer(c.req.raw, `histories:${ids}`, (): Promise<PriceHistories> =>
-      readHistories(idsOf(ids)),
+    const ids = idsOf(c.req.query('ids'))
+    if (!ids) return refused()
+    return pricesAnswer(c.req.raw, `histories:${ids.join()}`, (): Promise<PriceHistories> =>
+      readHistories(ids),
     )
   })
   // Sans cache : les produits et le catalogue changent avec les tâches.
   .get('/wants', async (c) => {
-    const ids = c.req.query('ids') ?? ''
-    if (!IDS.test(ids)) return refused()
+    const ids = idsOf(c.req.query('ids'))
+    if (!ids) return refused()
     c.header('Cache-Control', 'no-cache')
-    return c.json(await readWants(idsOf(ids)))
+    return c.json(await readWants(ids))
   })

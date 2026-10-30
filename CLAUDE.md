@@ -81,7 +81,7 @@ Le Cron ne passe pas tout seul en développement : `curl http://127.0.0.1:8787/_
 | `worker/index.ts`, `worker/app.ts` | Les deux entrées du Worker (Internet, le site) et son Cron ; l'API sous `/v1`, 404 et 500 sans corps |
 | `worker/auth.ts` | Les clients de l'entrée d'Internet (`API_TOKENS`), le token comparé à temps constant, 401 au journal |
 | `worker/limits.ts` | Les limites par adresse de l'entrée d'Internet (`ratelimits` de `wrangler.jsonc`), 429 |
-| `worker/status.ts` | `/v1/status` (chaque tâche : rythme, état) et `/v1/health` |
+| `worker/status.ts` | `/v1/status` (chaque tâche : libellé, état) et `/v1/health` |
 | `worker/reference.ts` | Espèces, catalogue, prix, historiques, liste de souhaits ; ETag des réponses tirées des prix (`pricesAnswer`) |
 | `worker/images.ts` | Les images, depuis R2, seulement un chemin plausible ; 404 pour une image absente |
 | `worker/snapshots.ts`, `worker/history.ts` | Les grosses réponses (R2), `serveTagged` et `FORMAT` ; l'historique de plusieurs cartes en une requête |
@@ -92,7 +92,7 @@ Le Cron ne passe pas tout seul en développement : `curl http://127.0.0.1:8787/_
 | `worker/ingest/species.ts`, `catalog.ts`, `images.ts`, `prices.ts`, `history.ts` | Les cinq tâches ; la copie des images (`UPSTREAMS`) |
 | `worker/ingest/years.ts`, `json-stream.ts` | L'écriture de l'historique, année par année, sans rien effacer ; les gros fichiers JSON lus en flux |
 | `worker/ingest/net.ts`, `worker/ingest/pokecardex.ts` | Requêtes identifiées ; les pages de Pokécardex, déchiffrées, une toutes les 3 s |
-| `src/lib/wants.ts`, `src/lib/history.ts`, `src/lib/image-paths.ts` | Communs aux tâches et à l'API : la ligne d'une carte pour la liste de souhaits ; l'historique par année ; les chemins des images |
+| `src/lib/history.ts`, `src/lib/image-paths.ts`, `src/lib/wants.ts` | L'historique par année et les chemins des images, communs aux tâches et à l'API ; la ligne d'une carte pour la liste de souhaits (l'API) |
 | `src/contract.ts`, `src/config/*` | Le contrat ; les tâches, les types de cartes, le Pokédex |
 
 Le détail de chaque domaine : `docs/donnees.md` (à lire avant d'y toucher, et à tenir à jour).

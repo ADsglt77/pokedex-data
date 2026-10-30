@@ -1,6 +1,4 @@
 node_modules
-# L'ancien dossier des tâches sous Bun (base SQLite, images), s'il reste : jamais dans le dépôt.
-/.data
 # Les secrets : les tokens des clients (`API_TOKENS`).
 .env*
 !.env.example

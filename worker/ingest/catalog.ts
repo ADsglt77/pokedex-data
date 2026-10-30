@@ -31,7 +31,7 @@
 
 import { env } from 'cloudflare:workers'
 import { snapshotName } from '@/config/catalog'
-import { TOTAL_SPECIES } from '@/config/pokedex'
+import { SPECIES_IDS, TOTAL_SPECIES } from '@/config/pokedex'
 import type {
   CardLanguage,
   CatalogFile,
@@ -51,7 +51,8 @@ import {
   menuBlocks,
   readEnglishSeriesNames,
   readSeries,
-  seriesCodes,
+  readSitemap,
+  seriesIn,
   type PokecardexCard,
   type PokecardexSeries,
 } from './pokecardex'
@@ -127,8 +128,7 @@ export async function saveCatalog(step: Step) {
 
 /** Les réponses du catalogue d'une langue, écrites quelques-unes à la fois. */
 export async function saveLanguage(lang: CardLanguage) {
-  const [known, setRows, cardRows, rarityRows] = await env.DB.batch([
-    env.DB.prepare('SELECT 1 FROM cards WHERE lang = ? LIMIT 1').bind(lang),
+  const [setRows, cardRows, rarityRows] = await env.DB.batch([
     env.DB.prepare(
       `SELECT id, name, released, logo, block, block_rank AS blockRank, deck FROM sets
        WHERE lang = ? AND id IN (SELECT set_id FROM cards WHERE lang = ?)`,
@@ -142,11 +142,11 @@ export async function saveLanguage(lang: CardLanguage) {
     ).bind(lang),
     env.DB.prepare('SELECT id, name, rank FROM rarities WHERE lang = ?').bind(lang),
   ])
-  if (!known!.results.length) return
+  const cards = cardRows!.results as CardRecord[]
+  if (!cards.length) return
   const sets = (setRows!.results as SetRecord[])
     // Des plus récentes aux plus anciennes ; sorties le même jour, dans l'ordre de leur code.
     .sort((a, b) => b.released.localeCompare(a.released) || a.id.localeCompare(b.id))
-  const cards = cardRows!.results as CardRecord[]
   const rarities = new Map(
     (rarityRows!.results as RarityRecord[]).map((rarity) => [rarity.id, rarity]),
   )
@@ -157,9 +157,9 @@ export async function saveLanguage(lang: CardLanguage) {
   const responses: [name: string, data: unknown][] = [
     // Chaque Pokémon, même sans carte : la fenêtre d'ajout dit alors qu'il n'en a pas (404 :
     // catalogue pas disponible).
-    ...Array.from({ length: TOTAL_SPECIES }, (_, index): [string, unknown] => [
-      snapshotName(lang, `species/${index + 1}`),
-      speciesResponse(index + 1, bySpecies[index + 1] ?? [], byId, rarities),
+    ...SPECIES_IDS.map((id): [string, unknown] => [
+      snapshotName(lang, `species/${id}`),
+      speciesResponse(id, bySpecies[id] ?? [], byId, rarities),
     ]),
     [snapshotName(lang, 'sets'), setsResponse(sets, bySet)],
     ...sets.map((set): [string, unknown] => [
@@ -189,6 +189,12 @@ const raritiesOf = (cards: CardRecord[], rarities: Map<number, RarityRecord>) =>
  */
 const imageOf = (card: CardRecord) => (card.image === 'none' ? 0 : card.sort)
 
+/** Le numéro d'une carte dans les réponses : l'imprimé (`saveSeries`), sinon son rang. */
+const shownNumber = (card: CardRecord) => card.number || String(card.sort)
+
+/** Le logo d'une série dans les réponses : 0 si la source n'en a pas, sinon 1. */
+const logoOf = (set: SetRecord) => (set.logo === 'none' ? 0 : 1)
+
 /**
  * Les cartes Pokémon de chaque Pokémon, des plus récentes aux plus anciennes ; dans une série, de
  * la dernière carte à la première.
@@ -211,7 +217,7 @@ function catalogRow(card: CardRecord): CatalogRow {
   const dexIds = JSON.parse(card.dexIds) as number[]
   const row: CatalogRow = [
     card.set,
-    card.number || String(card.sort),
+    shownNumber(card),
     card.cardmarket,
     card.name,
     imageOf(card),
@@ -235,8 +241,8 @@ function speciesResponse(
   return {
     sets: Object.fromEntries(
       [...new Set(cards.map((card) => card.set))].map((id) => {
-        const { name, released, logo } = sets.get(id)!
-        return [id, [name, released, logo === 'none' ? 0 : 1]]
+        const set = sets.get(id)!
+        return [id, [set.name, set.released, logoOf(set)]]
       }),
     ),
     cards: cards.length ? { [dexId]: cards.map(catalogRow) } : {},
@@ -261,7 +267,7 @@ function setsResponse(sets: SetRecord[], bySet: Map<string, CardRecord[]>): Cata
       set.id,
       set.name,
       set.released,
-      set.logo === 'none' ? 0 : 1,
+      logoOf(set),
       bySet.get(set.id)!.length,
       set.block === null ? -1 : blocks.indexOf(set.block),
       set.deck,
@@ -273,7 +279,7 @@ function setsResponse(sets: SetRecord[], bySet: Map<string, CardRecord[]>): Cata
 function setResponse(cards: CardRecord[], rarities: Map<number, RarityRecord>): CatalogSetFile {
   return {
     cards: cards.map((card): CatalogSetRow => ({
-      number: card.number || String(card.sort),
+      number: shownNumber(card),
       printed: card.printed,
       name: card.name,
       en: card.en,
@@ -608,8 +614,9 @@ export async function catalog(step: Step, refresh: boolean) {
   const due = await step('séries à relire', async () => {
     const now = Date.now()
     const due: [CardLanguage, string[]][] = []
+    const sitemap = await readSitemap()
     for (const lang of LANGUAGES) {
-      const codes = await seriesCodes(lang)
+      const codes = seriesIn(sitemap, lang)
       const toRead = await dueSeries(lang, codes, now, refresh)
       due.push([lang, toRead])
       journal({

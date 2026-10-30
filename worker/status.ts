@@ -1,8 +1,8 @@
 /**
  * Où en sont les tâches d'ingestion, d'après leurs passages (`runs`, `ingest/runs.ts`) :
  * - `GET /v1/status` : l'identité et l'état de chaque tâche (le site n'affiche que les problèmes) ;
- *   la cause d'un échec reste dans le journal de l'ingestion ; un passage arrêté net (sans signe
- *   de vie, `aliveSince`) est un échec ;
+ *   la cause d'un échec reste dans le journal du Worker ; un passage arrêté net (sans signe de vie,
+ *   `aliveSince`) est un échec ;
  * - `GET /v1/health`, sans token : pour une surveillance (UptimeRobot…), 200 si chaque tâche à
  *   rythme a réussi récemment (deux intervalles au plus) et que les prix ne sont pas figés, 503
  *   sinon, avec les tâches en retard. Les tâches à la demande n'y comptent pas.
@@ -20,8 +20,8 @@ interface Runs {
 }
 
 /**
- * Deux intervalles sans réussite (ou jamais réussie) : l'ingestion ne la relance plus (service
- * arrêté ?), ou elle échoue sans cesse. Une tâche à la demande n'est jamais en retard. `now` : en ms.
+ * Deux intervalles sans réussite (ou jamais réussie) : le Cron ne la relance plus, ou elle échoue
+ * sans cesse. Une tâche à la demande n'est jamais en retard. `now` : en ms.
  */
 const overdue = (job: IngestJob, lastSuccess: string | null, now: number) => {
   const { every } = INGEST_JOBS[job]

@@ -12,7 +12,6 @@
 
 import { env } from 'cloudflare:workers'
 import { beforeEach, describe, expect, test } from 'vitest'
-import { snapshotName } from '@/config/catalog'
 import { saveBlocks, saveLanguage, saveSeries } from '../ingest/catalog'
 import type { PokecardexCard, PokecardexSeries } from '../ingest/pokecardex'
 
@@ -51,7 +50,7 @@ const page = (
   { code, fullName, region, block }: Series,
   cartes: PokecardexCard[],
 ): PokecardexSeries => ({
-  currentSeries: { shortName: code, fullName, releaseDateFR: '2023-06-16 00:00:00' },
+  currentSeries: { fullName, releaseDateFR: '2023-06-16 00:00:00' },
   cartes,
   seriesMenu: {
     blocksByRegion: {
@@ -229,19 +228,14 @@ describe('une carte déjà copiée que la source renumérote', () => {
       moved: 2,
     })
     // Elles sont à chercher de nouveau : leur rang a une autre image.
-    const copied = await env.DB.prepare("SELECT id FROM cards WHERE image = 'pokecardex'").all()
-    expect(copied.results).toEqual([])
-  })
-})
-
-describe('snapshotName', () => {
-  test('les réponses japonaises gardent leurs noms, les françaises ont les leurs', () => {
-    expect(snapshotName('ja', 'sets')).toBe('catalog/sets')
-    expect(snapshotName('ja', 'sets/SVP')).toBe('catalog/sets/SVP')
-    expect(snapshotName('ja', 'species/377')).toBe('catalog/species/377')
-    expect(snapshotName('fr', 'sets')).toBe('catalog/fr/sets')
-    expect(snapshotName('fr', 'sets/SVP')).toBe('catalog/fr/sets/SVP')
-    expect(snapshotName('fr', 'species/65')).toBe('catalog/fr/species/65')
+    const copied = async () =>
+      (await env.DB.prepare("SELECT id FROM cards WHERE image = 'pokecardex'").all()).results
+    expect(await copied()).toEqual([])
+    // La carte 4, copiée, change de série au même rang : comptée, et à chercher de nouveau.
+    await env.DB.prepare("UPDATE cards SET image = 'pokecardex' WHERE id = 4").run()
+    const elsewhere = page({ ...series, code: 'MEG2' }, [card({ id_card: 4, sort: 1 })])
+    expect((await saveSeries('fr', 'MEG2', elsewhere, LATER, null)).moved).toBe(1)
+    expect(await copied()).toEqual([])
   })
 })
 

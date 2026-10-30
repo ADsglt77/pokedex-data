@@ -8,11 +8,12 @@ lire avant de toucher à ce domaine (les règles : `CLAUDE.md`). Les tâches tou
 ## Espèces (`ingest/species.ts`, chaque mois)
 
 Les 1 025 espèces d'après PokéAPI (nom français, anglais et japonais, types, génération ;
-catégorie, description, taille, poids…), lues par `ingest/net.ts` (requêtes identifiées, six à la
-fois, réessayées en cas de panne), par étapes de 100 espèces : `/v1/species` et
-`/v1/species/details` (des réponses enregistrées dans R2). Une espèce sans nom français ou anglais, ou
-d'un type inconnu (une nouvelle génération pas encore traduite), fait échouer la tâche : les
-espèces d'avant restent. Une nouvelle génération s'ajoute dans `GENERATIONS` (`config/pokedex.ts`).
+catégorie, description, taille, poids…), lues par `ingest/net.ts` (requêtes identifiées, deux par
+espèce, six espèces à la fois, réessayées en cas de panne), par étapes de 100 espèces :
+`/v1/species` et `/v1/species/details` (des réponses enregistrées dans R2). Une espèce sans nom
+français ou anglais, ou d'un type inconnu (une nouvelle génération pas encore traduite), fait
+échouer la tâche : les espèces d'avant restent. Une nouvelle génération s'ajoute dans
+`GENERATIONS` (`config/pokedex.ts`).
 
 ## Catalogue (`ingest/catalog.ts`, à la demande)
 
@@ -52,9 +53,9 @@ et les codes des séries se répètent d'une zone à l'autre (la carte 7091, la 
 - Ses pages portent leurs données chiffrées (`__INITIAL_DATA_ENCRYPTED__`, AES-CBC) : déchiffrées
   avec la clé que contient son JavaScript, relue quand l'adresse de son script change, jamais
   recopiée dans le dépôt. Une page toutes les 3 s, User-Agent identifié : le premier passage prend
-  une vingtaine de minutes pour les japonaises (« Séries japonaises »), une douzaine pour les
-  françaises (« Séries françaises ») ; ensuite, une série est relue après une semaine, après un
-  jour si elle est sortie depuis moins de 90 jours (`read_at`), et `--refresh` les relit toutes.
+  une vingtaine de minutes pour les japonaises, une douzaine pour les françaises ; ensuite, une
+  série est relue après une semaine, après un jour si elle est sortie depuis moins de 90 jours
+  (`read_at`), et `--refresh` les relit toutes.
 - Les gardes : une page en échec n'empêche pas les autres (la tâche échoue ensuite) ; dix
   d'affilée arrêtent la lecture, celle de l'autre langue comprise (le site a changé) ; une série
   qui donne moins de la moitié des cartes qu'elle avait est refusée ; une page sans cartes ne
@@ -144,10 +145,10 @@ dossier `fr/` de plus, les japonais n'ont pas changé.
 
 Accord du propriétaire pour les cartes françaises comme pour les japonaises : mêmes pages, même
 méthode. Repérage sur `/series/MEG` (récente) et `/series/BS` (ancienne), avec un script à part ;
-`ingest/pokecardex.ts` lit une série, une carte et le plan du site dans une langue (`CardLanguage`,
-`ja` ou `fr` : `seriesIn`, `seriesCodes`, `readSeries`, `readCard`, `menuBlocks`). Les tâches
-`catalog`, `images` et `history` lisent cette zone (sections Catalogue, Images et Historique repris).
-Ce qui suit est ce que le repérage a établi.
+`ingest/pokecardex.ts` lit le plan du site, commun aux deux langues (`readSitemap`), une série et
+une carte dans une langue (`CardLanguage`, `ja` ou `fr` : `seriesIn`, `readSeries`, `readCard`,
+`menuBlocks`). Les tâches `catalog`, `images` et `history` lisent cette zone (sections Catalogue,
+Images et Historique repris). Ce qui suit est ce que le repérage a établi.
 
 - **Les pages** : `/series/<code>` (japonaises : `/series/jp/<code>`), chiffrées de la même façon,
   avec le même script (`/react/sets/assets/index-….js`) et sa clé : la méthode de `keyOf` et de
@@ -347,8 +348,8 @@ Le produit 719621 donne `1x Charmander Blazing Destruction Steady Firebreathing 
   qu'une extension (un seul compte).
 - Pas de ligne non plus pour un produit inconnu, sans extension ou sans métacarte, ni pour une
   parenthèse dans le nom ou l'extension. Ni la langue ni l'état ne tiennent dans une ligne.
-- Calculée à chaque demande (`Cache-Control: no-cache`), requêtes préparées une fois, chaque id et
-  chaque extension une fois par demande : 1 025 ids en moins de 0,1 s.
+- Calculée à chaque demande (`Cache-Control: no-cache`), en trois requêtes d'un seul `batch`, quel
+  que soit le nombre d'ids (`readWants`, `worker/reference.ts`).
 
 ## État des tâches (`worker/status.ts`)
 

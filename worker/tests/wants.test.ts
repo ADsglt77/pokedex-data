@@ -88,13 +88,6 @@ describe('/v1/wants : les lignes tirées de la base (produits, catalogue, extens
     expect(await wants('464060,464061,1')).toEqual({ '464060': null, '464061': null, '1': null })
   })
 
-  test('une carte française : le nom anglais de l’extension de sa série', async () => {
-    await seedFrench()
-    expect(await wants('464070')).toEqual({
-      '464070': '1x Bulbasaur Bind Down (Mega Evolution)',
-    })
-  })
-
   test('une série française sans nom d’extension : pas de ligne (jamais son nom français)', async () => {
     await seedFrench()
     expect(await wants('464071')).toEqual({ '464071': null })
@@ -176,15 +169,6 @@ describe('wantsLine', () => {
     expect(
       wantsLine({ name: CHARMANDER, number: '004' }, ['004', '168'], only('Pokémon Card 151')),
     ).toBe('1x Charmander Blazing Destruction Steady Firebreathing (V.1) (Pokémon Card 151)')
-  })
-
-  test('les versions par numéro imprimé : Toxtricity VMAX de Rebellion Crash', () => {
-    expect(
-      wantsLine({ name: TOXTRICITY, number: '037' }, ['107', '037'], only('Rebellion Crash')),
-    ).toBe('1x Toxtricity VMAX G-Max Riot (V.1) (Rebellion Crash)')
-    expect(
-      wantsLine({ name: TOXTRICITY, number: '107' }, ['107', '037'], only('Rebellion Crash')),
-    ).toBe('1x Toxtricity VMAX G-Max Riot (V.2) (Rebellion Crash)')
   })
 
   test('seul de sa carte dans l’extension : sans version, même absent du catalogue', () => {

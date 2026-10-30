@@ -13,7 +13,7 @@
  */
 
 import { env } from 'cloudflare:workers'
-import { priceBefore, withPrice, yearDay } from '@/lib/history'
+import { monthAgoYears, priceBefore, withPrice, yearDay } from '@/lib/history'
 import { addDays } from '@/lib/time'
 import { journal, plural, reasonOf } from '../journal'
 import { streamArray } from './json-stream'
@@ -183,7 +183,6 @@ export async function savePriceGuide(
   stamp: string,
 ) {
   const date = guide.createdAt.slice(0, 10)
-  const [year] = yearDay(date)
 
   // Les cartes des séries sorties depuis moins de 31 jours, d'après le catalogue : leur prix est la
   // tendance (`guidePrice`). Le nombre de prix d'avant, et de produits de la liste d'avant.
@@ -223,9 +222,8 @@ export async function savePriceGuide(
     })
   }
 
-  // Les années que lit la tâche : celle du jour, et celle d'il y a 37 jours (le prix d'il y a
-  // 30 jours, en janvier).
-  const years = [...new Set([yearDay(addDays(date, -37))[0], year])]
+  // Les années que lit la tâche : celle du jour, et celles du prix d'il y a 30 jours.
+  const years = monthAgoYears(date)
   await env.DB.prepare('DELETE FROM cardmarket_prices_next').run()
   let written = 0
   for (let from = 0; from < cards.length; from += CARDS_PER_CHUNK) {

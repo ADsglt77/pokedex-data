@@ -1,8 +1,9 @@
 /**
  * Les chemins des images (le site les rend à son adresse, `/images/…`), sans nom de source : le
  * scan d'une carte, le logo d'une série, l'icône d'un type ou d'une rareté, le sprite et
- * l'illustration d'un Pokémon. Communs à la tâche `images`, qui les copie (`images.ts`), et au
- * Worker, qui les sert (`worker/images.ts`) : `IMAGE_PATHS` dit les parties de chacun.
+ * l'illustration d'un Pokémon. Communs à la tâche `images`, qui les copie
+ * (`worker/ingest/images.ts`), et à l'API, qui les sert (`worker/images.ts`) : `IMAGE_PATHS` dit
+ * les parties de chacun.
  */
 
 import type { CardLanguage } from '@/contract'
@@ -18,12 +19,8 @@ const folderOf = (lang: CardLanguage) => (lang === 'fr' ? 'fr/' : '')
  * Le scan d'une carte : sa langue, le code de sa série et son rang (celui du catalogue), en deux
  * tailles, `md` pour les grilles, `hd` pour la fiche.
  */
-export const cardScan = (
-  lang: CardLanguage,
-  set: string,
-  rank: number | string,
-  size: 'md' | 'hd',
-) => `/images/cards/${folderOf(lang)}${set}/${rank}-${size}.webp`
+export const cardScan = (lang: CardLanguage, set: string, rank: number, size: 'md' | 'hd') =>
+  `/images/cards/${folderOf(lang)}${set}/${rank}-${size}.webp`
 
 /** Le logo d'une série, en deux tailles : `md` pour la liste, `hd` en tête de page. */
 export const setLogo = (lang: CardLanguage, set: string, size: 'md' | 'hd') =>

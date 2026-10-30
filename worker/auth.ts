@@ -10,7 +10,6 @@
  */
 
 import { env } from 'cloudflare:workers'
-import { MINUTE } from '@/lib/time'
 import { journalOnce } from './journal'
 
 /** Un token devinable ne protège rien. */
@@ -68,15 +67,11 @@ export async function guard(request: Request) {
   const { pathname } = new URL(request.url)
   if (pathname === '/v1/health' || (await fromClient(request))) return
   const reason = request.headers.has('authorization') ? 'token inconnu' : 'sans token'
-  journalOnce(
-    reason,
-    {
-      topic: 'accès',
-      level: 'warn',
-      message: 'Token refusé',
-      details: { raison: reason, route: `${request.method} ${pathname}` },
-    },
-    MINUTE,
-  )
+  journalOnce(reason, {
+    topic: 'accès',
+    level: 'warn',
+    message: 'Token refusé',
+    details: { raison: reason, route: `${request.method} ${pathname}` },
+  })
   return new Response(null, { status: 401, headers: { 'Cache-Control': 'no-store' } })
 }

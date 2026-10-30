@@ -1,17 +1,17 @@
 /**
- * L'historique des prix, tel que l'écrivent les tâches et le lit l'API (`history.ts`, et
- * `worker/history.ts`) : un tableau par carte et par année, à partir de son premier jour avec un
- * prix ; pour l'app, un prix par jour depuis ce premier jour (`joinYears`). Sans base : commun à
- * l'ingestion et au Worker.
+ * L'historique des prix, tel que l'écrivent les tâches et le lit l'API (`worker/ingest/prices.ts`,
+ * `worker/ingest/history.ts`, et `worker/history.ts`) : un tableau par carte et par année, à partir
+ * de son premier jour avec un prix ; pour l'app, un prix par jour depuis ce premier jour
+ * (`joinYears`). Sans base : commun aux tâches et à l'API.
  */
 
 import type { CardPriceHistory } from '@/contract'
-import { addDays, DAY, daysBetween } from '@/lib/time'
+import { addDays, daysBetween } from '@/lib/time'
 
 /** `2026-10-14` → [2026, 286] : l'année et le jour de l'année (0 : 1er janvier). */
 export function yearDay(date: string): [number, number] {
   const year = Number(date.slice(0, 4))
-  return [year, (Date.parse(date) - Date.UTC(year, 0, 1)) / DAY]
+  return [year, daysBetween(`${year}-01-01`, date)]
 }
 
 /** Une année d'historique, telle qu'enregistrée : les prix à partir du jour de l'année `first`. */
@@ -56,6 +56,11 @@ export function priceBefore(years: HistoryYear[], date: string): number | null {
   }
   return null
 }
+
+/** Les années que lit `priceBefore(…, date)`, et celle de `date`. */
+export const monthAgoYears = (date: string) => [
+  ...new Set([yearDay(addDays(date, -(MONTH_AGO + 7)))[0], yearDay(date)[0]]),
+]
 
 /**
  * Les années, dans l'ordre, mises bout à bout : un prix par jour, du premier au dernier prix ;

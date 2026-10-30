@@ -19,8 +19,7 @@
 
 import { env } from 'cloudflare:workers'
 import type { CardLanguage } from '@/contract'
-import { priceBefore, withPrice, yearDay, type HistoryYear } from '@/lib/history'
-import { addDays } from '@/lib/time'
+import { monthAgoYears, priceBefore, withPrice, yearDay, type HistoryYear } from '@/lib/history'
 import { journal, plural, reasonOf } from '../journal'
 import { MAX_FAILURES_IN_A_ROW, readCard, type PokecardexCardPage } from './pokecardex'
 import { readSource, writeSource } from './sources'
@@ -49,8 +48,8 @@ export function mainHistory(
       versionId === null && variant === 'normale' && metric === 'avg30',
   )
   if (!history || !series) return null
-  // Seulement un jour écrit AAAA-MM-JJ : une autre forme (une heure, un décalage) tomberait entre
-  // deux jours de l'année (`yearDay`), et chaque prix du jour suivant se perdrait.
+  // Seulement un jour écrit AAAA-MM-JJ : une autre forme (une heure, un décalage) pourrait tomber
+  // sur le jour d'à côté (`yearDay`), et le prix de ce jour-là serait remplacé.
   const points = history.points.flatMap(({ date, [series.id]: price }) =>
     /^\d{4}-\d{2}-\d{2}$/.test(date) && typeof price === 'number' && price > 0
       ? [[date, Math.round(price * 100) / 100] as [string, number]]
@@ -72,8 +71,9 @@ export async function mergeHistory(cardmarket: number, points: readonly [string,
     const until = (await readSource('cardmarket'))?.date ?? null
     const kept = points.filter(([date]) => until === null || date < until)
     const years = new Set(kept.map(([date]) => yearDay(date)[0]))
-    // Le prix d'il y a 30 jours lit aussi l'année du dernier relevé, et celle d'avant en janvier.
-    if (until) [addDays(until, -37), until].forEach((date) => years.add(yearDay(date)[0]))
+    // Le prix d'il y a 30 jours lit aussi l'année du dernier relevé, et celle d'avant en janvier
+    // (`monthAgoYears`).
+    if (until) monthAgoYears(until).forEach((year) => years.add(year))
     const stored = await readYears([cardmarket], [...years])
     const merged = new Map<number, HistoryYear>(stored.map((row) => [row.year, row]))
     const changed = new Set<number>()

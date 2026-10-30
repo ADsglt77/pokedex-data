@@ -67,11 +67,11 @@ export class Ingest extends WorkflowEntrypoint<Cloudflare.Env, IngestParams> {
         else if (job === 'history') await history(jobStep)
         else if (job === 'species') await species(jobStep)
         else await jobStep('guide des prix', prices)
-        await step.do(`${prefix} : fin`, () => finishRun(id, true, null))
+        await step.do(`${prefix} : fin`, () => finishRun(id, null))
         journal({ topic: 'tâches', level: 'ok', message: INGEST_JOBS[job].label })
       } catch (error) {
         const reason = reasonOf(error)
-        await step.do(`${prefix} : échec`, () => finishRun(id, false, reason))
+        await step.do(`${prefix} : échec`, () => finishRun(id, reason))
         journal({
           topic: 'tâches',
           level: 'error',

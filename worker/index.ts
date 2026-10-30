@@ -1,9 +1,9 @@
 /**
  * Le Worker des données. Deux entrées, la même API (`app.ts`) :
  * - par défaut, l'entrée d'Internet (`https://api.pokecodex.fr`, pour les autres clients que le
- *   site : un script, une autre app) : en https (http : 301 vers https, comme le faisait Caddy ;
- *   pas sur le poste du développeur), lecture seule (tout autre verbe : 405), les limites par
- *   adresse (`limits.ts`), puis le token (`auth.ts`) ; ses en-têtes, ceux d'une API (`API_HEADERS`) ;
+ *   site : un script, une autre app) : en https (http : 301 vers https ; pas sur le poste du
+ *   développeur), lecture seule (tout autre verbe : 405), les limites par adresse (`limits.ts`),
+ *   puis le token (`auth.ts`) ; ses en-têtes, ceux d'une API (`API_HEADERS`) ;
  * - `SiteEntrypoint`, celle du site : sa liaison de service (`services` de son `wrangler.jsonc`),
  *   que rien d'autre ne peut joindre ; ni token ni limite.
  * Et les tâches d'ingestion (`ingest/`) : le Workflow `Ingest`, que le Cron (`scheduled`, chaque

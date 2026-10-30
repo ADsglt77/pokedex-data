@@ -182,7 +182,7 @@ describe('la copie des images (tâche `images`)', () => {
 
     /** La page de la série X telle que la source la donne à ce moment. */
     const seriesPage = (): PokecardexSeries => ({
-      currentSeries: { shortName: 'X', fullName: 'Série X', releaseDateFR: '2026-10-01 00:00:00' },
+      currentSeries: { fullName: 'Série X', releaseDateFR: '2026-10-01 00:00:00' },
       cartes: source.map(([id_card, name], index) => ({
         id_card,
         sort: index + 1,

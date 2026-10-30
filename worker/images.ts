@@ -50,7 +50,7 @@ const PLAUSIBLE: Record<ImageKind, (...parts: string[]) => boolean | Promise<boo
 
 /**
  * Gardées un an par les navigateurs, sans redemande : une image copiée ne change pas, sauf le scan
- * d'une carte dont la source a changé le rang ou la série (`jobs/images.ts` le recopie). Ce cas,
+ * d'une carte dont la source a changé le rang ou la série (`ingest/images.ts` le recopie). Ce cas,
  * jamais vu (aucun rang changé du 19 au 24 octobre 2026), est accepté : un navigateur qui avait
  * l'ancien scan de ce chemin le garde jusqu'à ce que son cache se vide.
  */
