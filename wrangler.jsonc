@@ -7,8 +7,11 @@
   "main": "worker/index.ts",
   "compatibility_date": "2026-10-20",
   // Le calcul d'une demande ou d'une étape des tâches, au plus : le guide des prix, lu en flux, et
-  // ses dizaines de milliers de cartes en demandent plus que les 30 s par défaut.
-  "limits": { "cpu_ms": 300000 },
+  // ses dizaines de milliers de cartes en demandent plus que les 30 s par défaut. Et les requêtes
+  // d'une exécution (sources, R2, D1), au plus : un Workflow enchaîne ses étapes dans une même
+  // exécution, et la copie des images ou la reprise de l'historique en font des centaines de
+  // milliers ; les 10 000 par défaut l'arrêtaient en route. 10 millions : le maximum permis.
+  "limits": { "cpu_ms": 300000, "subrequests": 10000000 },
   // Les données de référence (`worker/schema.ts`), leurs migrations écrites par Drizzle
   // (`bun run db:generate`).
   "d1_databases": [
