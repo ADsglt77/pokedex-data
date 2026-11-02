@@ -19,10 +19,18 @@ import type { CardLanguage } from '@/contract'
 import { cardScan, setLogo } from '@/lib/image-paths'
 import { app } from '../app'
 import { saveSeries } from '../ingest/catalog'
-import { images, mirror } from '../ingest/images'
 import type { PokecardexSeries } from '../ingest/pokecardex'
 import type { Step } from '../ingest/workflow'
 import { emptyFiles } from './helpers'
+
+// `politeFetch` sans ses 100 ms d'attente ; `images.ts`, déjà chargé par l'entrée du Worker,
+// rechargé pour le prendre.
+vi.mock(import('../ingest/net'), async (original) => ({
+  ...(await original()),
+  politeFetch: (url, init) => fetch(url, init),
+}))
+vi.resetModules()
+const { images, mirror } = await import('../ingest/images')
 
 /** Le nombre de cartes de la série SVP dans chaque langue. */
 const CARDS: Record<CardLanguage, number> = { ja: 1, fr: 3 }

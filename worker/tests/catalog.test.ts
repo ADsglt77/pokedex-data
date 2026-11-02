@@ -11,10 +11,18 @@
  */
 
 import { env } from 'cloudflare:workers'
-import { beforeEach, describe, expect, test } from 'vitest'
-import { saveBlocks, saveLanguage, saveSeries } from '../ingest/catalog'
+import { beforeEach, describe, expect, test, vi } from 'vitest'
 import type { PokecardexCard, PokecardexSeries } from '../ingest/pokecardex'
 import { emptyFiles, run } from './helpers'
+
+// `saveLanguage` pour les seuls Pokémon que lisent les tests, pas les 1 025 ; `catalog.ts`, déjà
+// chargé par l'entrée du Worker, rechargé pour prendre cette liste.
+vi.mock(import('@/config/pokedex'), async (original) => ({
+  ...(await original()),
+  SPECIES_IDS: [65, 377],
+}))
+vi.resetModules()
+const { saveBlocks, saveLanguage, saveSeries } = await import('../ingest/catalog')
 
 const READ_AT = '2026-10-22T10:00:00.000Z'
 const LATER = '2026-10-29T10:00:00.000Z'
@@ -232,8 +240,7 @@ describe('une carte déjà copiée que la source renumérote', () => {
   })
 })
 
-// Plus de 2 000 réponses écrites dans le R2 local : une dizaine de secondes par test.
-describe('saveLanguage', { timeout: 60_000 }, () => {
+describe('saveLanguage', () => {
   /** Les deux séries SVP, leurs blocs et leurs raretés, puis les réponses. */
   async function saveBoth() {
     await saveSeries('ja', 'SVP', page(JAPANESE, [REGIROCK]), READ_AT, null)
