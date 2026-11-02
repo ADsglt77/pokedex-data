@@ -51,8 +51,10 @@ Le Cron ne passe pas tout seul en développement : `curl http://127.0.0.1:8787/_
   fait rien et `defer_foreign_keys` n'arrête pas les cascades ; reconstruire `cards` viderait
   `card_species`, reconstruire `sets` échouerait (`cards` la référence). L'écrire à la main :
   mettre de côté les lignes qui en dépendent (pour `cards` : `card_species` ; pour `sets` :
-  `cards` et `card_species`), reconstruire, les remettre. Les grosses réponses calculées par les
-  tâches (espèces, catalogue) et les images sont dans R2.
+  `cards` et `card_species`), reconstruire, les remettre ; puis la marquer en tête
+  `-- reconstruction vérifiée` (sans cette marque, son `PRAGMA foreign_keys=OFF` fait échouer
+  `worker/tests/schema.test.ts`). Les grosses réponses calculées par les tâches (espèces,
+  catalogue) et les images sont dans R2.
 - **Les tâches dans un Workflow** (`worker/ingest/workflow.ts`) : chaque étape (`step`) est
   rejouée telle quelle si le Workflow reprend, son résultat gardé (1 Mio au plus, sérialisable) ;
   hors des étapes, rien que de déterministe. Une étape tient en 5 min (sans signe de vie au-delà,
@@ -81,7 +83,8 @@ Le Cron ne passe pas tout seul en développement : `curl http://127.0.0.1:8787/_
   communes) : seulement ce où une erreur coûte (prix d'une carte, écriture de l'historique,
   irremplaçable ; lignes de la liste de souhaits, une mauvaise version achèterait une autre carte ;
   catalogue des deux langues ; passages des tâches ; accès par token et état des tâches ; images :
-  un chemin français ne mène qu'à une image française). Jamais le réseau : `fetch` remplacé.
+  un chemin français ne mène qu'à une image française ; migrations : une reconstruction de table
+  effacerait en cascade, `schema.test.ts`). Jamais le réseau : `fetch` remplacé.
 - Textes en français. Prettier : pas de point-virgule, guillemets simples, 100 colonnes.
 
 ## Architecture

@@ -3,11 +3,14 @@
  * cartes, les codes des séries et les ids des raretés se répètent d'une zone à l'autre (la carte
  * 7091 : Regirock de SM4A au Japon, Alakazam du Set de base en France). Une carte d'une langue ne
  * doit jamais écraser ni retirer celle de l'autre, ni une réponse d'une langue montrer l'autre ;
- * une carte qui n'existe qu'en anglais n'entre pas au catalogue français ; le nom d'extension
- * Cardmarket d'une série (la liste de souhaits) : jamais un nom que ses cartes ne confirment pas,
- * et un nom anglais qu'elles ne confirment pas n'efface pas celui qu'elles confirment encore ; une
- * série renumérotée par la source : la tâche compte les cartes déjà copiées qui changent de rang
- * (ou de série), pour que le journal le dise, et elles sont à chercher de nouveau.
+ * chaque colonne d'une ligne du catalogue à sa place (`CatalogRow`, des nombres sans noms : l'une
+ * prise pour une autre donnerait à une carte l'id Cardmarket d'une autre, mauvais prix, mauvais
+ * lien) ; une carte qui n'existe qu'en anglais n'entre pas au catalogue français ; le nom
+ * d'extension Cardmarket d'une série (la liste de souhaits) : jamais un nom que ses cartes ne
+ * confirment pas, et un nom anglais qu'elles ne confirment pas n'efface pas celui qu'elles
+ * confirment encore ; une série renumérotée par la source : la tâche compte les cartes déjà
+ * copiées qui changent de rang (ou de série), pour que le journal le dise, et elles sont à
+ * chercher de nouveau.
  */
 
 import { env } from 'cloudflare:workers'
@@ -80,9 +83,26 @@ const FRENCH: Series = {
   region: 'FR',
   block: 'Écarlate et Violet',
 }
-/** La carte 7091 des deux zones : Regirock au Japon, Alakazam en France. */
-const REGIROCK = card({ id_card: 7091, sort: 1, name_card_fr: 'Regirock', id_pokedex_list: [377] })
-const ALAKAZAM = card({ id_card: 7091, sort: 1, name_card_fr: 'Alakazam', id_pokedex_list: [65] })
+/**
+ * La carte 7091 des deux zones : Regirock au Japon, Alakazam en France ; leurs nombres tous
+ * différents (id Cardmarket, rang, rareté, type), qu'une colonne prise pour une autre se voie.
+ */
+const REGIROCK = card({
+  id_card: 7091,
+  sort: 1,
+  name_card_fr: 'Regirock',
+  id_pokedex_list: [377],
+  id_cardmarket: 712345,
+  id_type: 7,
+})
+const ALAKAZAM = card({
+  id_card: 7091,
+  sort: 1,
+  name_card_fr: 'Alakazam',
+  id_pokedex_list: [65],
+  id_cardmarket: 274123,
+  id_type: 5,
+})
 
 /** Le stockage partagé entre les tests d'un fichier : chacun part d'un catalogue vide. */
 beforeEach(async () => {
@@ -274,8 +294,13 @@ describe('saveLanguage', () => {
     })
     const species = async (name: string, dex: number) =>
       ((await snapshot(name))!.cards as Record<number, unknown[]>)[dex]
-    expect(await species('catalog/species/377', 377)).toHaveLength(1)
-    expect(await species('catalog/fr/species/65', 65)).toHaveLength(1)
+    // [série, numéro, id Cardmarket, nom, image (son rang), rareté, type] (`CatalogRow`).
+    expect(await species('catalog/species/377', 377)).toEqual([
+      ['SVP', '001', 712345, 'Regirock', 1, 48, 7],
+    ])
+    expect(await species('catalog/fr/species/65', 65)).toEqual([
+      ['SVP', '001', 274123, 'Alakazam', 1, 48, 5],
+    ])
     expect((await snapshot('catalog/species/65'))!.cards).toEqual({})
     expect((await snapshot('catalog/fr/species/377'))!.cards).toEqual({})
   })

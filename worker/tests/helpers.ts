@@ -1,6 +1,7 @@
 /**
- * Ce que partagent les fichiers de test du Worker : leurs requêtes SQL d'un seul tenant (`run`) et
- * le R2 vidé (`emptyFiles`), la D1 et le R2 d'un fichier étant partagés par ses tests.
+ * Ce que partagent les fichiers de test du Worker : leurs requêtes SQL d'un seul tenant (`run`),
+ * leurs lignes lues (`rows`) et le R2 vidé (`emptyFiles`), la D1 et le R2 d'un fichier étant
+ * partagés par ses tests.
  */
 
 import { env } from 'cloudflare:workers'
@@ -14,6 +15,9 @@ export const run = (...statements: (string | [string, ...unknown[]])[]) =>
         : env.DB.prepare(statement[0]).bind(...statement.slice(1)),
     ),
   )
+
+/** Les lignes que rend une requête SQL. */
+export const rows = async (sql: string) => (await env.DB.prepare(sql).all()).results
 
 /** Aucune image ni réponse enregistrée dans R2. */
 export async function emptyFiles() {

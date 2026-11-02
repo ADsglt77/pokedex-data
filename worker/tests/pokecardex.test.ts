@@ -2,13 +2,15 @@
  * La lecture de Pokécardex dans une langue : quelles séries du plan du site sont japonaises ou
  * françaises (un code mal rangé ferait lire une page pour une autre, et mêler les cartes des deux
  * langues ; un code que les chemins des images refusent arrêterait la tâche `images`), quels blocs
- * du menu sont ceux d'une langue, et le nom d'extension Cardmarket d'une série française (un nom
- * qui ne correspond pas au sien ferait tomber la liste de souhaits sur une autre extension : mieux
- * vaut aucun nom).
+ * du menu sont ceux d'une langue, quelles séries sont des exclusivités d'autres pays d'Asie
+ * (rangées avec les japonaises, mais pas japonaises : écartées), et le nom d'extension Cardmarket
+ * d'une série française (un nom qui ne correspond pas au sien ferait tomber la liste de souhaits
+ * sur une autre extension : mieux vaut aucun nom).
  */
 
 import { describe, expect, test } from 'vitest'
 import {
+  asiaExclusive,
   cardmarketSlug,
   expansionNameOf,
   menuBlocks,
@@ -52,12 +54,14 @@ describe('seriesIn', () => {
   })
 })
 
+/** Un bloc du menu des séries : son nom (le même en anglais), ses séries. */
+const block = (name: string, ...codes: string[]) => ({
+  name,
+  nameUS: name,
+  series: codes.map((shortName) => ({ shortName })),
+})
+
 describe('menuBlocks', () => {
-  const block = (name: string, code: string) => ({
-    name,
-    nameUS: name,
-    series: [{ shortName: code }],
-  })
   const page = {
     seriesMenu: {
       blocksByRegion: {
@@ -77,6 +81,20 @@ describe('menuBlocks', () => {
 
   test('pas de menu : aucun bloc', () => {
     expect(menuBlocks({} as PokecardexSeries, 'fr')).toEqual([])
+  })
+})
+
+describe('asiaExclusive', () => {
+  test('les séries du bloc « Asia Exclusive » du menu japonais ; pas celles du menu français', () => {
+    const page = {
+      seriesMenu: {
+        blocksByRegion: {
+          JP: [block('Scarlet & Violet', 'SV2A'), block('Asia Exclusive', 'CS1', 'CSM1')],
+          FR: [block('Asia Exclusive', 'MEG')],
+        },
+      },
+    } as unknown as PokecardexSeries
+    expect(asiaExclusive(page)).toEqual(new Set(['CS1', 'CSM1']))
   })
 })
 

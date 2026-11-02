@@ -5,12 +5,15 @@
  * passage arrêté net (sans signe de vie depuis 5 min : son Workflow arrêté) ne bloque plus sa
  * tâche, et il est noté interrompu. Sinon, après un arrêt brutal, plus rien ne relancerait
  * l'historique des prix. Et quand le Cron relance une tâche à rythme (`isDue`) : à son intervalle,
- * plus tôt après un échec, de plus en plus tard s'ils se suivent.
+ * plus tôt après un échec, de plus en plus tard s'ils se suivent ; il ne lance que `species` et
+ * `prices`, jamais `catalog`, `images` ni `history` (à la demande seulement).
  */
 
+import { createScheduledController } from 'cloudflare:test'
 import { env } from 'cloudflare:workers'
-import { beforeEach, describe, expect, test } from 'vitest'
+import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { DAY, HOUR, MINUTE } from '@/lib/time'
+import worker from '../index'
 import { isDue, startRun } from '../ingest/runs'
 
 const ago = (ms: number) => new Date(Date.now() - ms).toISOString()
@@ -83,35 +86,35 @@ describe('startRun', () => {
   })
 })
 
+/** Des passages terminés de `job`, du plus ancien au plus récent. */
+const finished = async (job: string, ...rows: [ok: 0 | 1, ago: number][]) => {
+  const write = env.DB.prepare(
+    'INSERT INTO runs (job, started_at, finished_at, ok) VALUES (?, ?, ?, ?)',
+  )
+  await env.DB.batch(rows.map(([ok, ms]) => write.bind(job, ago(ms), ago(ms), ok)))
+}
+
 describe('isDue : quand le Cron relance une tâche à rythme', () => {
   beforeEach(clear)
 
-  /** Des passages terminés de `prices`, du plus ancien au plus récent. */
-  const finished = async (...rows: [ok: 0 | 1, ago: number][]) => {
-    const write = env.DB.prepare(
-      'INSERT INTO runs (job, started_at, finished_at, ok) VALUES (?, ?, ?, ?)',
-    )
-    await env.DB.batch(rows.map(([ok, ms]) => write.bind('prices', ago(ms), ago(ms), ok)))
-  }
-
   test('jamais passée : tout de suite ; réussie : à son intervalle', async () => {
     expect(await isDue('prices', 6 * HOUR)).toBe(true)
-    await finished([1, DAY], [0, 6 * HOUR], [1, 5 * HOUR])
+    await finished('prices', [1, DAY], [0, 6 * HOUR], [1, 5 * HOUR])
     expect(await isDue('prices', 6 * HOUR)).toBe(false)
     await clear()
-    await finished([1, 7 * HOUR])
+    await finished('prices', [1, 7 * HOUR])
     expect(await isDue('prices', 6 * HOUR)).toBe(true)
   })
 
   test('après un échec, 10 min plus tard ; après plusieurs, de plus en plus tard, 6 h au plus', async () => {
-    await finished([1, DAY], [0, 11 * MINUTE])
+    await finished('prices', [1, DAY], [0, 11 * MINUTE])
     expect(await isDue('prices', 6 * HOUR)).toBe(true)
     await clear()
     // Trois échecs d'affilée : 40 min d'attente.
-    await finished([1, DAY], [0, 3 * HOUR], [0, 2 * HOUR], [0, 30 * MINUTE])
+    await finished('prices', [1, DAY], [0, 3 * HOUR], [0, 2 * HOUR], [0, 30 * MINUTE])
     expect(await isDue('prices', 6 * HOUR)).toBe(false)
     await clear()
-    await finished([1, DAY], [0, 3 * HOUR], [0, 2 * HOUR], [0, 41 * MINUTE])
+    await finished('prices', [1, DAY], [0, 3 * HOUR], [0, 2 * HOUR], [0, 41 * MINUTE])
     expect(await isDue('prices', 6 * HOUR)).toBe(true)
     await clear()
     // Dix échecs : 6 h, pas 85.
@@ -119,7 +122,34 @@ describe('isDue : quand le Cron relance une tâche à rythme', () => {
       0,
       6 * HOUR + (10 - index) * MINUTE,
     ])
-    await finished(...failures)
+    await finished('prices', ...failures)
     expect(await isDue('prices', 6 * HOUR)).toBe(true)
+  })
+})
+
+describe('le Cron', () => {
+  beforeEach(clear)
+
+  test('seulement les tâches à rythme qui sont dues : species puis prices, jamais les autres', async () => {
+    // Un vrai Workflow lirait les sources : seule sa création est notée.
+    const create = vi
+      .spyOn(env.INGEST, 'create')
+      .mockResolvedValue({ id: 'essai' } as WorkflowInstance)
+    try {
+      // Aucun passage : toutes seraient dues, si elles avaient un rythme.
+      await worker.scheduled(createScheduledController(), env)
+      expect(create.mock.calls).toEqual([
+        [{ params: { jobs: ['species'] } }],
+        [{ params: { jobs: ['prices'] } }],
+      ])
+      // Réussies à l'instant : rien à lancer.
+      create.mockClear()
+      await finished('species', [1, 0])
+      await finished('prices', [1, 0])
+      await worker.scheduled(createScheduledController(), env)
+      expect(create).not.toHaveBeenCalled()
+    } finally {
+      create.mockRestore()
+    }
   })
 })

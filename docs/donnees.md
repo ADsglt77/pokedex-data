@@ -20,10 +20,11 @@ français ou anglais, ou d'un type inconnu (une nouvelle génération pas encore
 Les cartes japonaises, puis les françaises, de Pokécardex, Pokémon, dresseurs et énergies
 (`ingest/pokecardex.ts`) : environ 450 séries japonaises de 1996 à aujourd'hui, decks, promos et
 anciennes séries compris, sans les exclusivités d'autres pays d'Asie (bloc « Asia Exclusive » de
-son menu japonais, `asiaExclusive`), et ses 249 séries françaises (sa zone française : section
-suivante) → tables `sets`, `cards`, `card_species`, `rarities`. Les ids des cartes et des raretés
-et les codes des séries se répètent d'une zone à l'autre (la carte 7091, la série SVP, la rareté
-48) : chaque ligne a sa langue (`lang`, `ja` ou `fr`, dans les clés), chaque langue ses réponses.
+son menu japonais, `asiaExclusive`, testé : écartées, ni lues une fois le menu connu, ni gardées),
+et ses 249 séries françaises (sa zone française : section suivante) → tables `sets`, `cards`,
+`card_species`, `rarities`. Les ids des cartes et des raretés et les codes des séries se répètent
+d'une zone à l'autre (la carte 7091, la série SVP, la rareté 48) : chaque ligne a sa langue
+(`lang`, `ja` ou `fr`, dans les clés), chaque langue ses réponses.
 
 - La liste des séries vient de son plan du site (`sitemap_fr.xml` : `/series/jp/<code>` au Japon,
   `/series/<code>` en France ; seulement les codes de majuscules, chiffres, `_` et `-`, que
@@ -56,9 +57,9 @@ et les codes des séries se répètent d'une zone à l'autre (la carte 7091, la 
   une vingtaine de minutes pour les japonaises, une douzaine pour les françaises ; ensuite, une
   série est relue après une semaine, après un jour si elle est sortie depuis moins de 90 jours
   (`read_at`), et `--refresh` les relit toutes.
-- Les gardes : une page en échec n'empêche pas les autres (la tâche échoue ensuite) ; dix
-  d'affilée arrêtent la lecture, celle de l'autre langue comprise (le site a changé) ; une série
-  qui donne moins de la moitié des cartes qu'elle avait est refusée ; une page sans cartes ne
+- Les gardes (testées) : une page en échec n'empêche pas les autres (la tâche échoue ensuite) ;
+  dix d'affilée arrêtent la lecture, celle de l'autre langue comprise (le site a changé) ; une
+  série qui donne moins de la moitié des cartes qu'elle avait est refusée ; une page sans cartes ne
   retire rien (plus de la moitié des séries connues sans cartes : la tâche échoue) ; une carte
   qu'une lecture de sa série ne voit plus est retirée. Tant qu'aucune carte d'une langue n'a été
   lue, les réponses de cette langue répondent 404.
@@ -301,11 +302,11 @@ d'abord, toutes langues mêlées, par étapes de 50 cartes ; chaque carte lue un
 (`history_imports`, une ligne par langue et par carte : `historyTodo`, testé, l'id 7091 japonais
 lu ne fait pas sauter le français), un passage suivant ne lit que les nouvelles ; 10 pages en
 échec d'affilée arrêtent la lecture ; des cartes en échec font échouer la tâche (relues au passage
-suivant). L'avancée est notée à chaque étape (`sources` : `history`), que suit l'ETag des prix.
-Une carte reprise ne l'est plus : si son id Cardmarket change ensuite (le catalogue adopte celui
-que Pokécardex a corrigé), les 180 jours de son nouveau produit ne sont pas repris, seulement les
-relevés suivants (le corriger demanderait une migration : le produit repris dans
-`history_imports`).
+suivant : jamais notées dans `history_imports`, testé). L'avancée est notée à chaque étape
+(`sources` : `history`), que suit l'ETag des prix. Une carte reprise ne l'est plus : si son id
+Cardmarket change ensuite (le catalogue adopte celui que Pokécardex a corrigé), les 180 jours de
+son nouveau produit ne sont pas repris, seulement les relevés suivants (le corriger demanderait
+une migration : le produit repris dans `history_imports`).
 
 L'historique est celui d'un **produit Cardmarket** (`cardmarket_history`, par id produit) : une
 carte française qui partage son produit avec une autre carte (de toute langue) en reprend les prix
@@ -366,6 +367,7 @@ sa fin) : il ne bloque plus sa tâche, et il est noté interrompu à son passage
 Le Cron (toutes les heures, `worker/index.ts`) lance une tâche à rythme quand sa dernière réussite
 a plus que son intervalle (`INGEST_JOBS`) ; après un échec, 10 min plus tard, puis 20, 40…
 jusqu'à 6 h (`isDue`, testé : une panne qui dure ne fait pas solliciter la source à chaque fois).
+Seulement `species` et `prices` : jamais `catalog`, `images` ni `history`, à la demande (testé).
 
 `/v1/status` rend seulement le nom, le libellé et l'état de chaque tâche, dans l'ordre
 d'`INGEST_JOBS`. Les détails de calcul restent internes à l'API. Un passage en cours ne compte pas

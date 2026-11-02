@@ -15,7 +15,7 @@ bun run ingest cards   # les nouvelles cartes : catalogue, puis leurs images et 
 bun run ingest setup   # première installation : espèces, catalogue, prix, images, historique
 bun run test           # tests, dans le moteur de Cloudflare (accès, état, prix et historique,
                        # catalogue des deux langues, lecture de Pokécardex, images, liste de
-                       # souhaits, passages des tâches)
+                       # souhaits, passages des tâches, migrations)
 bun run db:generate    # après une modification de worker/schema.ts : sa migration (puis
                        # `bun run format`, pour ses `meta/*.json`, que `bun run ci` vérifie)
 bun run typecheck      # TypeScript
