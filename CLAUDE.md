@@ -77,7 +77,8 @@ Le Cron ne passe pas tout seul en développement : `curl http://127.0.0.1:8787/_
 - **Aucun prix inventé** : une carte sans prix ce jour n'en a pas ; jamais celui d'une autre carte.
   Le prix suivi : la règle de Pokécardex (`guidePrice`), la même pour l'historique repris.
 - Tests (`worker/tests`, dans le moteur de Cloudflare, une D1 et un R2 par fichier, partagés par
-  ses tests) : seulement ce où une erreur coûte (prix d'une carte, écriture de l'historique,
+  ses tests : chacun pose ce qu'il lit, sans compter sur l'ordre ; `helpers.ts`, leurs aides
+  communes) : seulement ce où une erreur coûte (prix d'une carte, écriture de l'historique,
   irremplaçable ; lignes de la liste de souhaits, une mauvaise version achèterait une autre carte ;
   catalogue des deux langues ; passages des tâches ; accès par token et état des tâches ; images :
   un chemin français ne mène qu'à une image française). Jamais le réseau : `fetch` remplacé.

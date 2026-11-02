@@ -12,12 +12,13 @@
  */
 
 import { env } from 'cloudflare:workers'
-import { describe, expect, test } from 'vitest'
+import { beforeEach, describe, expect, test } from 'vitest'
 import { joinYears, priceBefore, withPrice, yearDay, type HistoryYear } from '@/lib/history'
 import { historyTodo, mainHistory, mergeHistory } from '../ingest/history'
 import type { PokecardexHistory } from '../ingest/pokecardex'
 import { savePriceGuide, type PriceGuide } from '../ingest/prices'
 import { readYears, writeYears } from '../ingest/years'
+import { run } from './helpers'
 
 describe('jour de l’année', () => {
   test('le 1er janvier est le jour 0, les années bissextiles ont un jour de plus', () => {
@@ -129,8 +130,6 @@ describe('le prix d’il y a 30 jours', () => {
 const yearsOf = async (id: number) =>
   (await readYears([id], [2025, 2026])).map(({ year, first, prices }) => ({ year, first, prices }))
 
-const run = (...sql: string[]) => env.DB.batch(sql.map((query) => env.DB.prepare(query)))
-
 /** Le relevé du 14 octobre (jour 286) : 10, pour la carte 1. */
 const reset = () =>
   run(
@@ -232,6 +231,9 @@ describe('historyTodo : les cartes à reprendre', () => {
        VALUES (?, ?, ?, '1', 1, 'Carte', ?, '2026-10-22')`,
     ).bind(lang, id, set, cardmarket)
 
+  // Aucune série, aucune carte, aucune carte reprise : chaque test pose les siennes.
+  beforeEach(() => run('DELETE FROM history_imports', 'DELETE FROM cards', 'DELETE FROM sets'))
+
   test('la reprise d’une carte japonaise ne saute pas la française au même id', async () => {
     // La carte 7091 de chaque langue : la japonaise déjà lue, la française pas encore.
     await env.DB.batch([
@@ -250,8 +252,10 @@ describe('historyTodo : les cartes à reprendre', () => {
 
   test('sans id Cardmarket, rien à reprendre ; les séries les plus récentes d’abord, puis la suite', async () => {
     await env.DB.batch([
+      addSet('fr', 'BS', '1999-10-20'),
       addSet('fr', 'MEG', '2025-09-26'),
       addSet('ja', 'M1L', '2025-09-26'),
+      addCard('fr', 7091, 'BS', 4002),
       addCard('fr', 100, 'MEG', 0),
       addCard('fr', 101, 'MEG', 4003),
       addCard('ja', 50, 'M1L', 4004),

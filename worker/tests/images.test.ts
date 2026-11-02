@@ -22,6 +22,7 @@ import { saveSeries } from '../ingest/catalog'
 import { images, mirror } from '../ingest/images'
 import type { PokecardexSeries } from '../ingest/pokecardex'
 import type { Step } from '../ingest/workflow'
+import { emptyFiles } from './helpers'
 
 /** Le nombre de cartes de la série SVP dans chaque langue. */
 const CARDS: Record<CardLanguage, number> = { ja: 1, fr: 3 }
@@ -109,6 +110,7 @@ describe('les chemins par langue', () => {
   })
 
   test('une image absente répond 404 sans rien télécharger', async () => {
+    await emptyFiles()
     await catalog('ja', 'fr')
     await env.DB.prepare(
       "INSERT INTO rarities (lang, id, name, rank) VALUES ('fr', 34, 'Ultra Rare', 2)",
@@ -148,13 +150,7 @@ describe('la copie des images (tâche `images`)', () => {
   // Aucune image, aucun catalogue d'un test à l'autre.
   beforeEach(async () => {
     await catalog()
-    for (
-      let listed = await env.FILES.list();
-      listed.objects.length;
-      listed = await env.FILES.list()
-    ) {
-      await env.FILES.delete(listed.objects.map(({ key }) => key))
-    }
+    await emptyFiles()
     network = vi
       .spyOn(globalThis, 'fetch')
       .mockRejectedValue(new Error('Pas de réseau dans les tests'))

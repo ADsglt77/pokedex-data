@@ -14,6 +14,7 @@ import { env } from 'cloudflare:workers'
 import { beforeEach, describe, expect, test } from 'vitest'
 import { saveBlocks, saveLanguage, saveSeries } from '../ingest/catalog'
 import type { PokecardexCard, PokecardexSeries } from '../ingest/pokecardex'
+import { emptyFiles, run } from './helpers'
 
 const READ_AT = '2026-10-22T10:00:00.000Z'
 const LATER = '2026-10-29T10:00:00.000Z'
@@ -77,21 +78,13 @@ const ALAKAZAM = card({ id_card: 7091, sort: 1, name_card_fr: 'Alakazam', id_pok
 
 /** Le stockage partagé entre les tests d'un fichier : chacun part d'un catalogue vide. */
 beforeEach(async () => {
-  await env.DB.batch(
-    [
-      'DELETE FROM card_species',
-      'DELETE FROM cards',
-      'DELETE FROM sets',
-      'DELETE FROM rarities',
-    ].map((sql) => env.DB.prepare(sql)),
+  await run(
+    'DELETE FROM card_species',
+    'DELETE FROM cards',
+    'DELETE FROM sets',
+    'DELETE FROM rarities',
   )
-  for (
-    let listed = await env.FILES.list();
-    listed.objects.length;
-    listed = await env.FILES.list()
-  ) {
-    await env.FILES.delete(listed.objects.map(({ key }) => key))
-  }
+  await emptyFiles()
 })
 
 /** Une réponse enregistrée ; `null` si elle n'existe pas. */

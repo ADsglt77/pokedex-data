@@ -5,10 +5,10 @@
  * ligne plutôt qu'une ligne douteuse ; l'utilisateur ajoute alors la carte depuis sa page.
  */
 
-import { env } from 'cloudflare:workers'
 import { describe, expect, test } from 'vitest'
 import { wantsLine, wantsVersion } from '@/lib/wants'
 import { app } from '../app'
+import { run } from './helpers'
 
 const CHARMANDER = 'Charmander [Blazing Destruction | Steady Firebreathing]'
 const TOXTRICITY = 'Toxtricity VMAX [G-Max Riot]'
@@ -17,16 +17,6 @@ const BULBASAUR = 'Bulbasaur [Bind Down]'
 const only = (name: string) => [{ name, expansions: 1 }]
 
 const wants = async (ids: string) => (await app.request(`/v1/wants?ids=${ids}`)).json()
-
-/** Des requêtes SQL, d'un seul tenant. */
-const run = (...statements: (string | [string, ...unknown[]])[]) =>
-  env.DB.batch(
-    statements.map((statement) =>
-      typeof statement === 'string'
-        ? env.DB.prepare(statement)
-        : env.DB.prepare(statement[0]).bind(...statement.slice(1)),
-    ),
-  )
 
 const SET = `INSERT INTO sets (lang, id, name, released, read_at, expansion_name)
              VALUES (?, ?, ?, ?, '2026-10-01', ?)`

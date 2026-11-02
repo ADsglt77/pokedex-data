@@ -18,16 +18,17 @@ import { readHistories } from '../history'
 import { streamArray } from '../ingest/json-stream'
 import { savePriceGuide, type PriceGuide, type ProductList } from '../ingest/prices'
 import { readSource, writeSource } from '../ingest/sources'
+import { run } from './helpers'
 
-/** Aucun prix lu, aucun historique, aucun produit. */
+/** Aucun prix lu, aucun historique, aucun produit, aucune série ni carte du catalogue. */
 const reset = () =>
-  env.DB.batch(
-    [
-      "DELETE FROM sources WHERE name = 'cardmarket'",
-      'DELETE FROM cardmarket_prices',
-      'DELETE FROM cardmarket_history',
-      'DELETE FROM cardmarket_products',
-    ].map((sql) => env.DB.prepare(sql)),
+  run(
+    "DELETE FROM sources WHERE name = 'cardmarket'",
+    'DELETE FROM cardmarket_prices',
+    'DELETE FROM cardmarket_history',
+    'DELETE FROM cardmarket_products',
+    'DELETE FROM cards',
+    'DELETE FROM sets',
   )
 
 /** Le passage de la tâche `prices` (`stamp`) et le jour de son guide. */
@@ -178,7 +179,6 @@ describe('savePriceGuide : les prix du jour et l’historique', () => {
     env.DB.prepare('SELECT price, low, month_ago AS monthAgo FROM cardmarket_prices WHERE id = ?')
       .bind(id)
       .first()
-  const run = (...sql: string[]) => env.DB.batch(sql.map((query) => env.DB.prepare(query)))
 
   test('le jour suivant : ajouté à l’année de chaque carte, les autres cartes intactes', async () => {
     await reset()
@@ -262,7 +262,6 @@ describe('savePriceGuide : les prix du jour et l’historique', () => {
     ])
     await savePriceGuide(later, products([1, 2, 3, 5]), 'b')
     expect(await priceRow(5)).toMatchObject({ price: 4.2 })
-    await run('DELETE FROM cards WHERE id = 990001', "DELETE FROM sets WHERE id = 'ESSAI-RECENT'")
   })
 
   test('une série récente se juge dans la langue de la carte : le même code dans l’autre langue n’y change rien', async () => {
@@ -277,7 +276,6 @@ describe('savePriceGuide : les prix du jour et l’historique', () => {
     )
     await savePriceGuide(guide('2026-10-12', [[5, { trend: 9, avg30: 4.2 }]]), products([5]), 'a')
     expect(await priceRow(5)).toMatchObject({ price: 4.2 })
-    await run('DELETE FROM cards WHERE id = 990002', "DELETE FROM sets WHERE id = 'ESSAI-LANGUE'")
   })
 
   test('le prix d’il y a 30 jours, d’après l’historique (ce jour-là sans prix : la semaine avant)', async () => {
