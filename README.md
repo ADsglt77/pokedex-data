@@ -16,7 +16,8 @@ bun run ingest setup   # première installation : espèces, catalogue, prix, ima
 bun run test           # tests, dans le moteur de Cloudflare (accès, état, prix et historique,
                        # catalogue des deux langues, lecture de Pokécardex, images, liste de
                        # souhaits, passages des tâches)
-bun run db:generate    # après une modification de worker/schema.ts : sa migration
+bun run db:generate    # après une modification de worker/schema.ts : sa migration (puis
+                       # `bun run format`, pour ses `meta/*.json`, que `bun run ci` vérifie)
 bun run typecheck      # TypeScript
 bun run lint           # ESLint, puis knip (code mort)
 bun run format         # Prettier
@@ -123,8 +124,8 @@ erreur de l'API.
 Le Worker `pokedex-data`, à https://api.pokecodex.fr (un domaine personnalisé, `routes` de
 `wrangler.jsonc`, sans adresse `workers.dev`) ; le site le joint par sa liaison de service.
 **Workers Builds** (Cloudflare relié au dépôt GitHub) le déploie à chaque push sur `main` :
-`bun run ci` (typecheck, lint, test ; un échec arrête là), puis `bun run deploy` (les migrations
-de la D1 en ligne, puis le Worker). Le guide complet, pour les deux Workers :
+`bun run ci` (format, typecheck, lint, test ; un échec arrête là), puis `bun run deploy` (les
+migrations de la D1 en ligne, puis le Worker). Le guide complet, pour les deux Workers :
 `../pokedex/docs/deploiement.md` (le dépôt du site).
 
 Les tokens des autres clients (`API_TOKENS`, `nom:token,…`, plus haut) sont un secret du Worker,

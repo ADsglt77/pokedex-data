@@ -8,16 +8,15 @@
     "ingest": "bun scripts/ingest.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "wrangler d1 migrations apply DB --local",
-    "typecheck": "tsc",
+    "typecheck": "tsc && tsc -p tsconfig.scripts.json",
     "lint": "eslint . && knip",
-    "knip": "knip",
     "test": "vitest run",
     "format": "prettier --write src/ worker/ scripts/",
-    "ci": "bun run typecheck && bun run lint && bun run test",
+    "format:check": "prettier --check src/ worker/ scripts/",
+    "ci": "bun run format:check && bun run typecheck && bun run lint && bun run test",
     "deploy": "wrangler d1 migrations apply DB --remote && wrangler deploy"
   },
   "dependencies": {
-    "drizzle-orm": "^0.45.4",
     "hono": "^4.13.14"
   },
   "devDependencies": {
@@ -26,6 +25,7 @@
     "@eslint/js": "^10.0.1",
     "@types/bun": "^1.4.3",
     "drizzle-kit": "^0.31.11",
+    "drizzle-orm": "^0.45.4",
     "eslint": "^10.13.0",
     "knip": "^6.41.0",
     "prettier": "3.9.10",

@@ -22,10 +22,12 @@ bun run ingest <tâche> # un passage dans ce Worker : species, catalog, images, 
                        # `cards` : les trois à la demande ; `setup` : tout ; --refresh, --remote
 bun run test           # les tests (worker/tests, dans le moteur de Cloudflare ; pas `bun test`,
                        # qui les lancerait hors de ce moteur)
-bun run db:generate    # après une modification de worker/schema.ts
-bun run typecheck      # tsc
+bun run db:generate    # après une modification de worker/schema.ts, puis `bun run format` :
+                       # Prettier remet en forme ses `meta/*.json`, que `bun run ci` vérifie
+bun run typecheck      # tsc : le Worker et src/, puis scripts/ et les configurations
 bun run lint           # ESLint, puis knip : à lancer après chaque changement
-bun run format         # Prettier sur src/, worker/ et scripts/
+bun run format         # Prettier sur src/, worker/ et scripts/ (`bun run ci` le vérifie : un
+                       # oubli bloque le déploiement)
 ```
 
 Le Cron ne passe pas tout seul en développement : `curl http://127.0.0.1:8787/__scheduled`.
