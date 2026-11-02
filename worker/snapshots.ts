@@ -29,7 +29,10 @@ export const notFound = () =>
  */
 const sentEtag = (request: Request) => request.headers.get('if-none-match')?.replace(/^W\//, '')
 
-/** Un ETag tiré d'un texte : les 12 premiers octets de son empreinte SHA-256. */
+/**
+ * Un ETag tiré d'un texte : les 12 premiers octets de son empreinte SHA-256 (la même règle que
+ * `serveJson`, `../pokedex/worker/vitrine.ts`).
+ */
 async function etagOf(text: string) {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text))
   const hex = [...new Uint8Array(digest).slice(0, 12)]

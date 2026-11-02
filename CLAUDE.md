@@ -20,7 +20,8 @@ bun install
 bun run dev            # migre la D1 locale, puis le Worker sur le port 8787 (sa D1 et son R2 locaux)
 bun run ingest <tâche> # un passage dans ce Worker : species, catalog, images, prices, history ;
                        # `cards` : les trois à la demande ; `setup` : tout ; --refresh, --remote
-bun run test           # les tests (worker/tests, dans le moteur de Cloudflare)
+bun run test           # les tests (worker/tests, dans le moteur de Cloudflare ; pas `bun test`,
+                       # qui les lancerait hors de ce moteur)
 bun run db:generate    # après une modification de worker/schema.ts
 bun run typecheck      # tsc
 bun run lint           # ESLint, puis knip : à lancer après chaque changement
@@ -42,8 +43,14 @@ Le Cron ne passe pas tout seul en développement : `curl http://127.0.0.1:8787/_
   adresses d'origine. Rien de ce que rend l'API ne nomme une source (le site ne cite aucune
   source, à la demande de l'utilisateur).
 - **Le schéma** : `worker/schema.ts` (D1), ses migrations écrites par Drizzle
-  (`bun run db:generate`) ; une migration ajoutée ne modifie jamais les précédentes. Les grosses
-  réponses calculées par les tâches (espèces, catalogue) et les images sont dans R2.
+  (`bun run db:generate`) ; une migration ajoutée ne modifie jamais les précédentes. Une migration
+  générée qui reconstruit `cards` ou `sets` (`__new_…`, puis `DROP TABLE` : la plupart des
+  changements de colonne) ne part jamais telle quelle : sur D1, son `PRAGMA foreign_keys=OFF` ne
+  fait rien et `defer_foreign_keys` n'arrête pas les cascades ; reconstruire `cards` viderait
+  `card_species`, reconstruire `sets` échouerait (`cards` la référence). L'écrire à la main :
+  mettre de côté les lignes qui en dépendent (pour `cards` : `card_species` ; pour `sets` :
+  `cards` et `card_species`), reconstruire, les remettre. Les grosses réponses calculées par les
+  tâches (espèces, catalogue) et les images sont dans R2.
 - **Les tâches dans un Workflow** (`worker/ingest/workflow.ts`) : chaque étape (`step`) est
   rejouée telle quelle si le Workflow reprend, son résultat gardé (1 Mio au plus, sérialisable) ;
   hors des étapes, rien que de déterministe. Une étape tient en 5 min (sans signe de vie au-delà,

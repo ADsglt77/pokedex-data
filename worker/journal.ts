@@ -13,6 +13,8 @@
  * Pas les requêtes une à une : seulement ce qui se passe. Ce qu'un client peut provoquer à volonté
  * (un token refusé) : une ligne par minute au plus (`journalOnce`, pour chaque exemplaire du
  * Worker). Jamais un token. Sans couleurs : les journaux de Cloudflare les montreraient en codes.
+ * La même règle que `../pokedex/worker/journal.ts` (l'heure, les détails, `journalOnce`) : une
+ * correction se reporte de l'autre côté.
  */
 
 import { MINUTE } from '@/lib/time'
