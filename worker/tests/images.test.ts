@@ -21,7 +21,7 @@ import { app } from '../app'
 import { saveSeries } from '../ingest/catalog'
 import type { PokecardexSeries } from '../ingest/pokecardex'
 import type { Step } from '../ingest/workflow'
-import { emptyFiles } from './helpers'
+import { emptyFiles, rows } from './helpers'
 
 // `politeFetch` sans ses 100 ms d'attente ; `images.ts`, déjà chargé par l'entrée du Worker,
 // rechargé pour le prendre.
@@ -242,12 +242,7 @@ describe('la copie des images (tâche `images`)', () => {
       return files
     }
 
-    const noted = async () =>
-      (
-        await env.DB.prepare(
-          "SELECT id, sort, image FROM cards WHERE lang = 'ja' ORDER BY sort",
-        ).all()
-      ).results
+    const noted = () => rows("SELECT id, sort, image FROM cards WHERE lang = 'ja' ORDER BY sort")
 
     test('une carte arrivée en tête : chaque carte retrouve son scan, recopié par la tâche', async () => {
       sourceAnswers()

@@ -84,7 +84,8 @@ Le Cron ne passe pas tout seul en développement : `curl http://127.0.0.1:8787/_
   irremplaçable ; lignes de la liste de souhaits, une mauvaise version achèterait une autre carte ;
   catalogue des deux langues ; passages des tâches ; accès par token et état des tâches ; images :
   un chemin français ne mène qu'à une image française ; migrations : une reconstruction de table
-  effacerait en cascade, `schema.test.ts`). Jamais le réseau : `fetch` remplacé.
+  effacerait en cascade, `schema.test.ts`). Jamais le réseau : `fetch` remplacé, ou les lectures de
+  Pokécardex et `env.INGEST.create`.
 - Textes en français. Prettier : pas de point-virgule, guillemets simples, 100 colonnes.
 
 ## Architecture

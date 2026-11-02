@@ -16,7 +16,7 @@
 import { env } from 'cloudflare:workers'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import type { PokecardexCard, PokecardexSeries } from '../ingest/pokecardex'
-import { emptyFiles, run } from './helpers'
+import { emptyCatalog, emptyFiles, rows } from './helpers'
 
 // `saveLanguage` pour les seuls Pokémon que lisent les tests, pas les 1 025 ; `catalog.ts`, déjà
 // chargé par l'entrée du Worker, rechargé pour prendre cette liste.
@@ -106,12 +106,7 @@ const ALAKAZAM = card({
 
 /** Le stockage partagé entre les tests d'un fichier : chacun part d'un catalogue vide. */
 beforeEach(async () => {
-  await run(
-    'DELETE FROM card_species',
-    'DELETE FROM cards',
-    'DELETE FROM sets',
-    'DELETE FROM rarities',
-  )
+  await emptyCatalog()
   await emptyFiles()
 })
 
@@ -121,15 +116,13 @@ async function snapshot(name: string) {
   return object && (await object.json<Record<string, unknown>>())
 }
 
-const cards = async () =>
-  (
-    await env.DB.prepare(
-      `SELECT lang, id, set_id AS 'set', name,
-              (SELECT json_group_array(dex_id) FROM card_species
-               WHERE card_species.lang = cards.lang AND card = cards.id) AS dexIds
-       FROM cards ORDER BY lang, id`,
-    ).all()
-  ).results
+const cards = () =>
+  rows(
+    `SELECT lang, id, set_id AS 'set', name,
+            (SELECT json_group_array(dex_id) FROM card_species
+             WHERE card_species.lang = cards.lang AND card = cards.id) AS dexIds
+     FROM cards ORDER BY lang, id`,
+  )
 
 /** Le nom d'extension Cardmarket d'une série. */
 const expansion = async (lang: string, code: string) =>
@@ -145,8 +138,7 @@ describe('saveSeries', () => {
       { lang: 'fr', id: 7091, set: 'SVP', name: 'Alakazam', dexIds: '[65]' },
       { lang: 'ja', id: 7091, set: 'SVP', name: 'Regirock', dexIds: '[377]' },
     ])
-    const sets = await env.DB.prepare('SELECT lang, id, name FROM sets ORDER BY lang').all()
-    expect(sets.results).toEqual([
+    expect(await rows('SELECT lang, id, name FROM sets ORDER BY lang')).toEqual([
       { lang: 'fr', id: 'SVP', name: 'Promos Écarlate et Violet' },
       { lang: 'ja', id: 'SVP', name: 'SV-P Promo' },
     ])
@@ -249,8 +241,7 @@ describe('une carte déjà copiée que la source renumérote', () => {
       moved: 2,
     })
     // Elles sont à chercher de nouveau : leur rang a une autre image.
-    const copied = async () =>
-      (await env.DB.prepare("SELECT id FROM cards WHERE image = 'pokecardex'").all()).results
+    const copied = () => rows("SELECT id FROM cards WHERE image = 'pokecardex'")
     expect(await copied()).toEqual([])
     // La carte 4, copiée, change de série au même rang : comptée, et à chercher de nouveau.
     await env.DB.prepare("UPDATE cards SET image = 'pokecardex' WHERE id = 4").run()
@@ -316,8 +307,7 @@ describe('saveLanguage', () => {
     expect(await snapshot('catalog/fr/sets/MEG')).not.toBeNull()
     expect(await snapshot('catalog/sets/SVP')).not.toBeNull()
     // La série japonaise et sa carte restent.
-    const svp = await env.DB.prepare("SELECT lang FROM sets WHERE id = 'SVP'").all()
-    expect(svp.results).toEqual([{ lang: 'ja' }])
+    expect(await rows("SELECT lang FROM sets WHERE id = 'SVP'")).toEqual([{ lang: 'ja' }])
     expect(await cards()).toEqual([
       { lang: 'fr', id: 1, set: 'MEG', name: 'Carte', dexIds: '[]' },
       { lang: 'ja', id: 7091, set: 'SVP', name: 'Regirock', dexIds: '[377]' },

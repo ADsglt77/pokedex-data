@@ -1,7 +1,7 @@
 /**
  * Ce que partagent les fichiers de test du Worker : leurs requêtes SQL d'un seul tenant (`run`),
- * leurs lignes lues (`rows`) et le R2 vidé (`emptyFiles`), la D1 et le R2 d'un fichier étant
- * partagés par ses tests.
+ * leurs lignes lues (`rows`), le catalogue vidé (`emptyCatalog`) et le R2 vidé (`emptyFiles`), la
+ * D1 et le R2 d'un fichier étant partagés par ses tests.
  */
 
 import { env } from 'cloudflare:workers'
@@ -18,6 +18,10 @@ export const run = (...statements: (string | [string, ...unknown[]])[]) =>
 
 /** Les lignes que rend une requête SQL. */
 export const rows = async (sql: string) => (await env.DB.prepare(sql).all()).results
+
+/** Un catalogue vide : ni carte, ni série, ni rareté (dans l'ordre de leurs clés étrangères). */
+export const emptyCatalog = () =>
+  run('DELETE FROM card_species', 'DELETE FROM cards', 'DELETE FROM sets', 'DELETE FROM rarities')
 
 /** Aucune image ni réponse enregistrée dans R2. */
 export async function emptyFiles() {

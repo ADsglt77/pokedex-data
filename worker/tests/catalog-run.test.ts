@@ -12,7 +12,7 @@ import { beforeEach, describe, expect, test, vi } from 'vitest'
 import type { CardLanguage } from '@/contract'
 import type { PokecardexCard, PokecardexSeries } from '../ingest/pokecardex'
 import type { Step } from '../ingest/workflow'
-import { rows, run } from './helpers'
+import { emptyCatalog, rows, run } from './helpers'
 
 // Les lectures de Pokécardex remplacées (ni réseau, ni 3 s par page) ; `catalog.ts`, déjà chargé
 // par l'entrée du Worker, rechargé pour les prendre.
@@ -71,12 +71,7 @@ const pagesOf = (pages: Record<string, number[]>) =>
 /** Le stockage partagé entre les tests du fichier : chacun part d'un catalogue vide. */
 beforeEach(async () => {
   vi.resetAllMocks()
-  await run(
-    'DELETE FROM card_species',
-    'DELETE FROM cards',
-    'DELETE FROM sets',
-    'DELETE FROM rarities',
-  )
+  await emptyCatalog()
 })
 
 describe('catalog', () => {
