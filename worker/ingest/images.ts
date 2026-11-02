@@ -241,24 +241,26 @@ export async function images(step: Step) {
     }
     return batch.after
   }
-  try {
-    let set: [string, string] | null = null
+  /** Des étapes par pages (`logos 1`, `logos 2`…), chacune après la précédente, jusqu'à la fin. */
+  const pages = async <C extends Rpc.Serializable<C>>(
+    name: string,
+    read: (after: C | null) => Promise<Batch<C>>,
+  ) => {
+    let after: C | null = null
     for (let page = 1; ; page++) {
-      const after: [string, string] | null = set
-      set = add(await step(`logos ${page}`, () => logos(after)))
-      if (!set) break
+      const from: C | null = after
+      after = add(await step(`${name} ${page}`, () => read(from)))
+      if (!after) break
     }
+  }
+  try {
+    await pages('logos', logos)
     add(await step('icônes', icons))
     for (let from = 0; from < SPECIES_IDS.length; from += SPECIES_PER_STEP) {
       const ids = SPECIES_IDS.slice(from, from + SPECIES_PER_STEP)
       add(await step(`Pokémon ${ids[0]} à ${ids.at(-1)}`, () => species(ids)))
     }
-    let card: [string, number] | null = null
-    for (let page = 1; ; page++) {
-      const after: [string, number] | null = card
-      card = add(await step(`scans ${page}`, () => scans(after)))
-      if (!card) break
-    }
+    await pages('scans', scans)
     journal({
       topic: 'tâches',
       level: 'ok',
