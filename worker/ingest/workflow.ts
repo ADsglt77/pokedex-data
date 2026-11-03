@@ -27,7 +27,8 @@ export interface IngestParams {
 
 /**
  * Une étape d'une tâche : son nom (unique dans le passage) et ce qu'elle fait ; son résultat,
- * gardé par le Workflow, est rendu tel quel si le passage reprend.
+ * gardé par le Workflow, est rendu tel quel si le passage reprend. Le journal s'écrit donc dans
+ * les étapes : une ligne écrite hors d'elles serait réécrite à chaque reprise.
  */
 export type Step = <T extends Rpc.Serializable<T>>(
   name: string,
@@ -45,14 +46,18 @@ export class Ingest extends WorkflowEntrypoint<Cloudflare.Env, IngestParams> {
     const { jobs, refresh = false } = event.payload
     for (const [index, job] of jobs.entries()) {
       const prefix = `${index + 1}. ${job}`
-      const id = await step.do(`${prefix} : début`, () => startRun(job))
-      if (id === null) {
-        taskJournal('warn', 'Tâche déjà en cours', {
-          tâche: job,
-          raison: 'elle-même, ou une tâche qui lit les mêmes pages',
-        })
-        continue
-      }
+      // Le journal dans les étapes, comme dans les tâches (`Step`).
+      const id = await step.do(`${prefix} : début`, async () => {
+        const id = await startRun(job)
+        if (id === null) {
+          taskJournal('warn', 'Tâche déjà en cours', {
+            tâche: job,
+            raison: 'elle-même, ou une tâche qui lit les mêmes pages',
+          })
+        }
+        return id
+      })
+      if (id === null) continue
       // Chaque étape donne signe de vie au passage (`beat`).
       const jobStep: Step = (name, run) =>
         step.do(`${prefix} : ${name}`, RETRIES, async () => {
@@ -65,12 +70,16 @@ export class Ingest extends WorkflowEntrypoint<Cloudflare.Env, IngestParams> {
         else if (job === 'history') await history(jobStep)
         else if (job === 'species') await species(jobStep)
         else await jobStep('guide des prix', prices)
-        await step.do(`${prefix} : fin`, () => finishRun(id, null))
-        taskJournal('ok', INGEST_JOBS[job].label)
+        await step.do(`${prefix} : fin`, async () => {
+          await finishRun(id, null)
+          taskJournal('ok', INGEST_JOBS[job].label)
+        })
       } catch (error) {
         const reason = reasonOf(error)
-        await step.do(`${prefix} : échec`, () => finishRun(id, reason))
-        taskJournal('error', `${INGEST_JOBS[job].label} en échec`, { raison: reason })
+        await step.do(`${prefix} : échec`, async () => {
+          await finishRun(id, reason)
+          taskJournal('error', `${INGEST_JOBS[job].label} en échec`, { raison: reason })
+        })
       }
     }
   }

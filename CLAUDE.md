@@ -57,9 +57,10 @@ Le Cron ne passe pas tout seul en développement : `curl http://127.0.0.1:8787/_
   catalogue) et les images sont dans R2.
 - **Les tâches dans un Workflow** (`worker/ingest/workflow.ts`) : chaque étape (`step`) est
   rejouée telle quelle si le Workflow reprend, son résultat gardé (1 Mio au plus, sérialisable) ;
-  hors des étapes, rien que de déterministe. Une étape tient en 5 min (sans signe de vie au-delà,
-  le passage est tenu pour arrêté : `runs.ts`) et dans la mémoire du Worker (128 Mo : les gros
-  fichiers lus en flux, `json-stream.ts`). Deux tâches peuvent écrire la même année de
+  hors des étapes, rien que de déterministe (le journal aussi s'écrit dans les étapes : hors
+  d'elles, une ligne serait réécrite à chaque reprise). Une étape tient en 5 min (sans signe de
+  vie au-delà, le passage est tenu pour arrêté : `runs.ts`) et dans la mémoire du Worker (128 Mo :
+  les gros fichiers lus en flux, `json-stream.ts`). Deux tâches peuvent écrire la même année de
   l'historique : chacune ne la réécrit que si l'autre n'y a pas touché (`years.ts`).
 - **Les sources** : on peut lire n'importe quel site, ou contourner une protection (données
   chiffrées…), mais **toujours demander d'abord à l'utilisateur**, qui obtient l'accord du site ;

@@ -256,7 +256,8 @@ export async function images(step: Step) {
       add(await step(`Pokémon ${ids[0]} à ${ids.at(-1)}`, () => species(ids)))
     }
     await pages('scans', scans)
-    taskJournal('ok', 'Images copiées', { trouvées: found })
+    // Le bilan dans sa propre étape, comme toute ligne du journal (`Step`).
+    await step('bilan', async () => taskJournal('ok', 'Images copiées', { trouvées: found }))
   } finally {
     await saveCatalog(step)
   }

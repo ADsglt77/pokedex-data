@@ -568,7 +568,7 @@ type SeriesOutcome =
   | { status: 'saved'; saved: number; moved: number; known: number }
   | { status: 'empty'; known: number }
   | { status: 'skipped' }
-  | { status: 'failed'; reason: string }
+  | { status: 'failed' }
 
 /** Ce que la première page lue d'une langue apprend : ses blocs et, au Japon, les séries d'Asie. */
 interface Menu {
@@ -578,7 +578,8 @@ interface Menu {
 
 /**
  * Lit et enregistre une série ; la première page lue d'une langue (`firstPage`) donne aussi les
- * raretés de la langue, ses blocs et ses exclusivités d'Asie.
+ * raretés de la langue, ses blocs et ses exclusivités d'Asie. Une série illisible est dite au
+ * journal ici, dans son étape (`Step`).
  */
 async function readOne(
   lang: CardLanguage,
@@ -605,7 +606,8 @@ async function readOne(
     const saved = await saveSeries(lang, code, page, new Date().toISOString(), englishName)
     return { outcome: { status: 'saved', ...saved }, menu }
   } catch (error) {
-    return { outcome: { status: 'failed', reason: reasonOf(error) }, menu: null }
+    taskJournal('warn', 'Série illisible', { langue: lang, série: code, raison: reasonOf(error) })
+    return { outcome: { status: 'failed' }, menu: null }
   }
 }
 
@@ -652,11 +654,6 @@ export async function catalog(step: Step, refresh: boolean) {
       const { outcome } = result
       if (outcome.status === 'failed') {
         failed.push(code)
-        taskJournal('warn', 'Série illisible', {
-          langue: lang,
-          série: code,
-          raison: outcome.reason,
-        })
         if (++inARow >= MAX_FAILURES_IN_A_ROW) break
         continue
       }

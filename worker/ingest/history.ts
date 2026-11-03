@@ -201,7 +201,10 @@ export async function history(step: Step) {
     after = batch.after
     if (!after) break
   }
-  taskJournal('ok', 'Historique repris', { cartes: read, jours: days })
+  // Le bilan dans sa propre étape, comme toute ligne du journal (`Step`).
+  await step('bilan', async () =>
+    taskJournal('ok', 'Historique repris', { cartes: read, jours: days }),
+  )
   // Rien n'est noté pour elles : relues au prochain passage, qui ne lit qu'elles et les nouvelles.
   if (failed) {
     throw new Error(
