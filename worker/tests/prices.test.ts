@@ -7,18 +7,30 @@
  * celle de l'historique (irremplaçable : Cardmarket n'en garde pas) ; la série « récente » d'une
  * carte (sa tendance) se juge dans sa langue ; une liste des produits illisible, tronquée ou
  * impossible à enregistrer n'arrête jamais les prix du jour, et ne remplace pas celle d'avant ; un
- * passage arrêté en route ne laisse rien de ses prix. Le guide et la liste, lus en flux.
+ * passage arrêté en route ne laisse rien de ses prix ; une année que la tâche `history` change
+ * entre sa lecture et son écriture est relue et refaite, son prix d'il y a 30 jours avec elle ;
+ * chaque paquet de cartes redit le signe de vie de l'étape. Le guide et la liste, lus en flux.
  */
 
 import { env } from 'cloudflare:workers'
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
 import type { PriceFile, PriceHistories } from '@/contract'
 import { app } from '../app'
 import { readHistories } from '../history'
 import { streamArray } from '../ingest/json-stream'
-import { savePriceGuide, type PriceGuide, type ProductList } from '../ingest/prices'
+import type { PriceGuide, ProductList } from '../ingest/prices'
 import { readSource, writeSource } from '../ingest/sources'
 import { alive, run } from './helpers'
+
+// `readYears` épié, pour y faire écrire la tâche `history` entre la lecture d'une année et son
+// écriture ; `prices.ts`, déjà chargé par l'entrée du Worker, rechargé pour le prendre.
+const readYears = vi.hoisted(() => vi.fn<typeof import('../ingest/years').readYears>())
+vi.mock(import('../ingest/years'), async (original) => {
+  const years = await original()
+  return { ...years, readYears: readYears.mockImplementation(years.readYears) }
+})
+vi.resetModules()
+const { savePriceGuide } = await import('../ingest/prices')
 
 /** Aucun prix lu, aucun historique, aucun produit, aucune série ni carte du catalogue. */
 const reset = () =>
@@ -325,6 +337,40 @@ describe('savePriceGuide : les prix du jour et l’historique', () => {
     expect(await priceRow(2)).toMatchObject({ monthAgo: 4 })
     // Plus d'une semaine plus tôt : rien.
     expect(await priceRow(3)).toMatchObject({ monthAgo: null })
+  })
+
+  test('une année que la tâche `history` change entre sa lecture et son écriture : relue et refaite, avec son prix d’il y a 30 jours', async () => {
+    await reset()
+    // La carte lue sans historique ; aussitôt après, la tâche `history` y écrit son 12 septembre.
+    readYears.mockImplementationOnce(async () => {
+      await run(
+        "INSERT INTO cardmarket_history (id, year, first, prices) VALUES (1, 2026, 254, '[5]')",
+      )
+      return []
+    })
+    await savePriceGuide(guide('2026-10-12', [[1, { avg30: 6 }]]), products([1]), 'a', alive)
+    // Le jour repris et le prix du jour ; celui d'il y a 30 jours, d'après l'année relue.
+    expect(await history(1)).toEqual({
+      name: 'Carte 1',
+      from: '2026-09-12',
+      prices: [5, ...Array<null>(29).fill(null), 6],
+    })
+    expect(await priceRow(1)).toEqual({ price: 6, low: null, monthAgo: 5 })
+  })
+
+  test('chaque paquet de 200 cartes redit le signe de vie de l’étape', async () => {
+    await reset()
+    const day = (date: string, count: number) =>
+      guide(
+        date,
+        Array.from({ length: count }, (_, index): [number, Values] => [index + 1, { avg30: 1 }]),
+      )
+    const lifeSign = vi.fn(alive)
+    await savePriceGuide(day('2026-10-12', 200), null, 'a', lifeSign)
+    expect(lifeSign).toHaveBeenCalledTimes(1)
+    lifeSign.mockClear()
+    await savePriceGuide(day('2026-10-13', 201), null, 'b', lifeSign)
+    expect(lifeSign).toHaveBeenCalledTimes(2)
   })
 
   test('moins de la moitié des prix d’avant (le format a changé) : une erreur, rien d’écrit', async () => {

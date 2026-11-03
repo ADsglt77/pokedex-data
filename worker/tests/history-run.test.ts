@@ -3,7 +3,9 @@
  * échec n'est pas notée comme lue (`history_imports`), la tâche échoue pour le dire, et le passage
  * suivant la relit, elle seule ; la carte lue a ses prix dans l'historique. Notée avant d'être lue,
  * elle ne serait plus jamais reprise : son historique perdu, la source n'en garde que 180 jours.
- * Jamais le réseau : la page de chaque carte est remplacée.
+ * Chaque carte, même en échec, redit le signe de vie de l'étape (`alive`) : sans lui, une étape de
+ * 50 cartes (plus de 2 min) laisserait le passage tenu pour arrêté. Jamais le réseau : la page de
+ * chaque carte est remplacée.
  */
 
 import { expect, test, vi } from 'vitest'
@@ -21,7 +23,9 @@ vi.mock(import('../ingest/pokecardex'), async (original) => ({ ...(await origina
 vi.resetModules()
 const { history } = await import('../ingest/history')
 
-const step: Step = (_name, work) => work(alive)
+/** Le signe de vie des étapes, compté. */
+const lifeSign = vi.fn(alive)
+const step: Step = (_name, work) => work(lifeSign)
 
 /** La page d'une carte du produit `cardmarket` : son prix suivi, les 1er et 2 octobre. */
 const pageOf = (cardmarket: number): PokecardexCardPage => ({
@@ -59,14 +63,18 @@ test('une carte en échec n’est pas notée comme lue : la tâche échoue, le p
     return pageOf(4001)
   })
   await expect(history(step)).rejects.toThrow('1 carte en échec, relue au prochain passage')
+  // Un signe de vie par carte, celle en échec comprise.
+  expect(lifeSign).toHaveBeenCalledTimes(2)
   expect(await imported()).toEqual([{ lang: 'ja', card: 1 }])
   // Le 1er octobre : le jour 273.
   expect(await prices()).toEqual([{ id: 4001, year: 2026, first: 273, prices: '[2.5,3]' }])
 
   // Le passage suivant : la page de la française lisible ; elle seule est lue.
   readCard.mockClear().mockResolvedValue(pageOf(4002))
+  lifeSign.mockClear()
   await history(step)
   expect(readCard.mock.calls).toEqual([['fr', 2]])
+  expect(lifeSign).toHaveBeenCalledTimes(1)
   expect(await imported()).toEqual([
     { lang: 'fr', card: 2 },
     { lang: 'ja', card: 1 },
