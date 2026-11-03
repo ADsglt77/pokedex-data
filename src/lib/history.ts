@@ -2,11 +2,15 @@
  * L'historique des prix, tel que l'écrivent les tâches et le lit l'API (`worker/ingest/prices.ts`,
  * `worker/ingest/history.ts`, et `worker/history.ts`) : un tableau par carte et par année, à partir
  * de son premier jour avec un prix ; pour l'app, un prix par jour depuis ce premier jour
- * (`joinYears`). Sans base : commun aux tâches et à l'API.
+ * (`joinYears`). Chaque prix au centime (`toCents`), celui du jour comme celui repris. Sans base :
+ * commun aux tâches et à l'API.
  */
 
 import type { CardPriceHistory } from '@/contract'
 import { addDays, daysBetween } from '@/lib/time'
+
+/** Un prix au centime : la même règle pour le prix du jour et pour l'historique repris. */
+export const toCents = (price: number) => Math.round(price * 100) / 100
 
 /** `2026-10-14` → [2026, 286] : l'année et le jour de l'année (0 : 1er janvier). */
 export function yearDay(date: string): [number, number] {

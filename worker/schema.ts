@@ -36,24 +36,25 @@ export const runs = sqliteTable(
   (table) => [index('runs_by_job').on(table.job, table.id)],
 )
 
-/** Le prix du jour de chaque carte Cardmarket, par id produit, et celui d'il y a 30 jours. */
-export const cardmarketPrices = sqliteTable('cardmarket_prices', {
+/**
+ * Les colonnes des prix du jour, les mêmes dans les deux tables : la tâche `prices` copie l'une
+ * dans l'autre, colonne par colonne.
+ */
+const priceColumns = () => ({
   id: integer().primaryKey(),
   price: real().notNull(),
   low: real(),
   monthAgo: real('month_ago'),
 })
 
+/** Le prix du jour de chaque carte Cardmarket, par id produit, et celui d'il y a 30 jours. */
+export const cardmarketPrices = sqliteTable('cardmarket_prices', priceColumns())
+
 /**
  * Les prix du jour en cours d'écriture par la tâche `prices`, qui remplacent ceux de
  * `cardmarket_prices` d'un seul tenant, une fois tous écrits (`prices.ts`).
  */
-export const cardmarketPricesNext = sqliteTable('cardmarket_prices_next', {
-  id: integer().primaryKey(),
-  price: real().notNull(),
-  low: real(),
-  monthAgo: real('month_ago'),
-})
+export const cardmarketPricesNext = sqliteTable('cardmarket_prices_next', priceColumns())
 
 /** Chaque produit Cardmarket : son nom, son extension et sa métacarte (la liste de souhaits). */
 export const cardmarketProducts = sqliteTable(

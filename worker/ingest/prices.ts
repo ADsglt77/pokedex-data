@@ -13,9 +13,9 @@
  */
 
 import { env } from 'cloudflare:workers'
-import { monthAgoYears, priceBefore, withPrice, yearDay } from '@/lib/history'
+import { monthAgoYears, priceBefore, toCents, withPrice, yearDay } from '@/lib/history'
 import { addDays } from '@/lib/time'
-import { journal, plural, reasonOf } from '../journal'
+import { plural, reasonOf, taskJournal } from '../journal'
 import { streamArray } from './json-stream'
 import { download } from './net'
 import { readSource, writeSource } from './sources'
@@ -81,7 +81,7 @@ async function saveProducts({ products }: ProductList) {
 }
 
 /** Un prix au centime ; Cardmarket note `0` ou `null` un prix inconnu. */
-const amount = (value: number | null) => (value ? Math.round(value * 100) / 100 : null)
+const amount = (value: number | null) => (value ? toCents(value) : null)
 
 /**
  * Le prix d'une carte d'après le guide du jour, la règle de Pokécardex (testé) : une carte d'une
@@ -126,37 +126,26 @@ export async function prices() {
   const head = await download(PRICE_GUIDE_URL, { method: 'HEAD' })
   const stamp = head.headers.get('last-modified') ?? ''
   if (stamp && stamp === (await readSource('cardmarket'))?.stamp) {
-    journal({ topic: 'tâches', level: 'info', message: 'Guide des prix inchangé' })
+    taskJournal('info', 'Guide des prix inchangé')
     return
   }
   const guide = await readGuide()
   // La liste des produits ne sert qu'à la liste de souhaits : illisible (renommée, en panne), le
   // guide des prix, dont chaque jour manqué l'est pour toujours, s'enregistre sans elle.
   const products = await readProducts().catch((error: unknown) => {
-    journal({
-      topic: 'tâches',
-      level: 'warn',
-      message: 'Liste des produits illisible',
-      details: { raison: reasonOf(error) },
-    })
+    taskJournal('warn', 'Liste des produits illisible', { raison: reasonOf(error) })
     return null
   })
   // Sans date de mise à jour (l'en-tête absent), l'heure du guide : deux guides d'un même jour
   // n'ont pas le même tampon, ni les réponses tirées des prix le même ETag.
   const saved = await savePriceGuide(guide, products, stamp || guide.createdAt)
-  journal({
-    topic: 'tâches',
-    level: 'ok',
-    message: 'Prix enregistrés',
-    details: { jour: saved.date, cartes: saved.cards, historiques: saved.written },
+  taskJournal('ok', 'Prix enregistrés', {
+    jour: saved.date,
+    cartes: saved.cards,
+    historiques: saved.written,
   })
   if (saved.unsavedProducts) {
-    journal({
-      topic: 'tâches',
-      level: 'warn',
-      message: 'Liste des produits pas enregistrée',
-      details: { raison: saved.unsavedProducts },
-    })
+    taskJournal('warn', 'Liste des produits pas enregistrée', { raison: saved.unsavedProducts })
   }
 }
 

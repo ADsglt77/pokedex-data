@@ -19,8 +19,15 @@
 
 import { env } from 'cloudflare:workers'
 import type { CardLanguage } from '@/contract'
-import { monthAgoYears, priceBefore, withPrice, yearDay, type HistoryYear } from '@/lib/history'
-import { journal, plural, reasonOf } from '../journal'
+import {
+  monthAgoYears,
+  priceBefore,
+  toCents,
+  withPrice,
+  yearDay,
+  type HistoryYear,
+} from '@/lib/history'
+import { plural, reasonOf, taskJournal } from '../journal'
 import { MAX_FAILURES_IN_A_ROW, readCard, type PokecardexCardPage } from './pokecardex'
 import { readSource, writeSource } from './sources'
 import type { Step } from './workflow'
@@ -52,7 +59,7 @@ export function mainHistory(
   // sur le jour d'à côté (`yearDay`), et le prix de ce jour-là serait remplacé.
   const points = history.points.flatMap(({ date, [series.id]: price }) =>
     /^\d{4}-\d{2}-\d{2}$/.test(date) && typeof price === 'number' && price > 0
-      ? [[date, Math.round(price * 100) / 100] as [string, number]]
+      ? [[date, toCents(price)] as [string, number]]
       : [],
   )
   return points.length ? points : null
@@ -160,11 +167,10 @@ async function historyBatch(after: Todo | null, inARow: number): Promise<Batch> 
       batch.read++
       batch.inARow = 0
     } catch (error) {
-      journal({
-        topic: 'tâches',
-        level: 'warn',
-        message: 'Historique illisible',
-        details: { langue: card.lang, carte: card.id, raison: reasonOf(error) },
+      taskJournal('warn', 'Historique illisible', {
+        langue: card.lang,
+        carte: card.id,
+        raison: reasonOf(error),
       })
       batch.failed++
       if (++batch.inARow >= MAX_FAILURES_IN_A_ROW) break
@@ -195,12 +201,7 @@ export async function history(step: Step) {
     after = batch.after
     if (!after) break
   }
-  journal({
-    topic: 'tâches',
-    level: 'ok',
-    message: 'Historique repris',
-    details: { cartes: read, jours: days },
-  })
+  taskJournal('ok', 'Historique repris', { cartes: read, jours: days })
   // Rien n'est noté pour elles : relues au prochain passage, qui ne lit qu'elles et les nouvelles.
   if (failed) {
     throw new Error(

@@ -39,7 +39,7 @@ import {
   type ImageKind,
 } from '@/lib/image-paths'
 import { WEEK } from '@/lib/time'
-import { journal, plural, reasonOf } from '../journal'
+import { plural, reasonOf, taskJournal } from '../journal'
 import { saveCatalog } from './catalog'
 import { mapPool, politeFetch } from './net'
 import type { Step } from './workflow'
@@ -119,12 +119,7 @@ function copier(failed: string[]) {
       return await mirror(path, { force })
     } catch (error) {
       failed.push(path)
-      journal({
-        topic: 'tâches',
-        level: 'warn',
-        message: 'Image en erreur',
-        details: { chemin: path, raison: reasonOf(error) },
-      })
+      taskJournal('warn', 'Image en erreur', { chemin: path, raison: reasonOf(error) })
       return null
     }
   }
@@ -261,12 +256,7 @@ export async function images(step: Step) {
       add(await step(`Pokémon ${ids[0]} à ${ids.at(-1)}`, () => species(ids)))
     }
     await pages('scans', scans)
-    journal({
-      topic: 'tâches',
-      level: 'ok',
-      message: 'Images copiées',
-      details: { trouvées: found },
-    })
+    taskJournal('ok', 'Images copiées', { trouvées: found })
   } finally {
     await saveCatalog(step)
   }

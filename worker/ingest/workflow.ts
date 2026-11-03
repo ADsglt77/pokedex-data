@@ -11,7 +11,7 @@
 
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloudflare:workers'
 import { INGEST_JOBS, type IngestJob } from '@/config/jobs'
-import { journal, reasonOf } from '../journal'
+import { reasonOf, taskJournal } from '../journal'
 import { catalog } from './catalog'
 import { history } from './history'
 import { images } from './images'
@@ -47,11 +47,9 @@ export class Ingest extends WorkflowEntrypoint<Cloudflare.Env, IngestParams> {
       const prefix = `${index + 1}. ${job}`
       const id = await step.do(`${prefix} : début`, () => startRun(job))
       if (id === null) {
-        journal({
-          topic: 'tâches',
-          level: 'warn',
-          message: 'Tâche déjà en cours',
-          details: { tâche: job, raison: 'elle-même, ou une tâche qui lit les mêmes pages' },
+        taskJournal('warn', 'Tâche déjà en cours', {
+          tâche: job,
+          raison: 'elle-même, ou une tâche qui lit les mêmes pages',
         })
         continue
       }
@@ -68,16 +66,11 @@ export class Ingest extends WorkflowEntrypoint<Cloudflare.Env, IngestParams> {
         else if (job === 'species') await species(jobStep)
         else await jobStep('guide des prix', prices)
         await step.do(`${prefix} : fin`, () => finishRun(id, null))
-        journal({ topic: 'tâches', level: 'ok', message: INGEST_JOBS[job].label })
+        taskJournal('ok', INGEST_JOBS[job].label)
       } catch (error) {
         const reason = reasonOf(error)
         await step.do(`${prefix} : échec`, () => finishRun(id, reason))
-        journal({
-          topic: 'tâches',
-          level: 'error',
-          message: `${INGEST_JOBS[job].label} en échec`,
-          details: { raison: reason },
-        })
+        taskJournal('error', `${INGEST_JOBS[job].label} en échec`, { raison: reason })
       }
     }
   }

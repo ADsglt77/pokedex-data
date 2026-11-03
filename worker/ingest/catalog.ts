@@ -41,7 +41,7 @@ import type {
   CatalogSetsFile,
 } from '@/contract'
 import { DAY, HOUR } from '@/lib/time'
-import { journal, plural, reasonOf } from '../journal'
+import { plural, reasonOf, taskJournal } from '../journal'
 import { removeSnapshots, saveSnapshot } from '../snapshots'
 import { mapPool } from './net'
 import {
@@ -512,24 +512,17 @@ async function logTotals(lang: CardLanguage, read: number, cards: number, renumb
   )
     .bind(lang)
     .first<{ cards: number; withoutCardmarket: number | null; otherNumber: number | null }>()
-  journal({
-    topic: 'tâches',
-    level: 'ok',
-    message: `Séries ${LANGUAGE_NAMES[lang]} relues`,
-    details: {
-      séries: read,
-      cartes: cards,
-      catalogue: totals!.cards,
-      sansCardmarket: totals!.withoutCardmarket ?? 0,
-      autreNuméro: totals!.otherNumber ?? 0,
-    },
+  taskJournal('ok', `Séries ${LANGUAGE_NAMES[lang]} relues`, {
+    séries: read,
+    cartes: cards,
+    catalogue: totals!.cards,
+    sansCardmarket: totals!.withoutCardmarket ?? 0,
+    autreNuméro: totals!.otherNumber ?? 0,
   })
   if (renumbered) {
-    journal({
-      topic: 'tâches',
-      level: 'warn',
-      message: 'Série renumérotée par la source',
-      details: { langue: lang, cartesCopiées: renumbered },
+    taskJournal('warn', 'Série renumérotée par la source', {
+      langue: lang,
+      cartesCopiées: renumbered,
     })
   }
 }
@@ -549,15 +542,10 @@ async function englishNames(due: string[]): Promise<[string, string][]> {
       const names = await readEnglishSeriesNames(code)
       if (names.size) return [...names]
     } catch (error) {
-      journal({
-        topic: 'tâches',
-        level: 'warn',
-        message: 'Page anglaise illisible',
-        details: { série: code, raison: reasonOf(error) },
-      })
+      taskJournal('warn', 'Page anglaise illisible', { série: code, raison: reasonOf(error) })
     }
   }
-  journal({ topic: 'tâches', level: 'warn', message: 'Noms anglais des séries indisponibles' })
+  taskJournal('warn', 'Noms anglais des séries indisponibles')
   return []
 }
 
@@ -619,11 +607,9 @@ export async function catalog(step: Step, refresh: boolean) {
       const codes = seriesIn(sitemap, lang)
       const toRead = await dueSeries(lang, codes, now, refresh)
       due.push([lang, toRead])
-      journal({
-        topic: 'tâches',
-        level: 'info',
-        message: `Séries ${LANGUAGE_NAMES[lang]} à relire`,
-        details: { relues: toRead.length, sur: codes.length },
+      taskJournal('info', `Séries ${LANGUAGE_NAMES[lang]} à relire`, {
+        relues: toRead.length,
+        sur: codes.length,
       })
     }
     return due
@@ -653,11 +639,10 @@ export async function catalog(step: Step, refresh: boolean) {
       const { outcome } = result
       if (outcome.status === 'failed') {
         failed.push(code)
-        journal({
-          topic: 'tâches',
-          level: 'warn',
-          message: 'Série illisible',
-          details: { langue: lang, série: code, raison: outcome.reason },
+        taskJournal('warn', 'Série illisible', {
+          langue: lang,
+          série: code,
+          raison: outcome.reason,
         })
         if (++inARow >= MAX_FAILURES_IN_A_ROW) break
         continue

@@ -8,8 +8,8 @@
  * - `accès` : une demande sans token valide (`auth.ts`), ou au-delà des limites de l'entrée
  *   d'Internet (`limits.ts`) ;
  * - `serveur` : une erreur imprévue de l'API ;
- * - `tâches` : les tâches d'ingestion (`ingest/`) : un passage réussi ou en échec (sa cause), ce
- *   qu'il a lu et écrit, une page ou une image en erreur, une tâche déjà en cours.
+ * - `tâches` : les tâches d'ingestion (`ingest/`, `taskJournal`) : un passage réussi ou en échec
+ *   (sa cause), ce qu'il a lu et écrit, une page ou une image en erreur, une tâche déjà en cours.
  * Pas les requêtes une à une : seulement ce qui se passe. Ce qu'un client peut provoquer à volonté
  * (un token refusé) : une ligne par minute au plus (`journalOnce`, pour chaque exemplaire du
  * Worker). Jamais un token. Sans couleurs : les journaux de Cloudflare les montreraient en codes.
@@ -81,6 +81,13 @@ export function journal({ topic, level, message, details = {} }: JournalEntry) {
   const head = `${TIME.format(new Date())}  ${LEVELS[level]}  ${topic.padEnd(10)}`
   console.log(`${head}  ${message.padEnd(WIDTH)} ${rest}`.trimEnd())
 }
+
+/** Une ligne du journal des tâches d'ingestion (`ingest/`). */
+export const taskJournal = (
+  level: JournalLevel,
+  message: string,
+  details?: JournalEntry['details'],
+) => journal({ topic: 'tâches', level, message, details })
 
 /** Les lignes de `journalOnce` : leur clé, l'heure de la dernière écrite, celles tues depuis. */
 const noted = new Map<string, { at: number; silenced: number }>()

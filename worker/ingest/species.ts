@@ -14,7 +14,7 @@ import type {
   SpeciesDetailsFile,
   SpeciesFile,
 } from '@/contract'
-import { journal } from '../journal'
+import { taskJournal } from '../journal'
 import { saveSnapshot } from '../snapshots'
 import { fetchJson, mapPool } from './net'
 import type { Step } from './workflow'
@@ -134,11 +134,6 @@ export async function species(step: Step) {
     await saveSnapshot('species-details', {
       details: rows.map(({ details }) => details),
     } satisfies SpeciesDetailsFile)
-    journal({
-      topic: 'tâches',
-      level: 'ok',
-      message: 'Espèces enregistrées',
-      details: { espèces: rows.length },
-    })
+    taskJournal('ok', 'Espèces enregistrées', { espèces: rows.length })
   })
 }
