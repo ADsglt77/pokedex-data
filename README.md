@@ -109,7 +109,9 @@ le catalogue : le prix d'une carte d'une série récente en dépend), les images
 il reprend où il en était). Les images doivent toutes être copiées : l'API n'en copie aucune
 elle-même, une image qui manque répond 404.
 
-Pour essayer l'entrée d'Internet, un `.env` (ignoré par git), sur le modèle de `.env.example` :
+Pour essayer l'entrée d'Internet (http://127.0.0.1:8787/v1/…, en http, sans redirection : le
+Worker y voit son adresse locale, pas celle de `routes`), un `.env` (ignoré par git), sur le
+modèle de `.env.example` :
 
 ```sh
 echo "API_TOKENS=moi:$(openssl rand -hex 32)" > .env

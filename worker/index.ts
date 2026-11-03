@@ -32,7 +32,10 @@ const API_HEADERS = {
   'X-Robots-Tag': 'noindex, nofollow',
 }
 
-/** Le poste du développeur, en http : `bun run dev` et les tests. */
+/**
+ * Le poste du développeur, en http : `bun run dev` (son adresse locale, pas celle de `routes` :
+ * `--infer-origin-from-routes=false`) et les tests.
+ */
 const LOCAL = /^(localhost|127\.0\.0\.1)$/
 
 async function internet(request: Request) {

@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "bun run db:migrate && wrangler dev --test-scheduled",
+    "dev": "bun run db:migrate && wrangler dev --test-scheduled --infer-origin-from-routes=false",
     "ingest": "bun scripts/ingest.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "wrangler d1 migrations apply DB --local",
