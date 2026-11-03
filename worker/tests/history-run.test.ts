@@ -10,7 +10,7 @@ import { expect, test, vi } from 'vitest'
 import type { CardLanguage } from '@/contract'
 import type { PokecardexCardPage } from '../ingest/pokecardex'
 import type { Step } from '../ingest/workflow'
-import { rows, run } from './helpers'
+import { alive, rows, run } from './helpers'
 
 // La page d'une carte remplacée (ni réseau, ni 3 s par page) ; `history.ts`, déjà chargé par
 // l'entrée du Worker, rechargé pour la prendre.
@@ -21,7 +21,7 @@ vi.mock(import('../ingest/pokecardex'), async (original) => ({ ...(await origina
 vi.resetModules()
 const { history } = await import('../ingest/history')
 
-const step: Step = (_name, work) => work()
+const step: Step = (_name, work) => work(alive)
 
 /** La page d'une carte du produit `cardmarket` : son prix suivi, les 1er et 2 octobre. */
 const pageOf = (cardmarket: number): PokecardexCardPage => ({

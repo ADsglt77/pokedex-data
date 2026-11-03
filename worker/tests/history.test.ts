@@ -18,7 +18,7 @@ import { historyTodo, mainHistory, mergeHistory } from '../ingest/history'
 import type { PokecardexHistory } from '../ingest/pokecardex'
 import { savePriceGuide, type PriceGuide } from '../ingest/prices'
 import { readYears, unwritten, writeYears } from '../ingest/years'
-import { run } from './helpers'
+import { alive, run } from './helpers'
 
 describe('jour de l’année', () => {
   test('le 1er janvier est le jour 0, les années bissextiles ont un jour de plus', () => {
@@ -177,7 +177,7 @@ describe('mergeHistory : des prix repris de Pokécardex', () => {
 
   test('après le relevé du jour : le relevé garde le dernier mot, et le prix d’il y a 30 jours suit', async () => {
     await reset()
-    await savePriceGuide(nextGuide, null, 'mercredi')
+    await savePriceGuide(nextGuide, null, 'mercredi', alive)
     const days = await mergeHistory(1, [
       ['2026-09-14', 4],
       ['2026-09-15', 5],
@@ -204,7 +204,7 @@ describe('writeYears : deux tâches sur la même année', () => {
     await reset()
     // La reprise lit l'année ; la tâche `prices` y écrit le prix du 15 octobre entre-temps.
     const [read] = await readYears([1], [2026])
-    await savePriceGuide(nextGuide, null, 'mercredi')
+    await savePriceGuide(nextGuide, null, 'mercredi', alive)
     const stale = { id: 1, year: 2026, first: 285, prices: '[9,10]', old: read!.text }
     // Une année qui n'existait pas à sa lecture, que l'autre tâche a écrite entre-temps.
     await run(

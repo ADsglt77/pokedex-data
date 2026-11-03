@@ -34,8 +34,8 @@ export const INGEST_JOBS: Record<
 export const INGEST_JOB_NAMES = Object.keys(INGEST_JOBS) as IngestJob[]
 
 /**
- * Un passage en cours donne signe de vie à chacune de ses étapes (`worker/ingest/runs.ts`) ; sans
- * signe de vie depuis 5 min, il est tenu pour arrêté net. Le plus ancien signe de vie d'un passage
- * encore en cours, à `now` (ms).
+ * Un passage en cours donne signe de vie à chacune de ses étapes, et chaque minute des plus longues
+ * (`worker/ingest/runs.ts`) ; sans signe de vie depuis 5 min, il est tenu pour arrêté net. Le plus
+ * ancien signe de vie d'un passage encore en cours, à `now` (ms).
  */
 export const aliveSince = (now: number) => new Date(now - 5 * MINUTE).toISOString()

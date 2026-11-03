@@ -1,7 +1,7 @@
 /**
  * Ce que partagent les fichiers de test du Worker : leurs requêtes SQL d'un seul tenant (`run`),
  * leurs lignes lues (`rows`), le catalogue vidé (`emptyCatalog`) et le R2 vidé (`emptyFiles`), la
- * D1 et le R2 d'un fichier étant partagés par ses tests.
+ * D1 et le R2 d'un fichier étant partagés par ses tests ; le signe de vie des étapes (`alive`).
  */
 
 import { env } from 'cloudflare:workers'
@@ -22,6 +22,9 @@ export const rows = async (sql: string) => (await env.DB.prepare(sql).all()).res
 /** Un catalogue vide : ni carte, ni série, ni rareté (dans l'ordre de leurs clés étrangères). */
 export const emptyCatalog = () =>
   run('DELETE FROM card_species', 'DELETE FROM cards', 'DELETE FROM sets', 'DELETE FROM rarities')
+
+/** Le signe de vie d'une étape (`Alive`), hors d'un passage : rien à noter. */
+export const alive = async () => {}
 
 /** Aucune image ni réponse enregistrée dans R2. */
 export async function emptyFiles() {

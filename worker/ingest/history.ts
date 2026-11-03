@@ -30,7 +30,7 @@ import {
 import { plural, reasonOf, taskJournal } from '../journal'
 import { MAX_FAILURES_IN_A_ROW, readCard, type PokecardexCardPage } from './pokecardex'
 import { readSource, writeSource } from './sources'
-import type { Step } from './workflow'
+import type { Alive, Step } from './workflow'
 import { readYears, unwritten, writeYears, type YearWrite } from './years'
 
 /**
@@ -151,15 +151,17 @@ interface Batch {
 /**
  * Reprend l'historique de 50 cartes après `after`, puis note l'avancée (`sources` : `history`).
  * Une carte en échec n'est pas notée : relue au prochain passage. `inARow` : les pages en échec
- * d'affilée jusque-là ; à la 10e, l'étape s'arrête.
+ * d'affilée jusque-là ; à la 10e, l'étape s'arrête. Une page toutes les 3 s : plus de 2 min en
+ * tout, le signe de vie redit à chaque carte (`alive`).
  */
-async function historyBatch(after: Todo | null, inARow: number): Promise<Batch> {
+async function historyBatch(after: Todo | null, inARow: number, alive: Alive): Promise<Batch> {
   const todo = await historyTodo(after)
   const batch: Batch = { after: todo.at(-1) ?? null, read: 0, days: 0, failed: 0, inARow }
   const done = env.DB.prepare(
     'INSERT OR REPLACE INTO history_imports (lang, card, read_at) VALUES (?, ?, ?)',
   )
   for (const card of todo) {
+    await alive()
     try {
       const points = mainHistory(await readCard(card.lang, card.id), card.cardmarket)
       if (points) batch.days += await mergeHistory(card.cardmarket, points)
@@ -190,7 +192,7 @@ export async function history(step: Step) {
   for (let page = 1; ; page++) {
     const from: Todo | null = after
     const pending = inARow
-    const batch: Batch = await step(`cartes ${page}`, () => historyBatch(from, pending))
+    const batch: Batch = await step(`cartes ${page}`, (alive) => historyBatch(from, pending, alive))
     read += batch.read
     days += batch.days
     failed += batch.failed

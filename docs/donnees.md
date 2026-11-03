@@ -356,13 +356,15 @@ Le produit 719621 donne `1x Charmander Blazing Destruction Steady Firebreathing 
 
 `runs` note chaque passage (`ingest/runs.ts`, `ingest/workflow.ts`) : son début, sa fin, s'il a
 réussi, et la cause d'un échec (`message` : celui de l'erreur, ou « interrompue » pour un passage
-arrêté). Pendant qu'il tourne, il donne signe de vie à chacune de ses étapes (`alive_at`) : une
-tâche n'est pas lancée deux fois à la fois (deux Workflows doubleraient le rythme des requêtes),
-ni `catalog` pendant `history` ou l'inverse (testé : toutes deux lisent les pages de Pokécardex,
-une toutes les 3 s en tout, rythme que chaque Workflow ne tient que pour lui ; une tâche de `cards`
-qui trouve l'autre en cours est alors passée, comme une tâche déjà en cours), mais un passage sans
-signe de vie depuis 5 min a été arrêté net (son Workflow terminé, ou en échec sans avoir pu noter
-sa fin) : il ne bloque plus sa tâche, et il est noté interrompu à son passage suivant (testé).
+arrêté). Pendant qu'il tourne, il donne signe de vie à chacune de ses étapes (`alive_at`), et
+chaque minute des plus longues (`Alive`, `ingest/workflow.ts` : `history` à chaque carte, `prices`
+après chaque lecture et à chaque paquet) : une tâche n'est pas lancée deux fois à la fois (deux
+Workflows doubleraient le rythme des requêtes), ni `catalog` pendant `history` ou l'inverse
+(testé : toutes deux lisent les pages de Pokécardex, une toutes les 3 s en tout, rythme que chaque
+Workflow ne tient que pour lui ; une tâche de `cards` qui trouve l'autre en cours est alors
+passée, comme une tâche déjà en cours), mais un passage sans signe de vie depuis 5 min a été
+arrêté net (son Workflow terminé, ou en échec sans avoir pu noter sa fin) : il ne bloque plus sa
+tâche, et il est noté interrompu à son passage suivant (testé).
 
 Le Cron (toutes les heures, `worker/index.ts`) lance une tâche à rythme quand sa dernière réussite
 a plus que son intervalle (`INGEST_JOBS`) ; après un échec, 10 min plus tard, puis 20, 40…

@@ -49,7 +49,10 @@ export async function finishRun(id: number, message: string | null) {
     .run()
 }
 
-/** Le signe de vie d'un passage, au début de chacune de ses étapes. */
+/**
+ * Le signe de vie d'un passage, au début de chacune de ses étapes, puis chaque minute des plus
+ * longues (`Alive`, `workflow.ts`).
+ */
 export async function beat(id: number) {
   await env.DB.prepare('UPDATE runs SET alive_at = ? WHERE id = ?')
     .bind(new Date().toISOString(), id)

@@ -19,6 +19,7 @@ import { plural, reasonOf, taskJournal } from '../journal'
 import { streamArray } from './json-stream'
 import { download } from './net'
 import { readSource, writeSource } from './sources'
+import type { Alive } from './workflow'
 import { readYears, unwritten, writeYears, type YearWrite } from './years'
 
 const DOWNLOADS = 'https://downloads.s3.cardmarket.com/productCatalog'
@@ -122,7 +123,7 @@ async function readProducts(): Promise<ProductList> {
   return { products }
 }
 
-export async function prices() {
+export async function prices(alive: Alive) {
   const head = await download(PRICE_GUIDE_URL, { method: 'HEAD' })
   const stamp = head.headers.get('last-modified') ?? ''
   if (stamp && stamp === (await readSource('cardmarket'))?.stamp) {
@@ -130,15 +131,17 @@ export async function prices() {
     return
   }
   const guide = await readGuide()
+  await alive()
   // La liste des produits ne sert qu'à la liste de souhaits : illisible (renommée, en panne), le
   // guide des prix, dont chaque jour manqué l'est pour toujours, s'enregistre sans elle.
   const products = await readProducts().catch((error: unknown) => {
     taskJournal('warn', 'Liste des produits illisible', { raison: reasonOf(error) })
     return null
   })
+  await alive()
   // Sans date de mise à jour (l'en-tête absent), l'heure du guide : deux guides d'un même jour
   // n'ont pas le même tampon, ni les réponses tirées des prix le même ETag.
-  const saved = await savePriceGuide(guide, products, stamp || guide.createdAt)
+  const saved = await savePriceGuide(guide, products, stamp || guide.createdAt, alive)
   taskJournal('ok', 'Prix enregistrés', {
     jour: saved.date,
     cartes: saved.cards,
@@ -165,11 +168,13 @@ const CARDS_PER_CHUNK = 200
  * cartes ; les prix du jour, mis de côté (`cardmarket_prices_next`), ne remplacent ceux de la
  * veille, avec le passage noté, qu'une fois tous écrits, d'un seul tenant : arrêtée en route, la
  * tâche n'a rien changé des prix, et relancée, elle refait l'historique du jour à l'identique.
+ * Chaque paquet redit le signe de vie de l'étape (`alive`).
  */
 export async function savePriceGuide(
   guide: PriceGuide,
   products: ProductList | null,
   stamp: string,
+  alive: Alive,
 ) {
   const date = guide.createdAt.slice(0, 10)
 
@@ -216,6 +221,7 @@ export async function savePriceGuide(
   await env.DB.prepare('DELETE FROM cardmarket_prices_next').run()
   let written = 0
   for (let from = 0; from < cards.length; from += CARDS_PER_CHUNK) {
+    await alive()
     written += await saveChunk(cards.slice(from, from + CARDS_PER_CHUNK), date, years)
   }
   await env.DB.batch([

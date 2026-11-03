@@ -21,7 +21,7 @@ import { app } from '../app'
 import { saveSeries } from '../ingest/catalog'
 import type { PokecardexSeries } from '../ingest/pokecardex'
 import type { Step } from '../ingest/workflow'
-import { emptyFiles, rows } from './helpers'
+import { alive, emptyFiles, rows } from './helpers'
 
 // `politeFetch` sans ses 100 ms d'attente ; `images.ts`, déjà chargé par l'entrée du Worker,
 // rechargé pour le prendre.
@@ -231,7 +231,7 @@ describe('la copie des images (tâche `images`)', () => {
     const step: Step = (name, run) =>
       /^(Pokémon|réponses)/.test(name)
         ? Promise.resolve({ after: null, failed: [], found: 0 } as never)
-        : run()
+        : run(alive)
 
     const scans = async (ranks: number) => {
       const files: (string | number)[] = []

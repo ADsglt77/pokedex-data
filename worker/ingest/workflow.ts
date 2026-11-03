@@ -5,12 +5,14 @@
  * autres à la demande (`cards` : `catalog`, `images`, `history`). Chaque tâche avance par étapes
  * (`Step`) : le Workflow garde le résultat de chacune, et une étape en échec (une panne) est
  * reprise seule, sans refaire les précédentes. Chaque passage est noté (`runs.ts`, lu par
- * `/v1/status`), avec la cause d'un échec (`message`, aussi au journal) ; une tâche déjà en cours,
+ * `/v1/status`), avec la cause d'un échec (`message`, aussi au journal) et un signe de vie au
+ * début de chaque étape, puis chaque minute d'une étape longue (`Alive`) ; une tâche déjà en cours,
  * ou une tâche qui lit les mêmes pages de Pokécardex, n'est pas lancée une seconde fois.
  */
 
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloudflare:workers'
 import { INGEST_JOBS, type IngestJob } from '@/config/jobs'
+import { MINUTE } from '@/lib/time'
 import { reasonOf, taskJournal } from '../journal'
 import { catalog } from './catalog'
 import { history } from './history'
@@ -26,13 +28,22 @@ export interface IngestParams {
 }
 
 /**
- * Une étape d'une tâche : son nom (unique dans le passage) et ce qu'elle fait ; son résultat,
- * gardé par le Workflow, est rendu tel quel si le passage reprend. Le journal s'écrit donc dans
- * les étapes : une ligne écrite hors d'elles serait réécrite à chaque reprise.
+ * Le signe de vie d'une étape longue, que la tâche redonne en route (`history` à chaque carte,
+ * `prices` après ses lectures et à chaque paquet) : noté au plus une fois par minute, l'étape en
+ * donnant déjà un en commençant. Sans signe de vie depuis 5 min, le passage est tenu pour arrêté
+ * (`runs.ts`).
+ */
+export type Alive = () => Promise<void>
+
+/**
+ * Une étape d'une tâche : son nom (unique dans le passage) et ce qu'elle fait (`alive` : son signe
+ * de vie, que les étapes courtes ignorent) ; son résultat, gardé par le Workflow, est rendu tel
+ * quel si le passage reprend. Le journal s'écrit donc dans les étapes : une ligne écrite hors
+ * d'elles serait réécrite à chaque reprise.
  */
 export type Step = <T extends Rpc.Serializable<T>>(
   name: string,
-  run: () => Promise<T>,
+  run: (alive: Alive) => Promise<T>,
 ) => Promise<T>
 
 /**
@@ -58,11 +69,17 @@ export class Ingest extends WorkflowEntrypoint<Cloudflare.Env, IngestParams> {
         return id
       })
       if (id === null) continue
-      // Chaque étape donne signe de vie au passage (`beat`).
+      // Chaque étape donne signe de vie au passage (`beat`) en commençant, puis quand la tâche le
+      // redit (`Alive`), une minute au moins après le précédent.
       const jobStep: Step = (name, run) =>
         step.do(`${prefix} : ${name}`, RETRIES, async () => {
           await beat(id)
-          return run()
+          let last = Date.now()
+          return run(async () => {
+            if (Date.now() - last < MINUTE) return
+            last = Date.now()
+            await beat(id)
+          })
         })
       try {
         if (job === 'catalog') await catalog(jobStep, refresh)

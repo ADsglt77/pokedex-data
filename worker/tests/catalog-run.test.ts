@@ -12,7 +12,7 @@ import { beforeEach, describe, expect, test, vi } from 'vitest'
 import type { CardLanguage } from '@/contract'
 import type { PokecardexCard, PokecardexSeries } from '../ingest/pokecardex'
 import type { Step } from '../ingest/workflow'
-import { emptyCatalog, rows, run } from './helpers'
+import { alive, emptyCatalog, rows, run } from './helpers'
 
 // Les lectures de Pokécardex remplacées (ni réseau, ni 3 s par page) ; `catalog.ts`, déjà chargé
 // par l'entrée du Worker, rechargé pour les prendre.
@@ -27,7 +27,7 @@ const { catalog } = await import('../ingest/catalog')
 
 /** Les étapes de la tâche, sauf les réponses du catalogue (`saveLanguage`, testé à part). */
 const step: Step = (name, work) =>
-  name.startsWith('réponses') ? Promise.resolve(undefined as never) : work()
+  name.startsWith('réponses') ? Promise.resolve(undefined as never) : work(alive)
 
 /** Le plan du site : ces séries japonaises, puis ces françaises. */
 const sitemap = (japanese: string[], french: string[]) =>

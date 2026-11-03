@@ -18,7 +18,7 @@ import { readHistories } from '../history'
 import { streamArray } from '../ingest/json-stream'
 import { savePriceGuide, type PriceGuide, type ProductList } from '../ingest/prices'
 import { readSource, writeSource } from '../ingest/sources'
-import { run } from './helpers'
+import { alive, run } from './helpers'
 
 /** Aucun prix lu, aucun historique, aucun produit, aucune série ni carte du catalogue. */
 const reset = () =>
@@ -189,6 +189,7 @@ describe('savePriceGuide : les prix du jour et l’historique', () => {
       ]),
       products([1, 2]),
       'a',
+      alive,
     )
     expect(await priceRow(1)).toEqual({ price: 6.87, low: 5, monthAgo: null })
     await savePriceGuide(
@@ -198,6 +199,7 @@ describe('savePriceGuide : les prix du jour et l’historique', () => {
       ]),
       products([1, 2]),
       'b',
+      alive,
     )
     expect(await history(1)).toEqual({ name: 'Carte 1', from: '2026-10-12', prices: [6.87, 7.1] })
     expect(await history(2)).toEqual({ name: 'Carte 2', from: '2026-10-12', prices: [3, 3] })
@@ -214,6 +216,7 @@ describe('savePriceGuide : les prix du jour et l’historique', () => {
       ]),
       products([1, 2]),
       'a',
+      alive,
     )
     await savePriceGuide(
       guide('2026-10-12', [
@@ -222,6 +225,7 @@ describe('savePriceGuide : les prix du jour et l’historique', () => {
       ]),
       products([1, 2]),
       'a2',
+      alive,
     )
     expect(await history(1)).toEqual({ name: 'Carte 1', from: '2026-10-12', prices: [6.5] })
     // Rien à écrire dans son historique : son prix du jour est mis de côté quand même.
@@ -235,7 +239,7 @@ describe('savePriceGuide : les prix du jour et l’historique', () => {
       'DELETE FROM cardmarket_prices_next',
       'INSERT INTO cardmarket_prices_next (id, price, low, month_ago) VALUES (2, 50, null, null)',
     )
-    await savePriceGuide(guide('2026-10-12', [[1, { avg30: 6.87 }]]), products([1, 2]), 'a')
+    await savePriceGuide(guide('2026-10-12', [[1, { avg30: 6.87 }]]), products([1, 2]), 'a', alive)
     expect(await priceRow(1)).toEqual({ price: 6.87, low: null, monthAgo: null })
     expect(await priceRow(2)).toBeNull()
   })
@@ -259,7 +263,7 @@ describe('savePriceGuide : les prix du jour et l’historique', () => {
       ],
       [9],
     )
-    await savePriceGuide(day, products([1, 2, 3, 4, 5]), 'a')
+    await savePriceGuide(day, products([1, 2, 3, 4, 5]), 'a', alive)
     expect(await priceRow(1)).toEqual({ price: 4.2, low: null, monthAgo: null })
     expect(await priceRow(2)).toMatchObject({ price: 5 })
     expect(await priceRow(3)).toMatchObject({ price: 6 })
@@ -276,7 +280,7 @@ describe('savePriceGuide : les prix du jour et l’historique', () => {
       [3, { avg1: 6 }],
       [5, { trend: 9, avg30: 4.2 }],
     ])
-    await savePriceGuide(later, products([1, 2, 3, 5]), 'b')
+    await savePriceGuide(later, products([1, 2, 3, 5]), 'b', alive)
     expect(await priceRow(5)).toMatchObject({ price: 4.2 })
   })
 
@@ -290,7 +294,12 @@ describe('savePriceGuide : les prix du jour et l’historique', () => {
       `INSERT INTO cards (lang, id, set_id, number, sort, name, cardmarket, seen)
        VALUES ('fr', 990002, 'ESSAI-LANGUE', '1', 1, 'Ancienne', 5, '2026-10-01')`,
     )
-    await savePriceGuide(guide('2026-10-12', [[5, { trend: 9, avg30: 4.2 }]]), products([5]), 'a')
+    await savePriceGuide(
+      guide('2026-10-12', [[5, { trend: 9, avg30: 4.2 }]]),
+      products([5]),
+      'a',
+      alive,
+    )
     expect(await priceRow(5)).toMatchObject({ price: 4.2 })
   })
 
@@ -310,6 +319,7 @@ describe('savePriceGuide : les prix du jour et l’historique', () => {
       ]),
       products([1, 2, 3]),
       'a',
+      alive,
     )
     expect(await priceRow(1)).toMatchObject({ price: 6, monthAgo: 5 })
     expect(await priceRow(2)).toMatchObject({ monthAgo: 4 })
@@ -327,9 +337,10 @@ describe('savePriceGuide : les prix du jour et l’historique', () => {
       ]),
       products([1, 2, 3]),
       'a',
+      alive,
     )
     await expect(
-      savePriceGuide(guide('2026-10-13', [[1, { avg30: 1.5 }]]), products([1, 2, 3]), 'b'),
+      savePriceGuide(guide('2026-10-13', [[1, { avg30: 1.5 }]]), products([1, 2, 3]), 'b', alive),
     ).rejects.toThrow('format changé')
     expect(await history(1)).toEqual({ name: 'Carte 1', from: '2026-10-12', prices: [1] })
     expect(await priceRow(2)).toEqual({ price: 2, low: null, monthAgo: null })
@@ -350,8 +361,8 @@ describe('savePriceGuide : les prix du jour et l’historique', () => {
 
     test('illisible (téléchargement en échec, format changé) : celle d’avant reste', async () => {
       await reset()
-      await savePriceGuide(day('2026-10-12'), products([1, 2, 3]), 'a')
-      const saved = await savePriceGuide(day('2026-10-13'), null, 'b')
+      await savePriceGuide(day('2026-10-12'), products([1, 2, 3]), 'a', alive)
+      const saved = await savePriceGuide(day('2026-10-13'), null, 'b', alive)
       expect(saved.unsavedProducts).toBe('illisible')
       expect(await history(1)).toEqual({ name: 'Carte 1', from: '2026-10-12', prices: [1, 1] })
       expect(await readSource('cardmarket')).toEqual({ stamp: 'b', date: '2026-10-13' })
@@ -360,8 +371,8 @@ describe('savePriceGuide : les prix du jour et l’historique', () => {
 
     test('moins de la moitié des produits qu’elle donnait (tronquée) : celle d’avant reste', async () => {
       await reset()
-      await savePriceGuide(day('2026-10-12'), products([1, 2, 3]), 'a')
-      const saved = await savePriceGuide(day('2026-10-13'), products([1]), 'b')
+      await savePriceGuide(day('2026-10-12'), products([1, 2, 3]), 'a', alive)
+      const saved = await savePriceGuide(day('2026-10-13'), products([1]), 'b', alive)
       expect(saved.unsavedProducts).toBe('1 produit, contre 3')
       expect(await history(3)).toEqual({ name: 'Carte 3', from: '2026-10-12', prices: [3, 3] })
       expect(await product(2)).toEqual({ name: 'Carte 2', expansion: 7, metacard: 2 })
@@ -369,12 +380,12 @@ describe('savePriceGuide : les prix du jour et l’historique', () => {
 
     test('un produit qui ne s’enregistre pas (un champ renommé) : la liste entière est écartée', async () => {
       await reset()
-      await savePriceGuide(day('2026-10-12'), products([1, 2, 3]), 'a')
+      await savePriceGuide(day('2026-10-12'), products([1, 2, 3]), 'a', alive)
       const renamed = products([1, 2, 3])
       // `name` renommé chez Cardmarket : absent, il ne passerait pas `NOT NULL`.
       delete (renamed.products[2] as Partial<ProductList['products'][number]>).name
       renamed.products[0]!.name = 'Carte 1 renommée'
-      const saved = await savePriceGuide(day('2026-10-13'), renamed, 'b')
+      const saved = await savePriceGuide(day('2026-10-13'), renamed, 'b', alive)
       expect(saved.unsavedProducts).toContain('NOT NULL')
       expect(await history(1)).toEqual({ name: 'Carte 1', from: '2026-10-12', prices: [1, 1] })
       expect(await product(1)).toEqual({ name: 'Carte 1', expansion: 7, metacard: 1 })
@@ -388,8 +399,8 @@ describe('savePriceGuide : les prix du jour et l’historique', () => {
         [1, { avg30: 1 }],
         [2, { avg30: 2 }],
       ])
-    await savePriceGuide(day('2026-10-12'), products([1, 2]), 'a')
-    await savePriceGuide(day('2026-10-13'), products([1]), 'b')
+    await savePriceGuide(day('2026-10-12'), products([1, 2]), 'a', alive)
+    await savePriceGuide(day('2026-10-13'), products([1]), 'b', alive)
     const kept = await env.DB.prepare(
       'SELECT name, expansion, metacard FROM cardmarket_products WHERE id = 2',
     ).first()

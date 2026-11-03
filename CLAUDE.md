@@ -58,9 +58,10 @@ Le Cron ne passe pas tout seul en développement : `curl http://127.0.0.1:8787/_
 - **Les tâches dans un Workflow** (`worker/ingest/workflow.ts`) : chaque étape (`step`) est
   rejouée telle quelle si le Workflow reprend, son résultat gardé (1 Mio au plus, sérialisable) ;
   hors des étapes, rien que de déterministe (le journal aussi s'écrit dans les étapes : hors
-  d'elles, une ligne serait réécrite à chaque reprise). Une étape tient en 5 min (sans signe de
-  vie au-delà, le passage est tenu pour arrêté : `runs.ts`) et dans la mémoire du Worker (128 Mo :
-  les gros fichiers lus en flux, `json-stream.ts`). Deux tâches peuvent écrire la même année de
+  d'elles, une ligne serait réécrite à chaque reprise). Une étape tient en 5 min, ou redit son
+  signe de vie en route (`Alive`, noté au plus chaque minute : sans signe de vie depuis 5 min, le
+  passage est tenu pour arrêté, `runs.ts`), et dans la mémoire du Worker (128 Mo : les gros
+  fichiers lus en flux, `json-stream.ts`). Deux tâches peuvent écrire la même année de
   l'historique : chacune ne la réécrit que si l'autre n'y a pas touché (`years.ts`).
 - **Les sources** : on peut lire n'importe quel site, ou contourner une protection (données
   chiffrées…), mais **toujours demander d'abord à l'utilisateur**, qui obtient l'accord du site ;
@@ -103,7 +104,7 @@ Le Cron ne passe pas tout seul en développement : `curl http://127.0.0.1:8787/_
 | `worker/schema.ts`, `worker/migrations` | La D1 (Drizzle) |
 | `worker/journal.ts` | Le journal du Worker, une ligne par évènement |
 | `worker/ingest/workflow.ts`, `scripts/ingest.ts` | Le Workflow `ingest` (un passage d'une ou plusieurs tâches, par étapes) ; `bun run ingest` le lance |
-| `worker/ingest/runs.ts`, `worker/ingest/sources.ts` | Les passages des tâches (`runs`) : une tâche à la fois, un signe de vie par étape, le rythme du Cron (`isDue`) ; le dernier passage de chaque source |
+| `worker/ingest/runs.ts`, `worker/ingest/sources.ts` | Les passages des tâches (`runs`) : une tâche à la fois, un signe de vie par étape (et chaque minute des longues), le rythme du Cron (`isDue`) ; le dernier passage de chaque source |
 | `worker/ingest/species.ts`, `catalog.ts`, `images.ts`, `prices.ts`, `history.ts` | Les cinq tâches ; la copie des images (`UPSTREAMS`) |
 | `worker/ingest/years.ts`, `json-stream.ts` | L'écriture de l'historique, année par année, sans rien effacer ; les gros fichiers JSON lus en flux |
 | `worker/ingest/net.ts`, `worker/ingest/pokecardex.ts` | Requêtes identifiées ; les pages de Pokécardex, déchiffrées, une toutes les 3 s |
