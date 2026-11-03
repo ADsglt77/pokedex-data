@@ -299,8 +299,9 @@ sinon relue et refaite (une année réécrite d'après une lecture d'avant effac
 jour) ; son prix d'il y a 30 jours suit, dans `cardmarket_prices` seulement. Écart accepté
 (décision de l'utilisateur, novembre 2026) : quand la reprise croise un relevé des prix, celui-ci
 remplace ensuite cette table par ses prix mis de côté (`cardmarket_prices_next`), et une carte
-reprise entre-temps peut perdre son prix d'il y a 30 jours (souvent `null`) ; il se corrige au
-relevé suivant (environ un jour). Une page toutes les 3 s : environ 23 h pour les
+reprise entre-temps peut perdre son prix d'il y a 30 jours, remplacé par celui que le relevé
+avait calculé avant la reprise (souvent `null`) ; il se corrige au relevé suivant (environ un
+jour). Une page toutes les 3 s : environ 23 h pour les
 japonaises la première fois, 21 h de plus pour les françaises ; les séries les plus récentes
 d'abord, toutes langues mêlées, par étapes de 50 cartes ; chaque carte lue une fois
 (`history_imports`, une ligne par langue et par carte : `historyTodo`, testé, l'id 7091 japonais
