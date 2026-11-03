@@ -4,6 +4,7 @@
  * `bun run db:generate` en écrit la migration (`migrations/`).
  */
 
+import { sql } from 'drizzle-orm'
 import {
   foreignKey,
   index,
@@ -21,7 +22,10 @@ export const sources = sqliteTable('sources', {
   date: text().notNull(),
 })
 
-/** Les passages des tâches : `ok` et `finished_at` restent nuls tant qu'elle tourne. */
+/**
+ * Les passages des tâches : `ok` et `finished_at` restent nuls tant qu'elle tourne. `runs_open` :
+ * les seuls passages ouverts, que cherche `startRun` sans relire tous ceux de la tâche.
+ */
 export const runs = sqliteTable(
   'runs',
   {
@@ -33,7 +37,12 @@ export const runs = sqliteTable(
     message: text(),
     aliveAt: text('alive_at'),
   },
-  (table) => [index('runs_by_job').on(table.job, table.id)],
+  (table) => [
+    index('runs_by_job').on(table.job, table.id),
+    index('runs_open')
+      .on(table.job)
+      .where(sql`finished_at IS NULL`),
+  ],
 )
 
 /**
@@ -127,7 +136,8 @@ export const cards = sqliteTable(
   (table) => [
     primaryKey({ columns: [table.lang, table.id] }),
     foreignKey({ columns: [table.lang, table.setId], foreignColumns: [sets.lang, sets.id] }),
-    index('cards_by_set').on(table.lang, table.setId),
+    // Avec `sort` : le plus grand rang d'une série (`images.ts`) se lit dans l'index seul.
+    index('cards_by_set').on(table.lang, table.setId, table.sort),
     index('cards_by_cardmarket').on(table.cardmarket),
   ],
 )

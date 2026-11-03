@@ -15,6 +15,13 @@
       "when": 1793198808570,
       "tag": "0001_prix-en-cours",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1793695387645,
+      "tag": "0002_index-rangs-et-passages",
+      "breakpoints": true
     }
   ]
 }
