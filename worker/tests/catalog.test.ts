@@ -232,6 +232,7 @@ describe('une carte déjà copiée que la source renumérote', () => {
     const same = await saveSeries('fr', 'MEG', page(series, [un!, deux!, trois!]), LATER, null)
     expect(same.moved).toBe(0)
     // Une carte arrive en tête : les trois passent au rang suivant, deux d'entre elles sont copiées.
+    // Les trois d'avant sont comptées aussi (`known`).
     const shifted = [
       card({ id_card: 4, sort: 1 }),
       ...[un!, deux!, trois!].map((c) => ({ ...c, sort: c.sort + 1 })),
@@ -239,6 +240,7 @@ describe('une carte déjà copiée que la source renumérote', () => {
     expect(await saveSeries('fr', 'MEG', page(series, shifted), LATER, null)).toEqual({
       saved: 4,
       moved: 2,
+      known: 3,
     })
     // Elles sont à chercher de nouveau : leur rang a une autre image.
     const copied = () => rows("SELECT id FROM cards WHERE image = 'pokecardex'")

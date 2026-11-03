@@ -319,12 +319,22 @@ async function dueSeries(lang: CardLanguage, codes: string[], now: number, refre
 }
 
 /**
- * La page d'une série, enregistrée d'un seul tenant (`batch`) : son nombre de cartes, et celui de
- * ses cartes déjà copiées (`image` noté) que la source a changées de série ou de rang
- * (docs/donnees.md, « Une série renumérotée »). En français, sans les cartes qui n'existent qu'en
- * anglais ; `englishName` : le nom anglais d'une série française, que les adresses Cardmarket de
- * ses cartes doivent confirmer (`null` : indisponible ce passage). Une carte dont la série ou le
- * rang changent a une autre image : à chercher de nouveau.
+ * La requête du nombre de cartes déjà enregistrées d'une série (`count`) : seule (`first()`) ou
+ * dans un `batch`.
+ */
+const storedCards = (lang: CardLanguage, code: string) =>
+  env.DB.prepare('SELECT COUNT(*) AS count FROM cards WHERE lang = ? AND set_id = ?').bind(
+    lang,
+    code,
+  )
+
+/**
+ * La page d'une série, enregistrée d'un seul tenant (`batch`) : son nombre de cartes, celui de ses
+ * cartes d'avant (`known`), et celui de ses cartes déjà copiées (`image` noté) que la source a
+ * changées de série ou de rang (docs/donnees.md, « Une série renumérotée »). En français, sans les
+ * cartes qui n'existent qu'en anglais ; `englishName` : le nom anglais d'une série française, que
+ * les adresses Cardmarket de ses cartes doivent confirmer (`null` : indisponible ce passage). Une
+ * carte dont la série ou le rang changent a une autre image : à chercher de nouveau.
  */
 export async function saveSeries(
   lang: CardLanguage,
@@ -337,18 +347,18 @@ export async function saveSeries(
   const { fullName, releaseDateFR } = page.currentSeries
   const placed = JSON.stringify(cartes.map(({ id_card, sort }) => ({ id: id_card, sort })))
   const [count, stored, renumbered] = await env.DB.batch([
-    env.DB.prepare('SELECT COUNT(*) AS count FROM cards WHERE lang = ? AND set_id = ?').bind(
-      lang,
-      code,
-    ),
+    storedCards(lang, code),
     env.DB.prepare('SELECT expansion_name AS name FROM sets WHERE lang = ? AND id = ?').bind(
       lang,
       code,
     ),
+    // La page d'abord (`CROSS JOIN` : SQLite garde cet ordre), puis chacune de ses cartes par sa
+    // clé : sans statistiques, il partirait des cartes de la langue et relirait toute la page pour
+    // chacune (jusqu'à quelques secondes par série, la base bloquée pendant ce temps).
     env.DB.prepare(
-      `SELECT COUNT(*) AS count FROM cards JOIN json_each(?) AS page
-       ON cards.id = json_extract(page.value, '$.id')
-       WHERE cards.lang = ? AND cards.image = 'pokecardex'
+      `SELECT COUNT(*) AS count FROM json_each(?) AS page
+       CROSS JOIN cards ON cards.lang = ? AND cards.id = json_extract(page.value, '$.id')
+       WHERE cards.image = 'pokecardex'
          AND (cards.set_id != ? OR cards.sort != json_extract(page.value, '$.sort'))`,
     ).bind(placed, lang, code),
   ])
@@ -441,7 +451,11 @@ export async function saveSeries(
       readAt,
     ),
   ])
-  return { saved: cartes.length, moved: (renumbered!.results[0] as { count: number }).count }
+  return {
+    saved: cartes.length,
+    moved: (renumbered!.results[0] as { count: number }).count,
+    known: before,
+  }
 }
 
 /** Les raretés d'une langue, que chaque page de sa zone donne toutes. */
@@ -581,16 +595,15 @@ async function readOne(
       await saveRarities(lang, page)
       if (menu.asian.includes(code)) return { outcome: { status: 'skipped' }, menu }
     }
-    const known = (await env.DB.prepare(
-      'SELECT COUNT(*) AS count FROM cards WHERE lang = ? AND set_id = ?',
-    )
-      .bind(lang, code)
-      .first<{ count: number }>())!.count
     // Une page sans cartes : une série annoncée mais pas encore remplie, ou le site a changé (on
-    // garde alors celles d'avant). Rien n'est noté : elle est relue au passage suivant.
-    if (!page.cartes?.length) return { outcome: { status: 'empty', known }, menu }
+    // garde alors celles d'avant). Rien n'est noté : elle est relue au passage suivant. Ses cartes
+    // d'avant sont comptées ici ; celles d'une page lue, par `saveSeries`.
+    if (!page.cartes?.length) {
+      const known = (await storedCards(lang, code).first<{ count: number }>())!.count
+      return { outcome: { status: 'empty', known }, menu }
+    }
     const saved = await saveSeries(lang, code, page, new Date().toISOString(), englishName)
-    return { outcome: { status: 'saved', ...saved, known }, menu }
+    return { outcome: { status: 'saved', ...saved }, menu }
   } catch (error) {
     return { outcome: { status: 'failed', reason: reasonOf(error) }, menu: null }
   }
