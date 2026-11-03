@@ -2,8 +2,8 @@
  * L'historique en base (`cardmarket_history`, une ligne par carte et par année), tel que l'écrivent
  * les tâches `prices` (le prix du jour) et `history` (les jours repris de Pokécardex), qui peuvent
  * tourner en même temps sur les mêmes lignes : chacune lit l'année, la complète, et ne la réécrit
- * que si elle n'a pas changé entre-temps (`writeYears`) ; sinon, elle la relit. Sans cela, l'une
- * effacerait ce que l'autre vient d'écrire (le prix du jour, irremplaçable).
+ * que si elle n'a pas changé entre-temps (`writeYears`, puis `unwritten`) ; sinon, elle la relit.
+ * Sans cela, l'une effacerait ce que l'autre vient d'écrire (le prix du jour, irremplaçable).
  */
 
 import { env } from 'cloudflare:workers'
@@ -36,13 +36,14 @@ export interface YearWrite {
 }
 
 /**
- * Écrit les années, chacune seulement si celle en base est encore celle lue (`old`), d'un seul
- * tenant ; rend celles qu'une autre tâche a changées entre-temps, à relire et refaire.
+ * Les requêtes qui écrivent les années, chacune seulement si celle en base est encore celle lue
+ * (`old`) ; aucune sans année à écrire. À envoyer d'un seul tenant (`env.DB.batch`), avec d'autres
+ * au besoin, puis leurs résultats à lire par `unwritten`.
  */
-export async function writeYears(rows: YearWrite[]) {
+export function writeYears(rows: YearWrite[]) {
   if (!rows.length) return []
   const json = JSON.stringify(rows)
-  const [inserted, updated] = await env.DB.batch([
+  return [
     env.DB.prepare(
       `INSERT INTO cardmarket_history (id, year, first, prices)
        SELECT json_extract(value, '$.id'), json_extract(value, '$.year'),
@@ -59,12 +60,18 @@ export async function writeYears(rows: YearWrite[]) {
          AND cardmarket_history.prices = json_extract(sent.value, '$.old')
        RETURNING cardmarket_history.id, cardmarket_history.year`,
     ).bind(json),
-  ])
+  ]
+}
+
+/**
+ * Les années que les requêtes de `writeYears` n'ont pas écrites, d'après leurs résultats
+ * (`answers`) : celles qu'une autre tâche a changées entre-temps, à relire et refaire.
+ */
+export function unwritten(rows: YearWrite[], answers: D1Result[]) {
   const written = new Set(
-    [...inserted!.results, ...updated!.results].map((row) => {
-      const { id, year } = row as { id: number; year: number }
-      return `${id}|${year}`
-    }),
+    answers.flatMap(({ results }) =>
+      (results as { id: number; year: number }[]).map(({ id, year }) => `${id}|${year}`),
+    ),
   )
   return rows.filter(({ id, year }) => !written.has(`${id}|${year}`))
 }

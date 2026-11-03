@@ -31,7 +31,7 @@ import { plural, reasonOf, taskJournal } from '../journal'
 import { MAX_FAILURES_IN_A_ROW, readCard, type PokecardexCardPage } from './pokecardex'
 import { readSource, writeSource } from './sources'
 import type { Step } from './workflow'
-import { readYears, writeYears, type YearWrite } from './years'
+import { readYears, unwritten, writeYears, type YearWrite } from './years'
 
 /**
  * Les prix de la carte elle-même dans sa page (testé) : sa plus longue période, la série de son
@@ -99,7 +99,7 @@ export async function mergeHistory(cardmarket: number, points: readonly [string,
       const old = stored.find((row) => row.year === year)?.text ?? null
       return { id: cardmarket, year, first, prices: JSON.stringify(prices), old }
     })
-    if ((await writeYears(writes)).length) continue
+    if (writes.length && unwritten(writes, await env.DB.batch(writeYears(writes))).length) continue
     if (until) {
       await env.DB.prepare('UPDATE cardmarket_prices SET month_ago = ? WHERE id = ?')
         .bind(priceBefore([...merged.values()], until), cardmarket)

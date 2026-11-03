@@ -6,9 +6,9 @@
  * range par année, l'API le rend d'un seul tenant (`joinYears`) : aucun prix ne doit se perdre,
  * changer de jour en route, ni passer d'une carte à une autre. Les deux tâches peuvent écrire la
  * même année en même temps : chacune ne la réécrit que si l'autre n'y a pas touché entre-temps
- * (`writeYears`), sinon le prix du jour s'effacerait. Seuls des jours écrits AAAA-MM-JJ sont repris.
- * La reprise (`historyTodo`) suit la langue : l'id d'une carte japonaise lue ne fait pas sauter la
- * française au même id.
+ * (`writeYears`, `unwritten`), sinon le prix du jour s'effacerait. Seuls des jours écrits
+ * AAAA-MM-JJ sont repris. La reprise (`historyTodo`) suit la langue : l'id d'une carte japonaise
+ * lue ne fait pas sauter la française au même id.
  */
 
 import { env } from 'cloudflare:workers'
@@ -17,7 +17,7 @@ import { joinYears, priceBefore, withPrice, yearDay, type HistoryYear } from '@/
 import { historyTodo, mainHistory, mergeHistory } from '../ingest/history'
 import type { PokecardexHistory } from '../ingest/pokecardex'
 import { savePriceGuide, type PriceGuide } from '../ingest/prices'
-import { readYears, writeYears } from '../ingest/years'
+import { readYears, unwritten, writeYears } from '../ingest/years'
 import { run } from './helpers'
 
 describe('jour de l’année', () => {
@@ -212,7 +212,8 @@ describe('writeYears : deux tâches sur la même année', () => {
     )
     const missing = { id: 2, year: 2026, first: 279, prices: '[3,4]', old: null }
     const fresh = { id: 3, year: 2026, first: 280, prices: '[7]', old: null }
-    expect(await writeYears([stale, missing, fresh])).toEqual([stale, missing])
+    const rows = [stale, missing, fresh]
+    expect(unwritten(rows, await env.DB.batch(writeYears(rows)))).toEqual([stale, missing])
     // Le prix du jour est toujours là ; seule l'année neuve est écrite.
     expect(await yearsOf(1)).toEqual([{ year: 2026, first: 286, prices: [10, 11] }])
     expect(await yearsOf(2)).toEqual([{ year: 2026, first: 280, prices: [4] }])

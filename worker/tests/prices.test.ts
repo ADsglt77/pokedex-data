@@ -205,11 +205,27 @@ describe('savePriceGuide : les prix du jour et l’historique', () => {
     expect(await readSource('cardmarket')).toEqual({ stamp: 'b', date: '2026-10-13' })
   })
 
-  test('relancée le même jour : le prix du jour remplacé, rien d’ajouté', async () => {
+  test('relancée le même jour : le prix du jour remplacé, rien d’ajouté ; au même prix, gardé', async () => {
     await reset()
-    await savePriceGuide(guide('2026-10-12', [[1, { avg30: 6.87 }]]), products([1]), 'a')
-    await savePriceGuide(guide('2026-10-12', [[1, { avg30: 6.5 }]]), products([1]), 'a2')
+    await savePriceGuide(
+      guide('2026-10-12', [
+        [1, { avg30: 6.87 }],
+        [2, { avg30: 3 }],
+      ]),
+      products([1, 2]),
+      'a',
+    )
+    await savePriceGuide(
+      guide('2026-10-12', [
+        [1, { avg30: 6.5 }],
+        [2, { avg30: 3 }],
+      ]),
+      products([1, 2]),
+      'a2',
+    )
     expect(await history(1)).toEqual({ name: 'Carte 1', from: '2026-10-12', prices: [6.5] })
+    // Rien à écrire dans son historique : son prix du jour est mis de côté quand même.
+    expect(await priceRow(2)).toEqual({ price: 3, low: null, monthAgo: null })
   })
 
   test('les prix d’un passage arrêté en route ne passent jamais dans ceux du suivant', async () => {

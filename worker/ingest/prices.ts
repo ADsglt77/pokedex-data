@@ -19,7 +19,7 @@ import { plural, reasonOf, taskJournal } from '../journal'
 import { streamArray } from './json-stream'
 import { download } from './net'
 import { readSource, writeSource } from './sources'
-import { readYears, writeYears, type YearWrite } from './years'
+import { readYears, unwritten, writeYears, type YearWrite } from './years'
 
 const DOWNLOADS = 'https://downloads.s3.cardmarket.com/productCatalog'
 const PRICE_GUIDE_URL = `${DOWNLOADS}/priceGuide/price_guide_6.json`
@@ -264,16 +264,20 @@ async function saveChunk(
       const others = known.filter((row) => row.year !== year)
       return { id, price, low, monthAgo: priceBefore([...others, next], date) }
     })
-    const changed = new Set((await writeYears(writes)).map(({ id }) => id))
+    // Les années et les prix mis de côté, d'un seul tenant. Celui d'une carte à refaire, tiré
+    // d'une année que l'autre tâche a changée depuis, est remplacé quand elle est refaite
+    // (`OR REPLACE`) : les prix mis de côté ne servent qu'une fois tous écrits.
+    const [, ...results] = await env.DB.batch([
+      env.DB.prepare(
+        `INSERT OR REPLACE INTO cardmarket_prices_next (id, price, low, month_ago)
+         SELECT json_extract(value, '$.id'), json_extract(value, '$.price'),
+                json_extract(value, '$.low'), json_extract(value, '$.monthAgo')
+         FROM json_each(?)`,
+      ).bind(JSON.stringify(rows)),
+      ...writeYears(writes),
+    ])
+    const changed = new Set(unwritten(writes, results).map(({ id }) => id))
     written += writes.length - changed.size
-    await env.DB.prepare(
-      `INSERT OR REPLACE INTO cardmarket_prices_next (id, price, low, month_ago)
-       SELECT json_extract(value, '$.id'), json_extract(value, '$.price'),
-              json_extract(value, '$.low'), json_extract(value, '$.monthAgo')
-       FROM json_each(?)`,
-    )
-      .bind(JSON.stringify(rows.filter(({ id }) => !changed.has(id))))
-      .run()
     todo = todo.filter(([id]) => changed.has(id))
   }
   return written
