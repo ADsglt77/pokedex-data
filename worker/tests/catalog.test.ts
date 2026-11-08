@@ -8,7 +8,8 @@
  * lien) ; une carte qui n'existe qu'en anglais n'entre pas au catalogue français ; le nom
  * d'extension Cardmarket d'une série (la liste de souhaits) : jamais un nom que ses cartes ne
  * confirment pas, et un nom anglais qu'elles ne confirment pas n'efface pas celui qu'elles
- * confirment encore ; une série renumérotée par la source : la tâche compte les cartes déjà
+ * confirment encore ; l'extension de ses adresses, gardée même sans nom (sans elle, la liste de
+ * souhaits ne verrait pas qu'un nom désigne aussi son extension) ; une série renumérotée par la source : la tâche compte les cartes déjà
  * copiées qui changent de rang (ou de série), pour que le journal le dise, et elles sont à
  * chercher de nouveau.
  */
@@ -177,6 +178,19 @@ describe('saveSeries', () => {
     // Un nom que les adresses de ses cartes ne confirment pas, ou aucun nom : aucun.
     expect(await expansion('fr', 'PFL')).toBe('')
     expect(await expansion('fr', 'ASC')).toBe('')
+    // Le nom écrit comme dans une adresse, et l'extension des adresses des cartes, gardée même
+    // sans nom : la liste de souhaits les compare (`readWants`).
+    expect(
+      await rows(
+        `SELECT lang, id, expansion_slug AS name, cardmarket_slug AS cards FROM sets
+         ORDER BY lang, id`,
+      ),
+    ).toEqual([
+      { lang: 'fr', id: 'ASC', name: '', cards: 'Mega-Evolution' },
+      { lang: 'fr', id: 'MEG', name: 'Mega-Evolution', cards: 'Mega-Evolution' },
+      { lang: 'fr', id: 'PFL', name: '', cards: 'Mega-Evolution' },
+      { lang: 'ja', id: 'SVP', name: 'SV-P-Promo', cards: '' },
+    ])
   })
 
   test('les noms anglais indisponibles, une française garde le nom déjà confirmé par ses cartes', async () => {

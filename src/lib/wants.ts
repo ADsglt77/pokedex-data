@@ -33,7 +33,9 @@ export function wantsVersion(
 /**
  * Le nom d'extension Cardmarket d'une série du catalogue (`sets.expansion_name`, japonaise ou
  * française : en anglais), et le nombre d'extensions Cardmarket dont des cartes du catalogue, de
- * toute langue, portent une série de ce nom (espaces des bords ignorées), elle comprise.
+ * toute langue, sont d'une série de ce nom (espaces des bords ignorées), elle comprise, ou d'une
+ * série dont les adresses Cardmarket désignent l'extension de ce nom (une française sans nom
+ * confirmé : `readWants`, `worker/reference.ts`).
  */
 export interface ExpansionName {
   name: string
@@ -51,7 +53,8 @@ export interface ExpansionName {
  * française), sans les espaces des bords (Pokécardex en laisse : « Shining Legends  »). `null`
  * quand elle ne désignerait pas sûrement cette carte : version incertaine ; pas exactement un nom
  * d'extension, ou un nom que porte aussi une autre extension (deux séries « Beginning Set »,
- * « Jumbo » sur sept extensions) : Cardmarket ajouterait « n'importe quelle version » ; ou une
+ * « Jumbo » sur sept extensions, une série dont les adresses désignent l'extension de ce nom) :
+ * Cardmarket ajouterait « n'importe quelle version » ; ou une
  * parenthèse dans le nom ou l'extension (Cardmarket la lirait mal). Toujours 1 exemplaire ; ni la
  * langue ni l'état ne s'y écrivent.
  */

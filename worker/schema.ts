@@ -92,7 +92,12 @@ export const cardmarketHistory = sqliteTable(
   (table) => [primaryKey({ columns: [table.id, table.year] })],
 )
 
-/** Les séries du catalogue, dans chaque langue (un code se répète d'une langue à l'autre). */
+/**
+ * Les séries du catalogue, dans chaque langue (un code se répète d'une langue à l'autre). Pour la
+ * liste de souhaits : le nom de son extension chez Cardmarket (`expansion_name`), ce nom écrit comme
+ * dans une adresse de Cardmarket (`expansion_slug`, `cardmarketSlug`), et l'extension commune des
+ * adresses Cardmarket de ses cartes (`cardmarket_slug`) ; '' pour chacun s'il n'y en a pas.
+ */
 export const sets = sqliteTable(
   'sets',
   {
@@ -107,6 +112,8 @@ export const sets = sqliteTable(
     blockRank: integer('block_rank'),
     deck: integer().notNull().default(0),
     expansionName: text('expansion_name').notNull().default(''),
+    expansionSlug: text('expansion_slug').notNull().default(''),
+    cardmarketSlug: text('cardmarket_slug').notNull().default(''),
   },
   (table) => [primaryKey({ columns: [table.lang, table.id] })],
 )

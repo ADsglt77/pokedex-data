@@ -51,6 +51,15 @@ d'une zone à l'autre (la carte 7091, la série SVP, la rareté 48) : chaque lig
   ne confirment pas (le menu anglais en donne un autre : testé) : elle garde le nom qu'un passage
   d'avant a confirmé, tant que ses cartes le confirment encore (sinon aucun) ; le journal le dit
   (pages anglaises illisibles), et la tâche n'échoue pas pour autant.
+- Pour chaque série aussi, dans les deux langues (la liste de souhaits les compare, section « Liste
+  de souhaits » ; testé) : `sets.cardmarket_slug`, l'extension commune des adresses Cardmarket de
+  ses cartes (le premier segment de `cardmarket_url`, `commonCardmarketSlug` : « Mega-Evolution »),
+  gardée même quand le nom n'est pas confirmé, `''` si ses cartes n'en ont pas ou en nomment
+  plusieurs ; et `sets.expansion_slug`, son nom d'extension écrit comme dans une adresse
+  (`cardmarketSlug(expansion_name)`, `''` sans nom), que la liste de souhaits ne saurait pas
+  calculer en SQL. Ajoutées le 8 novembre 2026 (migration `0003`), vides tant qu'une série n'a pas
+  été relue par la tâche `catalog` depuis : chaque série à son prochain passage (après une semaine,
+  un jour si elle est récente), toutes d'un coup avec `--refresh`.
 - Ses pages portent leurs données chiffrées (`__INITIAL_DATA_ENCRYPTED__`, AES-CBC) : déchiffrées
   avec la clé que contient son JavaScript, relue quand l'adresse de son script change, jamais
   recopiée dans le dépôt. Une page toutes les 3 s, User-Agent identifié : le premier passage prend
@@ -305,13 +314,35 @@ jour). Une page toutes les 3 s : environ 23 h pour les
 japonaises la première fois, 21 h de plus pour les françaises ; les séries les plus récentes
 d'abord, toutes langues mêlées, par étapes de 50 cartes ; chaque carte lue une fois
 (`history_imports`, une ligne par langue et par carte : `historyTodo`, testé, l'id 7091 japonais
-lu ne fait pas sauter le français), un passage suivant ne lit que les nouvelles ; 10 pages en
-échec d'affilée arrêtent la lecture ; des cartes en échec font échouer la tâche (relues au passage
-suivant : jamais notées dans `history_imports`, testé). L'avancée est notée à chaque étape
-(`sources` : `history`), que suit l'ETag des prix. Une carte reprise ne l'est plus : si son id
-Cardmarket change ensuite (le catalogue adopte celui que Pokécardex a corrigé), les 180 jours de
-son nouveau produit ne sont pas repris, seulement les relevés suivants (le corriger demanderait
-une migration : le produit repris dans `history_imports`).
+lu ne fait pas sauter le français), un passage suivant ne lit que les nouvelles. Les gardes
+(testées, `worker/tests/history-run.test.ts`) :
+
+- des cartes isolées en échec (page illisible) ne font pas échouer le passage : jamais notées dans
+  `history_imports`, elles sont relues au passage suivant, et le bilan du journal le dit (▲,
+  `enÉchec=<nombre>`). Depuis le 8 novembre 2026 : avant, elles faisaient échouer le passage, et
+  la tâche, à la demande, restait « en échec » (`/v1/status`) jusqu'au passage suivant lancé à la
+  main ;
+- 10 pages en échec d'affilée arrêtent la lecture et font échouer le passage (le site a changé) ;
+- le format des pages changé (un champ renommé : `mainHistory` ne trouverait plus rien, et chaque
+  carte serait notée lue avec 0 jour, jamais relue, ses 180 jours perdus) : une carte lue sans
+  historique n'est notée qu'en fin d'étape, et pas du tout si, parmi les pages lues de l'étape, au
+  moins 10 sont de cartes dont le guide des prix donne un prix aujourd'hui **et** il y a 30 jours
+  (`cardmarket_prices.month_ago`), et plus de la moitié de celles-là sans historique ; le passage
+  échoue alors (« format des pages changé ? », au journal), et ces cartes sont relues au passage
+  suivant. Pokécardex relève ce même guide chaque jour et en garde 180 jours : une telle carte a
+  forcément un historique chez lui. Les autres ne comptent pas : une carte sans vente depuis un mois
+  (ancienne, rare) ou sortie depuis peu (sans prix il y a 30 jours, ou pas encore relevée par
+  Pokécardex), souvent sans historique, ne déclenche rien, même une étape entière de celles-là
+  (une série nouvelle, que le catalogue vient d'ajouter). Erreur levée hors de l'étape : dans
+  l'étape, le Workflow la réessaierait, 50 pages relues pour rien. Limite : les cartes dont le
+  produit n'a pas de prix d'il y a 30 jours ne sont pas protégées (pour une carte nouvelle, la
+  tâche `prices` a de toute façon chacun de ses jours).
+
+L'avancée est notée à chaque étape (`sources` : `history`), que suit l'ETag des prix. Une carte
+reprise ne l'est plus : si son id Cardmarket change ensuite (le catalogue adopte celui que
+Pokécardex a corrigé), les 180 jours de son nouveau produit ne sont pas repris, seulement les
+relevés suivants (le corriger demanderait une migration : le produit repris dans
+`history_imports`).
 
 L'historique est celui d'un **produit Cardmarket** (`cardmarket_history`, par id produit) : une
 carte française qui partage son produit avec une autre carte (de toute langue) en reprend les prix
@@ -344,14 +375,24 @@ Le produit 719621 donne `1x Charmander Blazing Destruction Steady Firebreathing 
 - Les cartes françaises : leur produit Cardmarket est celui de toutes les langues, et leur ligne
   est celle d'une japonaise (`1x Bulbasaur Bind Down (Mega Evolution)`), jamais écrite en français
   (le nom d'une série française, « Méga-Évolution », n'est pas celui de l'extension). Une série
-  française sans nom d'extension (`expansion_name` vide : nom anglais illisible ou non confirmé)
-  est ignorée : si elle est la seule de son extension, pas de ligne ; si une série japonaise de la
-  même extension en a un, c'est ce nom-là. La série d'une carte se joint par sa langue **et** son
-  code (un code se répète d'une langue à l'autre : la série « SVP » japonaise n'est pas la
-  française). Le nombre d'extensions qui portent un nom se compte sur les cartes des deux langues :
-  un nom porté par deux extensions, l'une par des cartes japonaises et l'autre par des françaises,
-  n'a pas de ligne non plus ; un produit que portent une carte japonaise et une française n'est
-  qu'une extension (un seul compte).
+  française sans nom d'extension (`expansion_name` vide : nom anglais illisible ou non confirmé ;
+  134 séries le 8 novembre 2026, dont « Règne Delta », sortie le 6) ne donne pas de nom : si elle
+  est la seule de son extension, pas de ligne ; si une série japonaise de la même extension en a
+  un, c'est ce nom-là. La série d'une carte se joint par sa langue **et** son code (un code se
+  répète d'une langue à l'autre : la série « SVP » japonaise n'est pas la française). Le nombre
+  d'extensions qui portent un nom se compte sur les cartes des deux langues : un nom porté par deux
+  extensions, l'une par des cartes japonaises et l'autre par des françaises, n'a pas de ligne non
+  plus ; un produit que portent une carte japonaise et une française n'est qu'une extension (un
+  seul compte).
+- Un nom compte aussi les extensions des séries dont les adresses Cardmarket désignent l'extension
+  de ce nom (`cardmarket_slug` égal à son `expansion_slug`, section « Catalogue » ; testé) : une
+  série japonaise qui porte le nom anglais d'une extension internationale dont la série française
+  n'a pas (encore) de nom confirmé n'a pas de ligne, que Cardmarket lirait comme l'extension
+  internationale (« n'importe quelle version », peut-être la carte anglaise). **Cette protection ne
+  vaut qu'une fois les séries relues par la tâche `catalog`** depuis le 8 novembre 2026 (ses deux
+  colonnes sont vides avant : le compte est alors celui d'avant, par les noms seulement) ; pour
+  qu'elle vaille partout d'un coup, `bun run ingest catalog --refresh` (avec `--remote` pour le
+  Worker en ligne).
 - Pas de ligne non plus pour un produit inconnu, sans extension ou sans métacarte, ni pour une
   parenthèse dans le nom ou l'extension. Ni la langue ni l'état ne tiennent dans une ligne.
 - Calculée à chaque demande (`Cache-Control: no-cache`), en trois requêtes d'un seul `batch`, quel

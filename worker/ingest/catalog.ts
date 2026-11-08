@@ -15,7 +15,8 @@
  * (`only_english`). Le nom de l'extension de chaque série chez Cardmarket (la liste de souhaits) :
  * pour une japonaise, son nom ; pour une française, son nom anglais (le menu d'une page anglaise,
  * lue une fois par passage ; sans elle, ou s'il ne s'accorde pas, celui déjà confirmé) si les
- * adresses Cardmarket de ses cartes le confirment, sinon aucun.
+ * adresses Cardmarket de ses cartes le confirment, sinon aucun ; avec ce nom écrit comme dans une
+ * adresse de Cardmarket, et l'extension commune des adresses de ses cartes (dans les deux langues).
  * Une série est relue après une semaine, après un jour si elle est sortie depuis moins de 90 jours
  * (Pokécardex la complète) ; `refresh` les relit toutes. Une étape du Workflow par série, une page
  * toutes les 3 s : le premier passage prend une vingtaine de minutes pour les japonaises, une
@@ -46,6 +47,8 @@ import { removeSnapshots, saveSnapshot } from '../snapshots'
 import { mapPool } from './net'
 import {
   asiaExclusive,
+  cardmarketSlug,
+  commonCardmarketSlug,
   expansionNameOf,
   MAX_FAILURES_IN_A_ROW,
   menuBlocks,
@@ -381,6 +384,11 @@ export async function saveSeries(
     lang === 'ja'
       ? fullName
       : expansionNameOf(englishName, urls) || expansionNameOf(storedName, urls)
+  // Ce nom écrit comme dans une adresse de Cardmarket, et l'extension des adresses de ses cartes,
+  // dans les deux langues, nom confirmé ou pas : la liste de souhaits ne donne pas de ligne pour un
+  // nom qui désigne aussi l'extension d'une autre série (`readWants`, `worker/reference.ts`).
+  const expansionSlug = expansion && cardmarketSlug(expansion)
+  const slug = commonCardmarketSlug(urls)
   // Le numéro imprimé, sinon le rang. Si deux cartes de la série se confondraient (deux
   // demi-decks numérotés chacun : HS ; cartes géantes de séries diverses : JUMBO), toutes
   // prennent leur rang.
@@ -410,12 +418,24 @@ export async function saveSeries(
   const json = JSON.stringify(rows)
   await env.DB.batch([
     env.DB.prepare(
-      `INSERT INTO sets (lang, id, name, released, read_at, expansion_name)
-       VALUES (?, ?, ?, ?, ?, ?)
+      `INSERT INTO sets (lang, id, name, released, read_at, expansion_name, expansion_slug,
+                         cardmarket_slug)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT (lang, id) DO UPDATE SET name = excluded.name, released = excluded.released,
                                             read_at = excluded.read_at,
-                                            expansion_name = excluded.expansion_name`,
-    ).bind(lang, code, fullName, releaseDateFR?.slice(0, 10) ?? '', readAt, expansion),
+                                            expansion_name = excluded.expansion_name,
+                                            expansion_slug = excluded.expansion_slug,
+                                            cardmarket_slug = excluded.cardmarket_slug`,
+    ).bind(
+      lang,
+      code,
+      fullName,
+      releaseDateFR?.slice(0, 10) ?? '',
+      readAt,
+      expansion,
+      expansionSlug,
+      slug,
+    ),
     env.DB.prepare(
       `INSERT INTO cards (lang, id, set_id, number, printed, sort, name, name_en, name_de,
                           cardmarket, rarity, type, illustrator, versions, seen)

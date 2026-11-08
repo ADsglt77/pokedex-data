@@ -99,9 +99,12 @@ const WANTED = `SELECT id, name, expansion, metacard FROM cardmarket_products
  * de chaque produit de la même carte (même extension, même métacarte) dans son extension, d'après
  * le catalogue (`null` : absent du catalogue, ou plusieurs numéros) ; les noms d'extension des
  * séries du catalogue de chaque extension (`expansion_name`, dans les deux langues, jamais vide),
- * chacun avec le nombre d'extensions dont des cartes du catalogue, de toute langue, portent ce nom.
- * Une série se joint à ses cartes par sa langue et son code : un code se répète d'une langue à
- * l'autre.
+ * chacun avec le nombre d'extensions dont des cartes du catalogue, de toute langue, sont d'une série
+ * qui porte ce nom, ou dont les adresses Cardmarket désignent l'extension de ce nom
+ * (`cardmarket_slug` égal à `expansion_slug`, ce nom écrit comme dans une adresse : une série
+ * française dont le nom anglais n'est pas confirmé n'a pas de nom, mais ses adresses en désignent
+ * un). Sans ces adresses (catalogue pas relu depuis), le nombre d'avant : les noms seulement. Une
+ * série se joint à ses cartes par sa langue et son code : un code se répète d'une langue à l'autre.
  */
 async function readWants(ids: number[]): Promise<WantsLines> {
   const json = JSON.stringify(ids)
@@ -118,10 +121,13 @@ async function readWants(ids: number[]): Promise<WantsLines> {
       `SELECT products.expansion, sets.expansion_name AS name,
               (SELECT COUNT(DISTINCT others.expansion) FROM cards AS shared
                JOIN cardmarket_products AS others ON others.id = shared.cardmarket
-               -- Les séries de ce nom d'abord, puis leurs cartes (index cards_by_set).
-               WHERE (shared.lang, shared.set_id) IN (SELECT lang, id FROM sets AS same
-                                                      WHERE TRIM(same.expansion_name)
-                                                          = TRIM(sets.expansion_name)))
+               -- Les séries de ce nom, ou de l'extension de ce nom d'après leurs adresses, d'abord,
+               -- puis leurs cartes (index cards_by_set). expansion_slug : le même pour toutes les
+               -- séries du nom, sauf le temps qu'elles soient toutes relues.
+               WHERE (shared.lang, shared.set_id) IN (
+                 SELECT lang, id FROM sets AS same
+                 WHERE TRIM(same.expansion_name) = TRIM(sets.expansion_name)
+                    OR (sets.expansion_slug <> '' AND same.cardmarket_slug = sets.expansion_slug)))
               AS expansions
        FROM cardmarket_products AS products
        JOIN cards ON cards.cardmarket = products.id

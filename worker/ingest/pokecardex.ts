@@ -229,15 +229,24 @@ export const cardmarketSlug = (name: string) =>
     .replace(/^-|-$/g, '')
 
 /**
+ * L'extension commune des adresses Cardmarket de cartes (`cardmarket_url`) : leur premier segment,
+ * le nom de l'extension tel que Cardmarket l'écrit (« Mega-Evolution ») ; '' si aucune n'a
+ * d'adresse, ou si elles en nomment plusieurs.
+ */
+export function commonCardmarketSlug(cardmarketUrls: (string | null)[]) {
+  const segments = new Set(
+    cardmarketUrls.filter((url): url is string => !!url).map((url) => url.split('/')[0]!),
+  )
+  return segments.size === 1 ? [...segments][0]! : ''
+}
+
+/**
  * Le nom d'extension Cardmarket d'une série française : son nom anglais, si toutes les adresses de
- * ses cartes (`cardmarket_url`) commencent par lui, tel que Cardmarket l'écrit. Sinon '' : mieux
- * vaut aucun nom (la liste de souhaits ne donne alors pas de ligne) qu'un nom qui désignerait une
- * autre extension.
+ * ses cartes (`cardmarket_url`) commencent par lui, tel que Cardmarket l'écrit
+ * (`commonCardmarketSlug`). Sinon '' : mieux vaut aucun nom (la liste de souhaits ne donne alors
+ * pas de ligne) qu'un nom qui désignerait une autre extension.
  */
 export function expansionNameOf(englishName: string | null, cardmarketUrls: (string | null)[]) {
-  const segments = new Set(
-    cardmarketUrls.filter((url): url is string => !!url).map((url) => url.split('/')[0]),
-  )
-  const matches = englishName && segments.size === 1 && segments.has(cardmarketSlug(englishName))
-  return matches ? englishName : ''
+  const slug = commonCardmarketSlug(cardmarketUrls)
+  return englishName && slug && slug === cardmarketSlug(englishName) ? englishName : ''
 }

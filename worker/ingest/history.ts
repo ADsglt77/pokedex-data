@@ -27,7 +27,7 @@ import {
   yearDay,
   type HistoryYear,
 } from '@/lib/history'
-import { plural, reasonOf, taskJournal } from '../journal'
+import { reasonOf, taskJournal } from '../journal'
 import { MAX_FAILURES_IN_A_ROW, readCard, type PokecardexCardPage } from './pokecardex'
 import { readSource, writeSource } from './sources'
 import type { Alive, Step } from './workflow'
@@ -146,26 +146,68 @@ interface Batch {
   failed: number
   /** Les pages en échec d'affilée, à la fin de l'étape. */
   inARow: number
+  /**
+   * Les pages lues des cartes dont le guide des prix donne un prix aujourd'hui et il y a 30 jours
+   * (`checked`), et celles d'entre elles sans historique (`missing`) : `formatChanged`.
+   */
+  checked: number
+  missing: number
 }
+
+/**
+ * Le format des pages a sans doute changé (un champ renommé : `mainHistory` ne trouve plus rien) :
+ * dans une étape, au moins 10 pages lues de cartes dont le guide des prix donne un prix aujourd'hui
+ * et il y a 30 jours (`cardmarket_prices.month_ago`), et plus de la moitié sans historique.
+ * Pokécardex relève ce guide chaque jour et en garde 180 jours : une telle carte a un historique
+ * chez lui. Les autres ne comptent pas : sans vente depuis un mois (anciennes, rares) ou sorties
+ * depuis peu, beaucoup n'en ont pas, et c'est normal.
+ */
+const formatChanged = ({ checked, missing }: Batch) => checked >= 10 && missing * 2 > checked
 
 /**
  * Reprend l'historique de 50 cartes après `after`, puis note l'avancée (`sources` : `history`).
  * Une carte en échec n'est pas notée : relue au prochain passage. `inARow` : les pages en échec
- * d'affilée jusque-là ; à la 10e, l'étape s'arrête. Une page toutes les 3 s : plus de 2 min en
- * tout, le signe de vie redit à chaque carte (`alive`).
+ * d'affilée jusque-là ; à la 10e, l'étape s'arrête. Une carte lue sans historique n'est notée qu'en
+ * fin d'étape, et seulement si le format des pages n'a pas changé (`formatChanged`) : sinon elle
+ * serait notée lue sans que rien n'ait été lu, jamais relue, et les 180 jours que garde la source
+ * perdus. Une page toutes les 3 s : plus de 2 min en tout, le signe de vie redit à chaque carte
+ * (`alive`).
  */
 async function historyBatch(after: Todo | null, inARow: number, alive: Alive): Promise<Batch> {
   const todo = await historyTodo(after)
-  const batch: Batch = { after: todo.at(-1) ?? null, read: 0, days: 0, failed: 0, inARow }
+  const batch: Batch = {
+    after: todo.at(-1) ?? null,
+    read: 0,
+    days: 0,
+    failed: 0,
+    inARow,
+    checked: 0,
+    missing: 0,
+  }
+  // Les produits de ces cartes qui ont un prix aujourd'hui et il y a 30 jours (`formatChanged`).
+  const { results } = await env.DB.prepare(
+    `SELECT id FROM cardmarket_prices
+     WHERE month_ago IS NOT NULL AND id IN (SELECT value FROM json_each(?))`,
+  )
+    .bind(JSON.stringify(todo.map((card) => card.cardmarket)))
+    .all<{ id: number }>()
+  const priced = new Set(results.map(({ id }) => id))
   const done = env.DB.prepare(
     'INSERT OR REPLACE INTO history_imports (lang, card, read_at) VALUES (?, ?, ?)',
   )
+  const empty: Todo[] = []
   for (const card of todo) {
     await alive()
     try {
       const points = mainHistory(await readCard(card.lang, card.id), card.cardmarket)
-      if (points) batch.days += await mergeHistory(card.cardmarket, points)
-      await done.bind(card.lang, card.id, new Date().toISOString()).run()
+      if (points) {
+        batch.days += await mergeHistory(card.cardmarket, points)
+        await done.bind(card.lang, card.id, new Date().toISOString()).run()
+      } else empty.push(card)
+      if (priced.has(card.cardmarket)) {
+        batch.checked++
+        if (!points) batch.missing++
+      }
       batch.read++
       batch.inARow = 0
     } catch (error) {
@@ -179,6 +221,14 @@ async function historyBatch(after: Todo | null, inARow: number, alive: Alive): P
     }
   }
   const now = new Date().toISOString()
+  if (!formatChanged(batch)) {
+    await env.DB.prepare(
+      `INSERT OR REPLACE INTO history_imports (lang, card, read_at)
+       SELECT json_extract(value, '$.lang'), json_extract(value, '$.id'), ?2 FROM json_each(?1)`,
+    )
+      .bind(JSON.stringify(empty), now)
+      .run()
+  }
   await writeSource('history', { stamp: now, date: now.slice(0, 10) }).run()
   return batch
 }
@@ -200,17 +250,24 @@ export async function history(step: Step) {
     if (inARow >= MAX_FAILURES_IN_A_ROW) {
       throw new Error(`${inARow} pages en échec d’affilée : la lecture s’arrête là`)
     }
+    // Levée hors de l'étape : dans l'étape, l'erreur la ferait réessayer, ses 50 pages relues.
+    if (formatChanged(batch)) {
+      throw new Error(
+        `Historique absent de ${batch.missing} pages sur ${batch.checked} de cartes au prix connu depuis un mois (format des pages changé ?)`,
+      )
+    }
     after = batch.after
     if (!after) break
   }
-  // Le bilan dans sa propre étape, comme toute ligne du journal (`Step`).
+  // Le bilan dans sa propre étape, comme toute ligne du journal (`Step`). Des cartes isolées en
+  // échec ne font pas échouer le passage (la tâche, à la demande, resterait sinon en échec jusqu'au
+  // passage suivant) : rien n'est noté pour elles, le passage suivant, qui ne lit qu'elles et les
+  // nouvelles, les relit ; le bilan le dit.
   await step('bilan', async () =>
-    taskJournal('ok', 'Historique repris', { cartes: read, jours: days }),
+    taskJournal(failed ? 'warn' : 'ok', 'Historique repris', {
+      cartes: read,
+      jours: days,
+      enÉchec: failed || undefined,
+    }),
   )
-  // Rien n'est noté pour elles : relues au prochain passage, qui ne lit qu'elles et les nouvelles.
-  if (failed) {
-    throw new Error(
-      `${plural(failed, 'carte en échec, relue', 'cartes en échec, relues')} au prochain passage`,
-    )
-  }
 }

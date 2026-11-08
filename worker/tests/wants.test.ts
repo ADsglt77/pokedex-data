@@ -102,6 +102,33 @@ describe('/v1/wants : les lignes tirées de la base (produits, catalogue, extens
     expect(await wants('464070,464074')).toEqual({ '464070': null, '464074': null })
   })
 
+  test('un nom que désignent aussi les adresses d’une série française sans nom, d’une autre extension : pas de ligne', async () => {
+    await seedFrench()
+    // Une série japonaise au nom anglais d'une extension internationale, celle de la française
+    // ZZXASC, dont le nom anglais n'est pas confirmé (`expansion_name` vide).
+    await run(
+      [SET, 'ja', 'ZZXJ', 'Ascended Heroes', '2025-09-26', 'Ascended Heroes'],
+      [CARD, 'ja', 990204, 'ZZXJ', '001', 1, 'Fushigidane', 464074],
+      [PRODUCT, 464074, BULBASAUR, 2904, 91],
+    )
+    // Le catalogue pas encore relu, sans les adresses : la ligne d'avant.
+    expect(await wants('464074')).toEqual({ '464074': '1x Bulbasaur Bind Down (Ascended Heroes)' })
+    // Relu : chaque nom écrit comme dans une adresse, et l'extension des adresses de ses cartes.
+    const slugs =
+      'UPDATE sets SET expansion_slug = ?, cardmarket_slug = ? WHERE lang = ? AND id = ?'
+    await run(
+      [slugs, 'Ascended-Heroes', 'Ascended-Heroes-Japanese', 'ja', 'ZZXJ'],
+      [slugs, '', 'Ascended-Heroes', 'fr', 'ZZXASC'],
+      [slugs, 'Mega-Evolution', 'Mega-Evolution', 'fr', 'ZZXMEG'],
+    )
+    // Cardmarket lirait « Ascended Heroes » comme l'extension internationale. Une série que ses
+    // propres adresses désignent ne compte qu'une fois.
+    expect(await wants('464074,464070')).toEqual({
+      '464074': null,
+      '464070': '1x Bulbasaur Bind Down (Mega Evolution)',
+    })
+  })
+
   test('une série française et une japonaise d’une même extension et d’un même nom : une ligne', async () => {
     await seedFrench()
     // Le produit partagé par les deux langues est d'une seule extension : un seul nom, un seul compte.
