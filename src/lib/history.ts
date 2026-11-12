@@ -2,15 +2,26 @@
  * L'historique des prix, tel que l'écrivent les tâches et le lit l'API (`worker/ingest/prices.ts`,
  * `worker/ingest/history.ts`, et `worker/history.ts`) : un tableau par carte et par année, à partir
  * de son premier jour avec un prix ; pour l'app, un prix par jour depuis ce premier jour
- * (`joinYears`). Chaque prix au centime (`toCents`), celui du jour comme celui repris. Sans base :
- * commun aux tâches et à l'API.
+ * (`joinYears`). Chaque prix plausible et au centime (`plausiblePrice`), celui du jour comme celui
+ * repris. Sans base : commun aux tâches et à l'API.
  */
 
 import type { CardPriceHistory } from '@/contract'
 import { addDays, daysBetween } from '@/lib/time'
 
-/** Un prix au centime : la même règle pour le prix du jour et pour l'historique repris. */
-export const toCents = (price: number) => Math.round(price * 100) / 100
+/** Au-delà, une valeur des sources n'est pas un prix de carte (une erreur, un format changé). */
+const MAX_PRICE = 100_000
+
+/**
+ * Une valeur des sources lue comme un prix, la même règle pour le prix du jour et pour l'historique
+ * repris (testé) : un nombre qui, au centime, fait plus de 0 et moins de 100 000 € ; sinon `null`
+ * (Cardmarket note `0` ou `null` un prix inconnu).
+ */
+export function plausiblePrice(value: unknown) {
+  if (typeof value !== 'number') return null
+  const cents = Math.round(value * 100) / 100
+  return cents > 0 && cents < MAX_PRICE ? cents : null
+}
 
 /** `2026-10-14` → [2026, 286] : l'année et le jour de l'année (0 : 1er janvier). */
 export function yearDay(date: string): [number, number] {

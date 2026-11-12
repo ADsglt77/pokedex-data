@@ -7,7 +7,8 @@
  * changer de jour en route, ni passer d'une carte à une autre. Les deux tâches peuvent écrire la
  * même année en même temps : chacune ne la réécrit que si l'autre n'y a pas touché entre-temps
  * (`writeYears`, `unwritten`), sinon le prix du jour s'effacerait. Seuls des jours écrits
- * AAAA-MM-JJ sont repris. La reprise (`historyTodo`) suit la langue : l'id d'une carte japonaise
+ * AAAA-MM-JJ, au plus 200 jours avant le dernier relevé, et des prix plausibles sont repris. La
+ * reprise (`historyTodo`) suit la langue : l'id d'une carte japonaise
  * lue ne fait pas sauter la française au même id.
  */
 
@@ -153,16 +154,39 @@ describe('mergeHistory : des prix repris de Pokécardex', () => {
     await reset()
     await run("UPDATE cardmarket_history SET prices = '[10,11]' WHERE id = 1")
     const written = await mergeHistory(1, [
-      ['2025-12-31', 5],
+      ['2026-10-10', 5],
       ['2026-10-12', 8],
       ['2026-10-14', 9],
       ['2026-10-15', 9],
     ])
     expect(written).toBe(2)
     expect(await yearsOf(1)).toEqual([
-      { year: 2025, first: 364, prices: [5] },
-      { year: 2026, first: 284, prices: [8, null, 10, 11] },
+      { year: 2026, first: 282, prices: [5, null, 8, null, 10, 11] },
     ])
+  })
+
+  test('un jour plus de 200 jours avant le dernier relevé : écarté (la source se trompe) ; jusqu’à 200, repris, l’année d’avant comprise', async () => {
+    await reset()
+    expect(
+      await mergeHistory(4, [
+        ['2026-03-27', 3],
+        ['2026-03-28', 4],
+      ]),
+    ).toBe(1)
+    expect(await yearsOf(4)).toEqual([{ year: 2026, first: 86, prices: [4] }])
+    // Un relevé de janvier : décembre d'avant est dans la fenêtre.
+    await run("UPDATE sources SET date = '2026-01-10' WHERE name = 'cardmarket'")
+    expect(await mergeHistory(5, [['2025-12-31', 5]])).toBe(1)
+    expect(await yearsOf(5)).toEqual([{ year: 2025, first: 364, prices: [5] }])
+    // Aucun jour dans les bornes (trop ancien, ou celui du relevé) : rien à reprendre, `null` (la
+    // carte compte comme sans historique), rien d'écrit.
+    expect(
+      await mergeHistory(6, [
+        ['2025-06-23', 3],
+        ['2026-01-10', 4],
+      ]),
+    ).toBeNull()
+    expect(await yearsOf(6)).toEqual([])
   })
 
   test('un jour déjà au même prix : rien de réécrit ; une autre carte : intacte', async () => {
@@ -320,6 +344,15 @@ describe('mainHistory : la courbe de la carte dans sa page Pokécardex', () => {
     { date: '2026-04-24', v_null_normale_avg30: 0, v_104_normale_avg30: 26 },
     { date: '2026-04-25', v_null_normale_avg30: 2.49 },
   ]
+
+  test('un prix négatif, nul au centime ou aberrant (100 000 € ou plus) n’est pas repris', () => {
+    const odd = [-2, 0.004, 100_000, 250_000].map((price, index) => ({
+      date: `2026-04-2${index}`,
+      v_null_normale_avg30: price,
+    }))
+    const read = mainHistory(page('719442', { '180': [...odd, points[3]!] }), 719442)
+    expect(read).toEqual([['2026-04-25', 2.49]])
+  })
 
   test('la plus longue période, la carte elle-même : ni sa variante ni ses versions', () => {
     const read = mainHistory(page('719442', { '15': points.slice(3), '180': points }), 719442)

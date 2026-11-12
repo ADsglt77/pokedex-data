@@ -332,12 +332,35 @@ const storedCards = (lang: CardLanguage, code: string) =>
   )
 
 /**
+ * Une carte que le catalogue peut garder : son id (sa clé) et son rang (le chemin de son image, de
+ * 1 à 9 999 : `lib/image-paths.ts`) des entiers positifs. Sinon, une erreur de la source : la carte
+ * est écartée, le journal le dit, et cette lecture ne retire aucune carte de la série (déjà connue,
+ * elle garde sa ligne d'avant ; moins de la moitié des cartes d'avant gardées : la série entière
+ * est refusée).
+ */
+const wellFormed = ({ id_card, sort }: PokecardexCard) =>
+  Number.isInteger(id_card) && id_card > 0 && Number.isInteger(sort) && sort > 0 && sort < 10_000
+
+/**
+ * Son id Cardmarket : un entier positif, en nombre ou en texte (comme dans les pages des cartes :
+ * un format changé ne les effacerait pas toutes) ; sinon aucun (`0` : ni prix ni lien, comme sans
+ * id).
+ */
+function cardmarketOf(id: number | null) {
+  const value = Number(id)
+  return Number.isInteger(value) && value > 0 ? value : 0
+}
+
+/**
  * La page d'une série, enregistrée d'un seul tenant (`batch`) : son nombre de cartes, celui de ses
  * cartes d'avant (`known`), et celui de ses cartes déjà copiées (`image` noté) que la source a
  * changées de série ou de rang (docs/donnees.md, « Une série renumérotée »). En français, sans les
  * cartes qui n'existent qu'en anglais ; `englishName` : le nom anglais d'une série française, que
  * les adresses Cardmarket de ses cartes doivent confirmer (`null` : indisponible ce passage). Une
- * carte dont la série ou le rang changent a une autre image : à chercher de nouveau.
+ * carte dont la série ou le rang changent a une autre image : à chercher de nouveau. Une carte dont
+ * l'id ou le rang ne sont pas des entiers positifs est écartée (`wellFormed`, comptée :
+ * `rejected`), et rien n'est alors retiré de la série ; un id Cardmarket mal formé ne compte pas
+ * (`cardmarketOf`) : testé.
  */
 export async function saveSeries(
   lang: CardLanguage,
@@ -346,7 +369,8 @@ export async function saveSeries(
   readAt: string,
   englishName: string | null,
 ) {
-  const cartes = lang === 'fr' ? page.cartes.filter((card) => !card.only_english) : page.cartes
+  const listed = lang === 'fr' ? page.cartes.filter((card) => !card.only_english) : page.cartes
+  const cartes = listed.filter(wellFormed)
   const { fullName, releaseDateFR } = page.currentSeries
   const placed = JSON.stringify(cartes.map(({ id_card, sort }) => ({ id: id_card, sort })))
   const [count, stored, renumbered] = await env.DB.batch([
@@ -405,7 +429,7 @@ export async function saveSeries(
       name: stated(card.name_card_fr) || english,
       en: english,
       de: stated(card.name_card_de),
-      cardmarket: card.id_cardmarket ?? 0,
+      cardmarket: cardmarketOf(card.id_cardmarket),
       rarity: card.id_rarete,
       type: card.id_type,
       illustrator: stated(card.nom_illustrateur),
@@ -465,16 +489,23 @@ export async function saveSeries(
        SELECT ?2, json_extract(card.value, '$.id'), dex.key, dex.value
        FROM json_each(?1) AS card, json_each(card.value, '$.dexIds') AS dex`,
     ).bind(json, lang),
-    env.DB.prepare('DELETE FROM cards WHERE lang = ? AND set_id = ? AND seen != ?').bind(
-      lang,
-      code,
-      readAt,
-    ),
+    // Les cartes que cette lecture n'a pas vues : retirées, sauf si elle a écarté des cartes mal
+    // formées (l'une d'elles peut être une carte d'avant).
+    ...(cartes.length === listed.length
+      ? [
+          env.DB.prepare('DELETE FROM cards WHERE lang = ? AND set_id = ? AND seen != ?').bind(
+            lang,
+            code,
+            readAt,
+          ),
+        ]
+      : []),
   ])
   return {
     saved: cartes.length,
     moved: (renumbered!.results[0] as { count: number }).count,
     known: before,
+    rejected: listed.length - cartes.length,
   }
 }
 
@@ -509,27 +540,59 @@ const blocksOf = (page: PokecardexSeries, lang: CardLanguage): MenuBlock[] =>
   }))
 
 /**
+ * Au plus, les séries connues qu'un passage retire, et les cartes de chacune (décision de
+ * l'utilisateur, novembre 2026) : au-delà, le menu s'est trompé (une série japonaise rangée en
+ * « Asia Exclusive »), et le retrait effacerait des cartes que des collections montrent.
+ */
+const MAX_REMOVED_SETS = 3
+const MAX_REMOVED_CARDS = 20
+
+/**
  * Le bloc de chaque série d'une langue, d'après son menu : ses séries en boosters, puis ses decks
  * (le menu français n'en a pas : ses decks et kits sont des séries) ; et les séries retirées
- * (`removed` : les exclusivités d'autres pays d'Asie qu'un passage d'avant aurait gardées).
+ * (`removed` : les exclusivités d'autres pays d'Asie qu'un passage d'avant aurait gardées). Plus
+ * de 3 séries connues à retirer, ou l'une de plus de 20 cartes : aucune n'est retirée, et le refus
+ * est rendu (`null` sinon), pour que la tâche enregistre le reste puis échoue (testé).
  */
-export async function saveBlocks(lang: CardLanguage, blocks: MenuBlock[], removed: string[]) {
+export async function saveBlocks(
+  lang: CardLanguage,
+  blocks: MenuBlock[],
+  removed: string[],
+): Promise<string | null> {
   const block = env.DB.prepare(
     'UPDATE sets SET block = ?, block_rank = ?, deck = ? WHERE lang = ? AND id = ?',
   )
   const gone = JSON.stringify(removed)
-  await env.DB.batch([
-    ...blocks.flatMap(({ name, series, decks }, rank) => [
-      ...series.map((code) => block.bind(name, rank, 0, lang, code)),
-      ...decks.map((code) => block.bind(name, rank, 1, lang, code)),
-    ]),
+  const { results: known } = await env.DB.prepare(
+    `SELECT sets.id AS code, COUNT(cards.id) AS cards FROM sets
+     LEFT JOIN cards ON cards.lang = sets.lang AND cards.set_id = sets.id
+     WHERE sets.lang = ? AND sets.id IN (SELECT value FROM json_each(?)) GROUP BY sets.id`,
+  )
+    .bind(lang, gone)
+    .all<{ code: string; cards: number }>()
+  const refused =
+    known.length > MAX_REMOVED_SETS || known.some(({ cards }) => cards > MAX_REMOVED_CARDS)
+  const removals = [
     env.DB.prepare(
       'DELETE FROM cards WHERE lang = ? AND set_id IN (SELECT value FROM json_each(?))',
     ).bind(lang, gone),
     env.DB.prepare(
       'DELETE FROM sets WHERE lang = ? AND id IN (SELECT value FROM json_each(?))',
     ).bind(lang, gone),
-  ])
+  ]
+  const statements = [
+    ...blocks.flatMap(({ name, series, decks }, rank) => [
+      ...series.map((code) => block.bind(name, rank, 0, lang, code)),
+      ...decks.map((code) => block.bind(name, rank, 1, lang, code)),
+    ]),
+    ...(refused ? [] : removals),
+  ]
+  if (statements.length) await env.DB.batch(statements)
+  if (!refused) return null
+  const named = known
+    .map(({ code, cards }) => `${code} (${plural(cards, 'carte', 'cartes')})`)
+    .join(', ')
+  return `Séries ${LANGUAGE_NAMES[lang]} à retirer, gardées (${known.length}) : ${named}`
 }
 
 /**
@@ -585,7 +648,7 @@ async function englishNames(due: string[]): Promise<[string, string][]> {
 
 /** Ce qu'a donné la lecture d'une série. */
 type SeriesOutcome =
-  | { status: 'saved'; saved: number; moved: number; known: number }
+  | { status: 'saved'; saved: number; moved: number; known: number; rejected: number }
   | { status: 'empty'; known: number }
   | { status: 'skipped' }
   | { status: 'failed' }
@@ -624,6 +687,13 @@ async function readOne(
       return { outcome: { status: 'empty', known }, menu }
     }
     const saved = await saveSeries(lang, code, page, new Date().toISOString(), englishName)
+    if (saved.rejected) {
+      taskJournal('warn', 'Cartes mal formées écartées', {
+        langue: lang,
+        série: code,
+        cartes: saved.rejected,
+      })
+    }
     return { outcome: { status: 'saved', ...saved }, menu }
   } catch (error) {
     taskJournal('warn', 'Série illisible', { langue: lang, série: code, raison: reasonOf(error) })
@@ -651,6 +721,8 @@ export async function catalog(step: Step, refresh: boolean) {
   })
 
   const failed: string[] = []
+  /** Les retraits refusés (`saveBlocks`) : la tâche échoue, après avoir tout enregistré. */
+  const refusals: string[] = []
   let knownRead = 0
   let knownEmpty = 0
   for (const [lang, codes] of due) {
@@ -691,7 +763,12 @@ export async function catalog(step: Step, refresh: boolean) {
     // Les blocs de chaque série, les nouvelles comprises ; les séries d'Asie retirées.
     if (menu) {
       const { blocks, asian } = menu
-      await step(`blocs ${lang}`, () => saveBlocks(lang, blocks, asian))
+      const refused = await step(`blocs ${lang}`, async () => {
+        const refused = await saveBlocks(lang, blocks, asian)
+        if (refused) taskJournal('warn', 'Retrait de séries refusé', { raison: refused })
+        return refused
+      })
+      if (refused) refusals.push(refused)
     }
     await step(`bilan ${lang}`, () => logTotals(lang, read, cards, renumbered))
     // Le site a sans doute changé : l'autre langue n'est pas lue non plus.
@@ -711,4 +788,5 @@ export async function catalog(step: Step, refresh: boolean) {
       `Séries déjà connues rendues sans cartes : ${knownEmpty} sur ${knownRead} (format des pages changé ?)`,
     )
   }
+  if (refusals.length) throw new Error(`${refusals.join(' ; ')} (menu changé ?)`)
 }

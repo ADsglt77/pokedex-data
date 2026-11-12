@@ -3,7 +3,9 @@
 Ce que lit chaque tâche d'ingestion, ce qu'elle range dans la D1 et R2, et ce qu'en rend l'API. À
 lire avant de toucher à ce domaine (les règles : `CLAUDE.md`). Les tâches tournent dans le Worker
 (`worker/ingest/`, les chemins ci-dessous en partent), un Workflow par passage, par étapes : une
-étape en échec est réessayée seule, et un passage arrêté reprend où il en était.
+étape en échec est réessayée seule (deux fois, une puis deux minutes plus tard ; chaque essai a
+30 min, au-delà il compte comme une panne : `RETRIES`, `ingest/workflow.ts`), et un passage
+arrêté reprend où il en était.
 
 ## Espèces (`ingest/species.ts`, chaque mois)
 
@@ -70,8 +72,18 @@ d'une zone à l'autre (la carte 7091, la série SVP, la rareté 48) : chaque lig
   dix d'affilée arrêtent la lecture, celle de l'autre langue comprise (le site a changé) ; une
   série qui donne moins de la moitié des cartes qu'elle avait est refusée ; une page sans cartes ne
   retire rien (plus de la moitié des séries connues sans cartes : la tâche échoue) ; une carte
-  qu'une lecture de sa série ne voit plus est retirée. Tant qu'aucune carte d'une langue n'a été
-  lue, les réponses de cette langue répondent 404.
+  qu'une lecture de sa série ne voit plus est retirée ; une carte dont l'id ou le rang (de 1 à
+  9 999, comme dans le chemin de son image) ne sont pas des entiers positifs est écartée
+  (`wellFormed`, comptée au journal : « Cartes mal formées écartées »), et cette lecture ne retire
+  alors aucune carte de la série (déjà connue, la carte garde sa ligne d'avant) ; un id Cardmarket
+  mal formé compte pour aucun (la carte gardée, sans prix ni lien), en texte il est lu (comme dans
+  les pages des cartes). Un menu qui retirerait (« Asia Exclusive ») plus de 3 séries connues, ou
+  l'une de plus de 20 cartes, n'en retire aucune (`saveBlocks` ; seuils : décision de l'utilisateur,
+  novembre 2026) : le menu s'est sans doute trompé. Le reste du passage est lu et enregistré, les
+  réponses comprises, puis la tâche échoue, et le journal nomme ces séries (« Retrait de séries
+  refusé »). Tant que le menu les range ainsi, chaque passage le redit ; une vraie exclusivité de
+  cette taille se retire alors à la main (D1). Tant qu'aucune carte d'une langue n'a été lue, les
+  réponses de cette langue répondent 404.
 - Les réponses, recalculées en fin de tâche, chaque langue d'après ses seules lignes, une étape
   chacune (`saveCatalog`, `saveLanguage`, testé : enregistrées dans R2, `snapshots/…`, et celles
   d'une série retirée retirées, dans sa langue seulement ; `snapshotName` : celles du japonais gardent leurs noms, `catalog/…`, celles du français, de même
@@ -268,7 +280,9 @@ seulement les cartes à l'unité (catégorie 51) :
   Pokécardex (`guidePrice`, testée), la tendance Cardmarket pour une carte d'une série sortie depuis
   moins de 31 jours (d'après le catalogue), sa moyenne sur 30 jours ensuite, à défaut sur 7 jours,
   puis sur 1 jour (jamais la tendance d'une carte ancienne à sa place). Vérifié : pour une même
-  carte un même jour, la valeur de Pokécardex.
+  carte un même jour, la valeur de Pokécardex. Une valeur négative, nulle au centime, ou de
+  100 000 € ou plus n'est pas un prix (`plausiblePrice`, `src/lib/history.ts`, testé : la
+  moyenne suivante, ou aucun prix ; le plus bas, `null`) ; l'historique repris suit la même règle.
 - Les gardes : relancée le même jour, la tâche remplace le prix du jour ; moins de la moitié des
   prix d'avant (le format du guide a changé), rien n'est écrit et la tâche échoue. La liste des
   produits, qui ne sert qu'à la liste de souhaits, n'arrête jamais les prix du jour (testé) :
@@ -280,8 +294,10 @@ seulement les cartes à l'unité (catégorie 51) :
   tous écrits, d'un seul tenant : arrêtée en route, la tâche n'a rien changé des prix (testé), et
   relancée, elle refait l'historique du jour à l'identique. L'écriture, séparée du téléchargement
   (`savePriceGuide`), est testée. Le guide et la liste (29 Mo) sont lus en flux (`json-stream.ts`,
-  testé : entiers, ils ne tiendraient pas dans la mémoire du Worker), et rien n'est retéléchargé
-  tant que le guide n'a pas changé (`sources` : son `Last-Modified`).
+  testé : entiers, ils ne tiendraient pas dans la mémoire du Worker) ; un document coupé avant la
+  fin de son tableau est refusé, jamais lu comme complet (le refus est testé) : le guide, la tâche
+  échoue et repart au Cron suivant ; la liste, celle d'avant reste. Rien n'est retéléchargé tant que
+  le guide n'a pas changé (`sources` : son `Last-Modified`).
 - Les réponses : `/v1/prices?ids=…` (`readPrices` : le jour, et une clé par carte demandée,
   `[prix, plus bas, prix d'il y a 30 jours]` ou `null` sans prix ; 404 tant que le guide n'a
   jamais été lu) ; `/v1/prices/<id>` (l'historique d'une carte) et `/v1/histories?ids=…` (ceux de
@@ -300,22 +316,24 @@ un id Cardmarket (environ 28 000 japonaises et 25 000 françaises), une fois : l
 elle-même (`mainHistory`, testé : son produit Cardmarket, celui du catalogue, sans variante
 « Reverse » ni version, au prix suivi « avg30 », la même règle que `prices`, pour une française
 comme pour une japonaise ; seulement les jours écrits AAAA-MM-JJ, une autre forme tomberait entre
-deux jours), et chaque jour avant le dernier relevé prend son prix (`mergeHistory`, testé :
-celui-là et les suivants restent ceux du relevé). La tâche `prices` peut écrire les mêmes lignes
-pendant que `history` tourne : l'année de la carte est lue avec le jour du dernier relevé,
-fusionnée, puis réécrite seulement si personne n'y a touché entre-temps (`writeYears`, testé),
-sinon relue et refaite (une année réécrite d'après une lecture d'avant effacerait le prix du
-jour) ; son prix d'il y a 30 jours suit, dans `cardmarket_prices` seulement. Écart accepté
-(décision de l'utilisateur, novembre 2026) : quand la reprise croise un relevé des prix, celui-ci
-remplace ensuite cette table par ses prix mis de côté (`cardmarket_prices_next`), et une carte
-reprise entre-temps peut perdre son prix d'il y a 30 jours, remplacé par celui que le relevé
-avait calculé avant la reprise (souvent `null`) ; il se corrige au relevé suivant (environ un
-jour). Une page toutes les 3 s : environ 23 h pour les
-japonaises la première fois, 21 h de plus pour les françaises ; les séries les plus récentes
-d'abord, toutes langues mêlées, par étapes de 50 cartes ; chaque carte lue une fois
-(`history_imports`, une ligne par langue et par carte : `historyTodo`, testé, l'id 7091 japonais
-lu ne fait pas sauter le français), un passage suivant ne lit que les nouvelles. Les gardes
-(testées, `worker/tests/history-run.test.ts`) :
+deux jours ; seulement des prix plausibles, `plausiblePrice`), et chaque jour avant le dernier
+relevé, et au plus 200 jours avant lui, prend son prix (`mergeHistory`, testé : celui-là et les
+suivants restent ceux du relevé ; un jour plus ancien est une erreur de la source, Pokécardex en
+montre 180, et il écrirait loin dans l'historique ; une carte dont aucun jour n'est dans ces bornes
+compte comme une carte sans historique : la garde du format, ci-dessous). La tâche `prices` peut
+écrire les mêmes lignes pendant que `history` tourne : l'année de la carte est lue avec le jour du
+dernier relevé, fusionnée, puis réécrite seulement si personne n'y a touché entre-temps
+(`writeYears`, testé), sinon relue et refaite (une année réécrite d'après une lecture d'avant
+effacerait le prix du jour) ; son prix d'il y a 30 jours suit, dans `cardmarket_prices` seulement.
+Écart accepté (décision de l'utilisateur, novembre 2026) : quand la reprise croise un relevé des
+prix, celui-ci remplace ensuite cette table par ses prix mis de côté (`cardmarket_prices_next`), et
+une carte reprise entre-temps peut perdre son prix d'il y a 30 jours, remplacé par celui que le
+relevé avait calculé avant la reprise (souvent `null`) ; il se corrige au relevé suivant (environ un
+jour). Une page toutes les 3 s : environ 23 h pour les japonaises la première fois, 21 h de plus
+pour les françaises ; les séries les plus récentes d'abord, toutes langues mêlées, par étapes de 50
+cartes ; chaque carte lue une fois (`history_imports`, une ligne par langue et par carte :
+`historyTodo`, testé, l'id 7091 japonais lu ne fait pas sauter le français), un passage suivant ne
+lit que les nouvelles. Les gardes (testées, `worker/tests/history-run.test.ts`) :
 
 - des cartes isolées en échec (page illisible) ne font pas échouer le passage : jamais notées dans
   `history_imports`, elles sont relues au passage suivant, et le bilan du journal le dit (▲,
@@ -325,18 +343,18 @@ lu ne fait pas sauter le français), un passage suivant ne lit que les nouvelles
 - 10 pages en échec d'affilée arrêtent la lecture et font échouer le passage (le site a changé) ;
 - le format des pages changé (un champ renommé : `mainHistory` ne trouverait plus rien, et chaque
   carte serait notée lue avec 0 jour, jamais relue, ses 180 jours perdus) : une carte lue sans
-  historique n'est notée qu'en fin d'étape, et pas du tout si, parmi les pages lues de l'étape, au
-  moins 10 sont de cartes dont le guide des prix donne un prix aujourd'hui **et** il y a 30 jours
-  (`cardmarket_prices.month_ago`), et plus de la moitié de celles-là sans historique ; le passage
-  échoue alors (« format des pages changé ? », au journal), et ces cartes sont relues au passage
-  suivant. Pokécardex relève ce même guide chaque jour et en garde 180 jours : une telle carte a
-  forcément un historique chez lui. Les autres ne comptent pas : une carte sans vente depuis un mois
-  (ancienne, rare) ou sortie depuis peu (sans prix il y a 30 jours, ou pas encore relevée par
-  Pokécardex), souvent sans historique, ne déclenche rien, même une étape entière de celles-là
-  (une série nouvelle, que le catalogue vient d'ajouter). Erreur levée hors de l'étape : dans
-  l'étape, le Workflow la réessaierait, 50 pages relues pour rien. Limite : les cartes dont le
-  produit n'a pas de prix d'il y a 30 jours ne sont pas protégées (pour une carte nouvelle, la
-  tâche `prices` a de toute façon chacun de ses jours).
+  historique (ou sans aucun jour dans les bornes de la reprise) n'est notée qu'en fin d'étape, et
+  pas du tout si, parmi les pages lues de l'étape, au moins 10 sont de cartes dont le guide des prix
+  donne un prix aujourd'hui **et** il y a 30 jours (`cardmarket_prices.month_ago`), et plus de la
+  moitié de celles-là sans historique ; le passage échoue alors (« format des pages changé ? », au
+  journal), et ces cartes sont relues au passage suivant. Pokécardex relève ce même guide chaque
+  jour et en garde 180 jours : une telle carte a forcément un historique chez lui. Les autres ne
+  comptent pas : une carte sans vente depuis un mois (ancienne, rare) ou sortie depuis peu (sans
+  prix il y a 30 jours, ou pas encore relevée par Pokécardex), souvent sans historique, ne déclenche
+  rien, même une étape entière de celles-là (une série nouvelle, que le catalogue vient d'ajouter).
+  Erreur levée hors de l'étape : dans l'étape, le Workflow la réessaierait, 50 pages relues pour
+  rien. Limite : les cartes dont le produit n'a pas de prix d'il y a 30 jours ne sont pas protégées
+  (pour une carte nouvelle, la tâche `prices` a de toute façon chacun de ses jours).
 
 L'avancée est notée à chaque étape (`sources` : `history`), que suit l'ETag des prix. Une carte
 reprise ne l'est plus : si son id Cardmarket change ensuite (le catalogue adopte celui que
@@ -412,9 +430,16 @@ passée, comme une tâche déjà en cours), mais un passage sans signe de vie de
 arrêté net (son Workflow terminé, ou en échec sans avoir pu noter sa fin) : il ne bloque plus sa
 tâche, et il est noté interrompu à son passage suivant (testé).
 
-Le Cron (toutes les heures, `worker/index.ts`) lance une tâche à rythme quand sa dernière réussite
-a plus que son intervalle (`INGEST_JOBS`) ; après un échec, 10 min plus tard, puis 20, 40…
+Le Cron (toutes les heures, `worker/index.ts`) lance une tâche à rythme quand le début de son
+dernier passage terminé a plus que son intervalle (`INGEST_JOBS`) s'il a réussi ; après un échec,
+depuis sa fin (un essai coupé à 30 min ne la fait pas repartir aussitôt), 10 min, puis 20, 40…
 jusqu'à 6 h (`isDue`, testé : une panne qui dure ne fait pas solliciter la source à chaque fois).
+Chaque délai moins 10 min (`CRON_MARGIN`, testé) : une réussite se mesure depuis le début du
+passage (sa durée n'y change rien), qui commence un peu après le Cron qui l'a lancé ; sans la
+marge, `prices` commencée à 6 h 00 min 03 s ne serait pas due au Cron de midi, mais à celui de
+13 h (avant, mesuré depuis la fin, le rythme réel était de 7 h). Les rythmes réels : `prices`
+toutes les 6 h ; après 1 à 3 échecs d'affilée, au Cron suivant ; après 4, 2 h plus tard ; après 5,
+3 h ; ensuite toutes les 6 h.
 Seulement `species` et `prices` : jamais `catalog`, `images` ni `history`, à la demande (testé).
 
 `/v1/status` rend seulement le nom, le libellé et l'état de chaque tâche, dans l'ordre

@@ -48,9 +48,15 @@ export type Step = <T extends Rpc.Serializable<T>>(
 
 /**
  * Une étape réessaie une panne (la base, R2) deux fois, une puis deux minutes plus tard ; au-delà,
- * la tâche échoue. Les pages et les images en erreur ne lèvent rien : leur étape les compte.
+ * la tâche échoue. Chaque essai a 30 min (10 sans `timeout` : la plus longue étape, le relevé des
+ * prix, pourrait les dépasser, et un essai tenu pour échoué peut écrire encore pendant le
+ * suivant) ; au-delà, il compte comme une panne. Les pages et les images en erreur ne lèvent rien :
+ * leur étape les compte.
  */
-const RETRIES = { retries: { limit: 2, delay: '1 minute', backoff: 'exponential' } } as const
+const RETRIES = {
+  retries: { limit: 2, delay: '1 minute', backoff: 'exponential' },
+  timeout: '30 minutes',
+} as const
 
 export class Ingest extends WorkflowEntrypoint<Cloudflare.Env, IngestParams> {
   async run(event: WorkflowEvent<IngestParams>, step: WorkflowStep) {

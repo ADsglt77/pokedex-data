@@ -4,8 +4,9 @@
  * lisent les mêmes pages : deux à la fois doubleraient le rythme convenu avec la source) ; un
  * passage arrêté net (sans signe de vie depuis 5 min : son Workflow arrêté) ne bloque plus sa
  * tâche, et il est noté interrompu. Sinon, après un arrêt brutal, plus rien ne relancerait
- * l'historique des prix. Et quand le Cron relance une tâche à rythme (`isDue`) : à son intervalle,
- * plus tôt après un échec, de plus en plus tard s'ils se suivent ; il ne lance que `species` et
+ * l'historique des prix. Et quand le Cron relance une tâche à rythme (`isDue`) : à son intervalle
+ * (depuis le début du passage, moins la marge du Cron : au Cron 6 h plus tard, pas 7 h), plus
+ * tôt après un échec, de plus en plus tard s'ils se suivent ; il ne lance que `species` et
  * `prices`, jamais `catalog`, `images` ni `history` (à la demande seulement).
  */
 
@@ -106,15 +107,29 @@ describe('isDue : quand le Cron relance une tâche à rythme', () => {
     expect(await isDue('prices', 6 * HOUR)).toBe(true)
   })
 
-  test('après un échec, 10 min plus tard ; après plusieurs, de plus en plus tard, 6 h au plus', async () => {
-    await finished('prices', [1, DAY], [0, 11 * MINUTE])
+  test('la marge du Cron : réussie, commencée il y a 5 h 51 (après le Cron d’il y a 6 h), due ; il y a 5 h 49, pas encore', async () => {
+    await finished('prices', [1, 6 * HOUR - 9 * MINUTE])
     expect(await isDue('prices', 6 * HOUR)).toBe(true)
     await clear()
-    // Trois échecs d'affilée : 40 min d'attente.
-    await finished('prices', [1, DAY], [0, 3 * HOUR], [0, 2 * HOUR], [0, 30 * MINUTE])
+    await finished('prices', [1, 6 * HOUR - 11 * MINUTE])
+    expect(await isDue('prices', 6 * HOUR)).toBe(false)
+    // Depuis son début : un long passage, commencé il y a 5 h 59 et fini il y a 5 h, est dû.
+    await clear()
+    await env.DB.prepare('INSERT INTO runs (job, started_at, finished_at, ok) VALUES (?, ?, ?, 1)')
+      .bind('prices', ago(6 * HOUR - MINUTE), ago(5 * HOUR))
+      .run()
+    expect(await isDue('prices', 6 * HOUR)).toBe(true)
+  })
+
+  test('après un échec, au Cron suivant ; après plusieurs, de plus en plus tard, 6 h au plus', async () => {
+    await finished('prices', [1, DAY], [0, 1 * MINUTE])
+    expect(await isDue('prices', 6 * HOUR)).toBe(true)
+    await clear()
+    // Trois échecs d'affilée : 40 min d'attente, moins la marge du Cron.
+    await finished('prices', [1, DAY], [0, 3 * HOUR], [0, 2 * HOUR], [0, 29 * MINUTE])
     expect(await isDue('prices', 6 * HOUR)).toBe(false)
     await clear()
-    await finished('prices', [1, DAY], [0, 3 * HOUR], [0, 2 * HOUR], [0, 41 * MINUTE])
+    await finished('prices', [1, DAY], [0, 3 * HOUR], [0, 2 * HOUR], [0, 31 * MINUTE])
     expect(await isDue('prices', 6 * HOUR)).toBe(true)
     await clear()
     // Dix échecs : 6 h, pas 85.
@@ -124,6 +139,14 @@ describe('isDue : quand le Cron relance une tâche à rythme', () => {
     ])
     await finished('prices', ...failures)
     expect(await isDue('prices', 6 * HOUR)).toBe(true)
+    // Un échec se mesure depuis sa fin : quatre échecs (70 min), le dernier commencé il y a 95 min
+    // (des essais coupés à 30 min) et fini il y a 5 min, pas encore dû.
+    await clear()
+    await finished('prices', [1, DAY], [0, 5 * HOUR], [0, 4 * HOUR], [0, 3 * HOUR])
+    await env.DB.prepare('INSERT INTO runs (job, started_at, finished_at, ok) VALUES (?, ?, ?, 0)')
+      .bind('prices', ago(95 * MINUTE), ago(5 * MINUTE))
+      .run()
+    expect(await isDue('prices', 6 * HOUR)).toBe(false)
   })
 })
 

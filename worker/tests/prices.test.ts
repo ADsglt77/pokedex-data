@@ -9,7 +9,9 @@
  * impossible à enregistrer n'arrête jamais les prix du jour, et ne remplace pas celle d'avant ; un
  * passage arrêté en route ne laisse rien de ses prix ; une année que la tâche `history` change
  * entre sa lecture et son écriture est relue et refaite, son prix d'il y a 30 jours avec elle ;
- * chaque paquet de cartes redit le signe de vie de l'étape. Le guide et la liste, lus en flux.
+ * chaque paquet de cartes redit le signe de vie de l'étape ; une valeur négative, nulle ou de
+ * 100 000 € ou plus n'est pas un prix. Le guide et la liste, lus en flux : un document coupé avant
+ * la fin de son tableau est refusé, jamais lu comme complet.
  */
 
 import { env } from 'cloudflare:workers'
@@ -296,6 +298,22 @@ describe('savePriceGuide : les prix du jour et l’historique', () => {
     expect(await priceRow(5)).toMatchObject({ price: 4.2 })
   })
 
+  test('un prix négatif, nul ou aberrant (100 000 € ou plus) n’est pas un prix : la moyenne suivante, ou aucun', async () => {
+    await reset()
+    const day = guide('2026-10-12', [
+      [1, { avg30: -5 }],
+      [2, { avg30: 250_000, avg7: 3 }],
+      [3, { avg30: 0.004 }],
+      [4, { avg30: 99_999.5, low: -1 }],
+    ])
+    await savePriceGuide(day, null, 'a', alive)
+    expect(await priceRow(1)).toBeNull()
+    expect(await history(1)).toBeNull()
+    expect(await priceRow(2)).toMatchObject({ price: 3 })
+    expect(await priceRow(3)).toBeNull()
+    expect(await priceRow(4)).toEqual({ price: 99_999.5, low: null, monthAgo: null })
+  })
+
   test('une série récente se juge dans la langue de la carte : le même code dans l’autre langue n’y change rien', async () => {
     await reset()
     // Le même code, récent au Japon, ancien en France : la carte française n'a pas la tendance.
@@ -481,5 +499,15 @@ describe('streamArray : le guide des prix et la liste des produits, lus en flux'
       expect(await read([bytes.slice(0, cut), bytes.slice(cut)])).toEqual(expected)
     }
     expect(await read([...bytes].map((byte) => new Uint8Array([byte])))).toEqual(expected)
+  })
+
+  test('un document coupé avant la fin de son tableau, ou sans lui : refusé, jamais lu comme complet', async () => {
+    // Coupé après le premier objet (la date du guide, avant le tableau, déjà lue) ; puis sans
+    // tableau.
+    const end = text.indexOf('{"idProduct":2')
+    await expect(read([bytes.slice(0, end)])).rejects.toThrow('priceGuides')
+    await expect(read([new TextEncoder().encode('{"createdAt":"x","autre":[]}')])).rejects.toThrow(
+      'priceGuides',
+    )
   })
 })

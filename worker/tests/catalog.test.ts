@@ -9,9 +9,12 @@
  * d'extension Cardmarket d'une série (la liste de souhaits) : jamais un nom que ses cartes ne
  * confirment pas, et un nom anglais qu'elles ne confirment pas n'efface pas celui qu'elles
  * confirment encore ; l'extension de ses adresses, gardée même sans nom (sans elle, la liste de
- * souhaits ne verrait pas qu'un nom désigne aussi son extension) ; une série renumérotée par la source : la tâche compte les cartes déjà
- * copiées qui changent de rang (ou de série), pour que le journal le dise, et elles sont à
- * chercher de nouveau.
+ * souhaits ne verrait pas qu'un nom désigne aussi son extension) ; une série renumérotée par la
+ * source : la tâche compte les cartes déjà copiées qui changent de rang (ou de série), pour que le
+ * journal le dise, et elles sont à chercher de nouveau. Et les garde-fous contre une erreur de la
+ * source : un menu qui retire plus de 3 séries connues, ou l'une de plus de 20 cartes, n'efface
+ * rien ; une carte dont l'id ou le rang ne sont pas des entiers positifs est écartée, et la
+ * lecture ne retire alors rien ; un id Cardmarket mal formé compte pour aucun.
  */
 
 import { env } from 'cloudflare:workers'
@@ -255,6 +258,7 @@ describe('une carte déjà copiée que la source renumérote', () => {
       saved: 4,
       moved: 2,
       known: 3,
+      rejected: 0,
     })
     // Elles sont à chercher de nouveau : leur rang a une autre image.
     const copied = () => rows("SELECT id FROM cards WHERE image = 'pokecardex'")
@@ -337,5 +341,104 @@ describe('saveLanguage', () => {
     expect(await snapshot('catalog/sets')).not.toBeNull()
     expect(await snapshot('catalog/fr/sets')).toBeNull()
     expect(await snapshot('catalog/fr/species/65')).toBeNull()
+  })
+})
+
+describe('les garde-fous des écritures du catalogue', () => {
+  /** Une série de `count` cartes, enregistrée (ids `base + 1` à `base + count`). */
+  const known = (code: string, count: number, base: number, lang: 'ja' | 'fr' = 'ja') =>
+    saveSeries(
+      lang,
+      code,
+      page(
+        { ...(lang === 'ja' ? JAPANESE : FRENCH), code },
+        Array.from({ length: count }, (_, index) =>
+          card({ id_card: base + index + 1, sort: index + 1 }),
+        ),
+      ),
+      READ_AT,
+      null,
+    )
+  const setCodes = async () =>
+    (await rows("SELECT id FROM sets WHERE lang = 'ja' ORDER BY id")).map(({ id }) => id)
+  const blocks = [{ name: JAPANESE.block, series: ['A'], decks: [] }]
+
+  test('le menu range en « Asia Exclusive » une série connue de plus de 20 cartes : refusé, rien d’effacé, les blocs écrits', async () => {
+    await known('A', 1, 0)
+    await known('BIG', 21, 100)
+    expect(await saveBlocks('ja', blocks, ['BIG'])).toContain('BIG (21 cartes)')
+    expect(await setCodes()).toEqual(['A', 'BIG'])
+    expect((await cards()).length).toBe(22)
+    expect(await rows("SELECT block FROM sets WHERE id = 'A'")).toEqual([{ block: JAPANESE.block }])
+    // Le même retrait d'une série de 20 cartes : accepté.
+    await known('MID', 20, 200)
+    expect(await saveBlocks('ja', blocks, ['MID'])).toBeNull()
+    expect(await setCodes()).toEqual(['A', 'BIG'])
+  })
+
+  test('les séries et les cartes comptées sont celles de la langue : une française de même code n’empêche rien', async () => {
+    await known('SMALL', 1, 0)
+    await known('SMALL', 25, 100, 'fr')
+    expect(await saveBlocks('ja', blocks, ['SMALL'])).toBeNull()
+    expect(await rows("SELECT lang FROM sets WHERE id = 'SMALL'")).toEqual([{ lang: 'fr' }])
+  })
+
+  test('plus de 3 séries connues à retirer : refusé, rien d’effacé ; 3, retirées', async () => {
+    for (const [index, code] of ['B', 'C', 'D', 'E'].entries()) await known(code, 1, index * 10)
+    expect(await saveBlocks('ja', blocks, ['B', 'C', 'D', 'E'])).toContain('gardées (4)')
+    expect(await setCodes()).toEqual(['B', 'C', 'D', 'E'])
+    // Des codes que le catalogue ne connaît pas ne comptent pas.
+    expect(await saveBlocks('ja', blocks, ['B', 'C', 'D', 'X1', 'X2'])).toBeNull()
+    expect(await setCodes()).toEqual(['E'])
+  })
+
+  test('une carte dont l’id ou le rang ne sont pas des entiers positifs : écartée, comptée, rien de retiré ; un id Cardmarket mal formé : aucun, en texte : lu', async () => {
+    const odd = [
+      card({ id_card: 11, sort: 1 }),
+      card({ id_card: '12' as unknown as number, sort: 2 }),
+      card({ id_card: 0, sort: 3 }),
+      card({ id_card: 13, sort: 0 }),
+      card({ id_card: 14, sort: 1.5 }),
+      card({ id_card: 15, sort: 10_000 }),
+      card({ id_card: 16, sort: 4, id_cardmarket: -5 }),
+      card({ id_card: 17, sort: 5, id_cardmarket: 1.5 }),
+      card({ id_card: 18, sort: 6, id_cardmarket: 700_123 }),
+      card({ id_card: 19, sort: 7, id_cardmarket: '700124' as unknown as number }),
+      card({ id_card: 20, sort: 9_999 }),
+    ]
+    const series = page({ ...JAPANESE, code: 'ODD' }, odd)
+    expect(await saveSeries('ja', 'ODD', series, READ_AT, null)).toMatchObject({
+      saved: 6,
+      rejected: 5,
+    })
+    expect(await rows('SELECT id, cardmarket FROM cards ORDER BY id')).toEqual([
+      { id: 11, cardmarket: 0 },
+      { id: 16, cardmarket: 0 },
+      { id: 17, cardmarket: 0 },
+      { id: 18, cardmarket: 700_123 },
+      { id: 19, cardmarket: 700_124 },
+      { id: 20, cardmarket: 0 },
+    ])
+    // Une lecture qui écarte une carte ne retire rien : la carte 11, relue mal formée, garde sa
+    // ligne d'avant, et la 19, absente de la page, reste.
+    const later = page({ ...JAPANESE, code: 'ODD' }, [
+      card({ id_card: 11, sort: 0 }),
+      ...odd.slice(6, 9),
+    ])
+    expect(await saveSeries('ja', 'ODD', later, LATER, null)).toMatchObject({
+      saved: 3,
+      rejected: 1,
+    })
+    expect(await rows('SELECT id, sort FROM cards WHERE id IN (11, 19) ORDER BY id')).toEqual([
+      { id: 11, sort: 1 },
+      { id: 19, sort: 7 },
+    ])
+    // Une lecture sans carte écartée retire celles qu'elle ne voit pas.
+    const clean = page({ ...JAPANESE, code: 'ODD' }, odd.slice(6, 9))
+    expect(await saveSeries('ja', 'ODD', clean, '2026-11-05T10:00:00.000Z', null)).toMatchObject({
+      saved: 3,
+      rejected: 0,
+    })
+    expect((await cards()).map(({ id }) => id)).toEqual([16, 17, 18])
   })
 })

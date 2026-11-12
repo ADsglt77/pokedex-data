@@ -5,10 +5,11 @@
  * prix dans l'historique. Notée avant d'être lue, elle ne serait plus jamais reprise : son
  * historique perdu, la source n'en garde que 180 jours. Dix pages en échec d'affilée font échouer
  * le passage (le site a sans doute changé) ; des pages sans historique pour la plupart des cartes
- * dont le guide des prix donne un prix depuis un mois aussi (le format des pages a changé), sans
- * noter ces cartes. Chaque carte, même en échec, redit le signe de vie de l'étape (`alive`) : sans
- * lui, une étape de 50 cartes (plus de 2 min) laisserait le passage tenu pour arrêté. Jamais le
- * réseau : la page de chaque carte est remplacée.
+ * dont le guide des prix donne un prix depuis un mois aussi (le format des pages a changé), ou dont
+ * aucun jour n'est dans les bornes de la reprise (une date fausse), sans noter ces cartes. Chaque
+ * carte, même en échec, redit le signe de vie de l'étape (`alive`) : sans lui, une étape de 50
+ * cartes (plus de 2 min) laisserait le passage tenu pour arrêté. Jamais le réseau : la page de
+ * chaque carte est remplacée.
  */
 
 import { beforeEach, expect, test, vi } from 'vitest'
@@ -90,6 +91,7 @@ beforeEach(async () => {
     'DELETE FROM history_imports',
     'DELETE FROM cardmarket_history',
     'DELETE FROM cardmarket_prices',
+    'DELETE FROM sources',
   )
   await emptyCatalog()
   readCard.mockReset()
@@ -174,4 +176,15 @@ test('la plupart des cartes au prix suivi depuis un mois sans historique : le pa
   await history(step)
   expect(readCard.mock.calls.map(([, id]) => id)).toEqual(ids(203, 212))
   expect(await read()).toHaveLength(12)
+})
+
+test('des pages dont aucun jour n’est dans les bornes de la reprise (une date fausse) : comptées sans historique, le passage échoue sans les noter', async () => {
+  // Le dernier relevé, plus de 200 jours après les jours des pages (1er et 2 octobre 2026).
+  await run("INSERT INTO sources (name, stamp, date) VALUES ('cardmarket', 'x', '2027-06-01')")
+  await addCards(ids(301, 312))
+  await addPrices(ids(301, 312), 2)
+  readCard.mockImplementation(async (_lang, id) => pageOf(4000 + id))
+  await expect(history(step)).rejects.toThrow(/12 pages sur 12 .* \(format des pages changé \?\)/)
+  expect(await imported()).toEqual([])
+  expect(await prices()).toEqual([])
 })

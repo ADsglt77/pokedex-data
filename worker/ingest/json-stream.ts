@@ -3,7 +3,8 @@
  * `key` rendu un à un (`onItem`), le reste du document gardé en texte (`rest`, sans le tableau).
  * Le guide des prix et la liste des produits de Cardmarket (16 et 14 Mo) ne tiendraient pas lus
  * d'un coup : leurs objets prendraient plus que les 128 Mo du Worker. Les objets du tableau sont
- * plats ou non ; un texte peut contenir accolades et guillemets échappés.
+ * plats ou non ; un texte peut contenir accolades et guillemets échappés. Un document coupé avant
+ * la fin du tableau (une connexion rompue) est refusé : lu jusque-là, il passerait pour complet.
  */
 
 export async function streamArray<T>(
@@ -59,5 +60,8 @@ export async function streamArray<T>(
     // Ce qui reste à lire : l'objet en cours, relu depuis son début à la prochaine réception.
     pending = state === 'inside' && start >= 0 ? pending.slice(start) : ''
   }
+  // Sans la fin de son tableau, le document est coupé (ou n'a pas ce tableau) : ce qui en a été lu
+  // n'est pas le document entier.
+  if (state !== 'after') throw new Error(`${key} : la fin du tableau manque (document tronqué ?)`)
   return rest
 }

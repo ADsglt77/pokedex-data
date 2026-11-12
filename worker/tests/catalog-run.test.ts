@@ -4,8 +4,9 @@
  * ne le sollicite pas davantage) ; plus de la moitié des séries déjà connues rendues sans cartes
  * font échouer la tâche, leurs cartes gardées (le format des pages a changé, pas les séries) ; une
  * exclusivité d'autres pays d'Asie est écartée : pas lue une fois le menu connu (la première page
- * lue de la langue le donne), et celle qu'un passage d'avant a gardée est retirée. Jamais le
- * réseau : les lectures de Pokécardex sont remplacées.
+ * lue de la langue le donne), et celle qu'un passage d'avant a gardée est retirée, sauf si elle
+ * est grosse (plus de 20 cartes : le menu s'est trompé) : gardée, le reste enregistré, la tâche
+ * échoue ensuite. Jamais le réseau : les lectures de Pokécardex sont remplacées.
  */
 
 import { beforeEach, describe, expect, test, vi } from 'vitest'
@@ -129,5 +130,36 @@ describe('catalog', () => {
       { lang: 'ja', id: 'J2' },
     ])
     expect(await rows("SELECT id FROM cards WHERE set_id = 'CS1'")).toEqual([])
+  })
+
+  test('une grosse série connue que le menu range en « Asia Exclusive » : gardée, le reste lu et enregistré, puis la tâche échoue', async () => {
+    // CS1, gardée par un passage d'avant, avec 21 cartes : plus que n'en retire un passage.
+    await run(
+      `INSERT INTO sets (lang, id, name, released, read_at)
+       VALUES ('ja', 'CS1', 'Série chinoise', '2025-01-01', '2026-01-01T10:00:00.000Z')`,
+      [
+        `INSERT INTO cards (lang, id, set_id, number, sort, name, cardmarket, seen)
+         SELECT 'ja', 100 + value, 'CS1', value, value, 'Carte', 0, '2026-01-01T10:00:00.000Z'
+         FROM json_each(?)`,
+        JSON.stringify(Array.from({ length: 21 }, (_, index) => index + 1)),
+      ],
+    )
+    source.readSitemap.mockResolvedValue(sitemap(['J1', 'CS1'], ['MEG']))
+    pagesOf({ J1: [1], MEG: [3] })
+    const names: string[] = []
+    const recording: Step = (name, work) => {
+      names.push(name)
+      return step(name, work)
+    }
+    await expect(catalog(recording, false)).rejects.toThrow(/CS1 \(21 cartes\).*\(menu changé \?\)/)
+    expect(await rows("SELECT COUNT(*) AS count FROM cards WHERE set_id = 'CS1'")).toEqual([
+      { count: 21 },
+    ])
+    expect(await rows('SELECT lang, id FROM sets ORDER BY lang, id')).toEqual([
+      { lang: 'fr', id: 'MEG' },
+      { lang: 'ja', id: 'CS1' },
+      { lang: 'ja', id: 'J1' },
+    ])
+    expect(names.filter((name) => name.startsWith('réponses'))).not.toEqual([])
   })
 })

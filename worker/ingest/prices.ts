@@ -13,7 +13,7 @@
  */
 
 import { env } from 'cloudflare:workers'
-import { monthAgoYears, priceBefore, toCents, withPrice, yearDay } from '@/lib/history'
+import { monthAgoYears, plausiblePrice, priceBefore, withPrice, yearDay } from '@/lib/history'
 import { addDays } from '@/lib/time'
 import { plural, reasonOf, taskJournal } from '../journal'
 import { streamArray } from './json-stream'
@@ -81,17 +81,16 @@ async function saveProducts({ products }: ProductList) {
   await env.DB.batch(statements)
 }
 
-/** Un prix au centime ; Cardmarket note `0` ou `null` un prix inconnu. */
-const amount = (value: number | null) => (value ? toCents(value) : null)
-
 /**
  * Le prix d'une carte d'après le guide du jour, la règle de Pokécardex (testé) : une carte d'une
  * série sortie depuis moins de 31 jours (`recent`), la tendance Cardmarket ; sinon, sa moyenne sur
- * 30 jours, à défaut sur 7 jours, puis sur 1 jour. `null` : pas de prix.
+ * 30 jours, à défaut sur 7 jours, puis sur 1 jour. Une valeur qui n'est pas un prix plausible
+ * (`plausiblePrice` : nulle, négative, de 100 000 € ou plus) passe à la suivante. `null` : pas de
+ * prix.
  */
 function guidePrice(row: PriceGuide['priceGuides'][number], recent: boolean) {
-  const average = amount(row.avg30) ?? amount(row.avg7) ?? amount(row.avg1)
-  return recent ? (amount(row.trend) ?? average) : average
+  const average = plausiblePrice(row.avg30) ?? plausiblePrice(row.avg7) ?? plausiblePrice(row.avg1)
+  return recent ? (plausiblePrice(row.trend) ?? average) : average
 }
 
 /** Le guide des prix du jour, ses cartes à l'unité seulement, et ce qu'en lit la tâche. */
@@ -193,7 +192,7 @@ export async function savePriceGuide(
   const cards: [id: number, price: number, low: number | null][] = []
   for (const row of guide.priceGuides) {
     const price = row.idCategory === SINGLES && guidePrice(row, recent.has(row.idProduct))
-    if (price) cards.push([row.idProduct, price, amount(row.low)])
+    if (price) cards.push([row.idProduct, price, plausiblePrice(row.low)])
   }
 
   // Moins de la moitié des prix d'avant : le format du guide a changé (un champ renommé). Rien

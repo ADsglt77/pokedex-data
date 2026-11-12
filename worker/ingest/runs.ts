@@ -60,22 +60,35 @@ export async function beat(id: number) {
 }
 
 /**
- * La tâche à rythme `job` est-elle à relancer : jamais passée, son intervalle (`every`) écoulé, ou
- * le délai après un échec : 10 min, puis 20, 40… jusqu'à 6 h (une panne qui dure ne fait pas
- * solliciter la source à chaque fois).
+ * La marge du Cron : il passe chaque heure, et un passage commence un peu après le Cron qui l'a
+ * lancé (le Workflow créé, sa première étape). Sans elle, une tâche de 6 h commencée à 6 h 00 min
+ * 03 s ne serait pas due au Cron de midi, quelques secondes trop tôt, mais à celui de 13 h : 7 h au
+ * lieu de 6.
+ */
+const CRON_MARGIN = 10 * MINUTE
+
+/**
+ * La tâche à rythme `job` est-elle à relancer (testé) : jamais passée ; réussie, son intervalle
+ * (`every`) écoulé depuis le début du passage (sa durée n'y change rien) ; en échec, depuis sa fin
+ * (un essai coupé à 30 min ne la fait pas repartir aussitôt), le délai : 10 min, puis 20, 40…
+ * jusqu'à 6 h (une panne qui dure ne fait pas solliciter la source à chaque fois). Chacun moins la
+ * marge du Cron (`CRON_MARGIN`) : au Cron d'après l'intervalle, pas à celui d'une heure plus tard.
+ * Le Cron passant chaque heure, les délais réels : 6 h après une réussite ; après 1 à 3 échecs
+ * d'affilée, le Cron suivant ; après 4, 2 h ; après 5, 3 h ; ensuite 6 h.
  */
 export async function isDue(job: IngestJob, every: number) {
   const { results } = await env.DB.prepare(
-    `SELECT ok, finished_at AS finishedAt FROM runs
+    `SELECT ok, started_at AS startedAt, finished_at AS finishedAt FROM runs
      WHERE job = ? AND finished_at IS NOT NULL ORDER BY id DESC LIMIT 10`,
   )
     .bind(job)
-    .all<{ ok: number; finishedAt: string }>()
+    .all<{ ok: number; startedAt: string; finishedAt: string }>()
   const [last] = results
   if (!last) return true
   // Les échecs d'affilée : les passages avant la dernière réussite.
   const lastSuccess = results.findIndex((run) => run.ok === 1)
   const streak = lastSuccess < 0 ? results.length : lastSuccess
   const wait = streak ? Math.min(10 * MINUTE * 2 ** (streak - 1), 6 * HOUR) : every
-  return Date.now() - Date.parse(last.finishedAt) >= wait
+  const since = streak ? last.finishedAt : last.startedAt
+  return Date.now() - Date.parse(since) >= wait - CRON_MARGIN
 }

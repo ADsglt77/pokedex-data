@@ -13,7 +13,10 @@ export const INGEST_JOBS: Record<
   IngestJob,
   {
     label: string
-    /** Elle repart quand sa dernière réussite a plus que cet intervalle (ms) ; `null` : à la demande. */
+    /**
+     * Elle repart quand le début de sa dernière réussite a plus que cet intervalle (ms, à 10 min
+     * près : `isDue`) ; `null` : à la demande.
+     */
     every: number | null
   }
 > = {

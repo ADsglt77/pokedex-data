@@ -21,12 +21,13 @@ import { env } from 'cloudflare:workers'
 import type { CardLanguage } from '@/contract'
 import {
   monthAgoYears,
+  plausiblePrice,
   priceBefore,
-  toCents,
   withPrice,
   yearDay,
   type HistoryYear,
 } from '@/lib/history'
+import { addDays } from '@/lib/time'
 import { reasonOf, taskJournal } from '../journal'
 import { MAX_FAILURES_IN_A_ROW, readCard, type PokecardexCardPage } from './pokecardex'
 import { readSource, writeSource } from './sources'
@@ -37,9 +38,9 @@ import { readYears, unwritten, writeYears, type YearWrite } from './years'
  * Les prix de la carte elle-même dans sa page (testé) : sa plus longue période, la série de son
  * produit Cardmarket (`cardmarket` : celui du catalogue ; s'il n'est plus celui de Pokécardex, rien)
  * sans version ni variante, au prix suivi par la tâche `prices` (« avg30 » : la tendance pour une
- * série récente, la moyenne sur 30 jours ensuite), aux jours écrits AAAA-MM-JJ. Les versions
- * (« Reverse Masterball ») et les variantes (« Reverse ») sont d'autres prix : jamais mêlés. `null`
- * sans historique.
+ * série récente, la moyenne sur 30 jours ensuite), aux jours écrits AAAA-MM-JJ et aux prix
+ * plausibles (`plausiblePrice`). Les versions (« Reverse Masterball ») et les variantes
+ * (« Reverse ») sont d'autres prix : jamais mêlés. `null` sans historique.
  */
 export function mainHistory(
   page: PokecardexCardPage,
@@ -57,26 +58,37 @@ export function mainHistory(
   if (!history || !series) return null
   // Seulement un jour écrit AAAA-MM-JJ : une autre forme (une heure, un décalage) pourrait tomber
   // sur le jour d'à côté (`yearDay`), et le prix de ce jour-là serait remplacé.
-  const points = history.points.flatMap(({ date, [series.id]: price }) =>
-    /^\d{4}-\d{2}-\d{2}$/.test(date) && typeof price === 'number' && price > 0
-      ? [[date, toCents(price)] as [string, number]]
-      : [],
-  )
+  // Et seulement un prix plausible (`plausiblePrice`) : ni négatif, ni de 100 000 € ou plus.
+  const points = history.points.flatMap(({ date, [series.id]: value }) => {
+    const price = /^\d{4}-\d{2}-\d{2}$/.test(date) ? plausiblePrice(value) : null
+    return price === null ? [] : [[date, price] as [string, number]]
+  })
   return points.length ? points : null
 }
 
 /**
+ * Les jours repris au plus avant le dernier relevé : Pokécardex en montre 180 ; un jour plus ancien
+ * est une erreur de la source (une année fausse), qui écrirait loin dans l'historique.
+ */
+const HISTORY_DAYS = 200
+
+/**
  * L'historique repris d'une carte (`mainHistory`) dans celui de son produit Cardmarket (testé) :
  * chaque jour avant `until` (le jour du dernier relevé de la tâche `prices`, qui garde le dernier
- * mot, lui et les suivants) prend le prix repris ; les autres restent tels quels. Puis son prix
- * d'il y a 30 jours. Les années lues, fusionnées et réécrites seulement si personne ne les a
- * changées entre-temps (`writeYears`) : sinon (la tâche `prices` y écrivait le prix du jour),
- * relues et refaites. Rend le nombre de jours changés.
+ * mot, lui et les suivants), et au plus 200 jours avant lui (`HISTORY_DAYS`), prend le prix
+ * repris ; les autres restent tels quels. Puis son prix d'il y a 30 jours. Les années lues,
+ * fusionnées et réécrites seulement si personne ne les a changées entre-temps (`writeYears`) :
+ * sinon (la tâche `prices` y écrivait le prix du jour), relues et refaites. Rend le nombre de
+ * jours changés ; `null` si aucun jour repris n'est dans ces bornes (rien à reprendre : la carte
+ * compte comme une carte sans historique, `formatChanged`).
  */
 export async function mergeHistory(cardmarket: number, points: readonly [string, number][]) {
   for (let attempt = 1; attempt <= 5; attempt++) {
     const until = (await readSource('cardmarket'))?.date ?? null
-    const kept = points.filter(([date]) => until === null || date < until)
+    const kept = points.filter(
+      ([date]) => until === null || (date < until && date >= addDays(until, -HISTORY_DAYS)),
+    )
+    if (!kept.length) return null
     const years = new Set(kept.map(([date]) => yearDay(date)[0]))
     // Le prix d'il y a 30 jours lit aussi l'année du dernier relevé, et celle d'avant en janvier
     // (`monthAgoYears`).
@@ -200,13 +212,16 @@ async function historyBatch(after: Todo | null, inARow: number, alive: Alive): P
     await alive()
     try {
       const points = mainHistory(await readCard(card.lang, card.id), card.cardmarket)
-      if (points) {
-        batch.days += await mergeHistory(card.cardmarket, points)
+      // `null` : sans historique, ou aucun de ses jours dans les bornes de la reprise.
+      const days = points && (await mergeHistory(card.cardmarket, points))
+      if (days === null) empty.push(card)
+      else {
+        batch.days += days
         await done.bind(card.lang, card.id, new Date().toISOString()).run()
-      } else empty.push(card)
+      }
       if (priced.has(card.cardmarket)) {
         batch.checked++
-        if (!points) batch.missing++
+        if (days === null) batch.missing++
       }
       batch.read++
       batch.inARow = 0

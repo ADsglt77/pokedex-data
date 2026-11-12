@@ -84,14 +84,15 @@ la tâche `images` connaît leur adresse d'origine.
 Elles tournent dans le Worker (`worker/ingest/`). Chaque passage est un **Workflow** (`ingest`),
 par étapes (une série, 50 cartes, 100 Pokémon…) : une étape en échec (une panne) est réessayée
 seule, deux fois, et un passage arrêté reprend où il en était. Le **Cron** (toutes les heures,
-`worker/index.ts`) lance les tâches à rythme quand leur intervalle est écoulé ; après un échec, 10
-min plus tard, puis 20, 40… jusqu'à 6 h. Les autres, à la demande : quand de nouvelles cartes
-sortent, `bun run ingest cards` enchaîne le catalogue, puis les images et l'historique (seulement
-ce qui manque : les nouvelles cartes). Chaque tâche reste lançable seule (`bun run ingest prices`,
-`bun run ingest catalog --refresh`…). Une tâche ne tourne qu'une fois à la fois, et `catalog`
-jamais en même temps que `history` (elles lisent les mêmes pages : deux à la fois doubleraient leur
-rythme). Un passage arrêté net (son Workflow terminé, le Worker de `bun run dev` arrêté) est noté
-interrompu quand sa tâche repart.
+`worker/index.ts`) lance les tâches à rythme quand leur intervalle est écoulé depuis le début de
+leur dernier passage, à 10 min près : `prices` toutes les 6 h ; après un échec, au Cron suivant,
+puis de plus en plus tard, jusqu'à 6 h (`docs/donnees.md`). Les autres, à la demande : quand de
+nouvelles cartes sortent, `bun run ingest cards` enchaîne le catalogue, puis les images et
+l'historique (seulement ce qui manque : les nouvelles cartes). Chaque tâche reste lançable seule
+(`bun run ingest prices`, `bun run ingest catalog --refresh`…). Une tâche ne tourne qu'une fois à la
+fois, et `catalog` jamais en même temps que `history` (elles lisent les mêmes pages : deux à la fois
+doubleraient leur rythme). Un passage arrêté net (son Workflow terminé, le Worker de `bun run dev`
+arrêté) est noté interrompu quand sa tâche repart.
 
 ## En développement
 
