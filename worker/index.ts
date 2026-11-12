@@ -1,9 +1,10 @@
 /**
  * Le Worker des données. Deux entrées, la même API (`app.ts`) :
  * - par défaut, l'entrée d'Internet (`https://api.pokecodex.fr`, pour les autres clients que le
- *   site : un script, une autre app) : en https (http : 301 vers https ; pas sur le poste du
- *   développeur), lecture seule (tout autre verbe : 405), les limites par adresse (`limits.ts`),
- *   puis le token (`auth.ts`) ; ses en-têtes, ceux d'une API (`API_HEADERS`) ;
+ *   site : un script, une autre app) : en https (http : 301 vers https, ou 403 pour une requête
+ *   qui porte un token ; pas sur le poste du développeur), lecture seule (tout autre verbe : 405),
+ *   la limite par réseau (`limits.ts`), le token (`auth.ts`), puis les limites des routes
+ *   coûteuses par client ; ses en-têtes, ceux d'une API (`API_HEADERS`) ;
  * - `SiteEntrypoint`, celle du site : sa liaison de service (`services` de son `wrangler.jsonc`),
  *   que rien d'autre ne peut joindre ; ni token ni limite.
  * Et les tâches d'ingestion (`ingest/`) : le Workflow `Ingest`, que le Cron (`scheduled`, chaque
@@ -13,9 +14,9 @@
 import { WorkerEntrypoint } from 'cloudflare:workers'
 import { INGEST_JOB_NAMES, INGEST_JOBS } from '@/config/jobs'
 import { app } from './app'
-import { guard } from './auth'
+import { guard, sentInClear } from './auth'
 import { isDue } from './ingest/runs'
-import { limited } from './limits'
+import { limited, limitedHeavy } from './limits'
 
 export { Ingest } from './ingest/workflow'
 
@@ -41,11 +42,16 @@ const LOCAL = /^(localhost|127\.0\.0\.1)$/
 async function internet(request: Request) {
   const url = new URL(request.url)
   if (url.protocol === 'http:' && !LOCAL.test(url.hostname)) {
+    if (request.headers.has('authorization')) return sentInClear(request)
     url.protocol = 'https:'
     return Response.redirect(url.href, 301)
   }
   if (!['GET', 'HEAD'].includes(request.method)) return new Response(null, { status: 405 })
-  return (await limited(request)) ?? (await guard(request)) ?? app.fetch(request)
+  const refused = await limited(request)
+  if (refused) return refused
+  const client = await guard(request)
+  if (client instanceof Response) return client
+  return (await limitedHeavy(request, client)) ?? app.fetch(request)
 }
 
 export default {

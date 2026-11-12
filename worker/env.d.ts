@@ -11,6 +11,7 @@ declare namespace Cloudflare {
     /** Les limites de l'entrée d'Internet (`limits.ts`). */
     ANY_LIMIT: RateLimit
     HEAVY_LIMIT: RateLimit
+    WANTS_LIMIT: RateLimit
     /** Les tâches d'ingestion (`ingest/workflow.ts`). */
     INGEST: Workflow<import('./ingest/workflow').IngestParams>
     /** Les clients de l'entrée d'Internet et leur token (`auth.ts`) : `nom:token,…`. */

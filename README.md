@@ -30,13 +30,18 @@ le gestionnaire de paquets.
 
 **Deux entrées, la même API** (`worker/index.ts`). Le site la joint par une **liaison de service**
 (`SiteEntrypoint`, que seul son Worker peut joindre) : ni token, ni réseau, ni limite. Les autres
-clients (un script, une autre app), par **https://api.pokecodex.fr**, l'entrée par défaut du
-Worker : des limites par adresse (`worker/limits.ts`, comptées par Cloudflare) : 300 demandes par
-10 s, 20 pour `/v1/histories` et `/v1/wants` ; au-delà, 429 avec `Retry-After`. Puis le token :
-`Authorization: Bearer <token>`. Sans lui, ou avec un autre : 401, sans corps (une adresse inconnue
-aussi : rien ne dit ce qui existe). Les tokens sont dans `API_TOKENS` (`nom:token,…`, un par
-client ; `.env` en développement, un secret du Worker en ligne). Un token se tire au hasard :
-`openssl rand -hex 32`, 32 caractères au moins.
+clients (un script, une autre app), par **https://api.pokecodex.fr**, l'entrée par défaut du Worker,
+en https seulement. Une limite par réseau (l'adresse, ramenée à son /64 en IPv6 :
+`worker/limits.ts`, comptée par Cloudflare) : 300 demandes par 10 s. Puis le token : `Authorization:
+Bearer <token>`. Sans lui, ou avec un autre : 401, sans corps (une adresse inconnue aussi : rien ne
+dit ce qui existe). Puis les routes coûteuses, par client (un token qui a fui ne gagne rien à
+changer d'adresse dans une même région : Cloudflare tient ses compteurs par lieu) : 20 demandes par
+10 s pour `/v1/histories`, 5 pour `/v1/wants` (comme sur le site). Au-delà d'une limite, 429 avec
+`Retry-After` ; les chemins sont lus décodés, comme Hono les route (`/v1/%77ants` est `/v1/wants`).
+Un token envoyé en http a circulé en clair : à changer. Le Worker répond alors 403, sans redirection
+; mais en ligne, la zone (« Always Use HTTPS ») redirige le http avant lui. Les tokens sont dans
+`API_TOKENS` (`nom:token,…`, un par client ; `.env` en développement, un secret du Worker en ligne).
+Un token se tire au hasard : `openssl rand -hex 32`, 32 caractères au moins.
 
 ```sh
 curl -H "Authorization: Bearer $TOKEN" https://api.pokecodex.fr/v1/catalog/fr/sets
@@ -119,8 +124,8 @@ echo "API_TOKENS=moi:$(openssl rand -hex 32)" > .env
 ```
 
 **Le journal** : une ligne par évènement, alignée, à l'heure de Paris (pas les requêtes une à
-une) : un token refusé, un débit dépassé (une ligne par minute au plus, jamais le token), une
-erreur de l'API.
+une) : un token refusé, un débit dépassé, un token envoyé en http (son client nommé : à changer ;
+une ligne par minute au plus, jamais le token), une erreur de l'API.
 
 ## Mise en ligne
 

@@ -8,7 +8,8 @@ Cloudflare Workers : Hono, D1 par son schéma Drizzle, R2) : l'API, et les **tâ
 heures. En ligne depuis le 29 octobre 2026 (le guide : `../pokedex/docs/deploiement.md`). Deux
 entrées : le site, par sa liaison de service
 (`SiteEntrypoint`, ni token ni limite) ; ses autres clients, chacun son token, par
-`https://api.pokecodex.fr` (l'entrée par défaut : limites par adresse, puis token).
+`https://api.pokecodex.fr` (l'entrée par défaut : limite par réseau, token, puis limites des
+routes coûteuses par client).
 
 ## Commandes
 
@@ -95,8 +96,8 @@ Le Cron ne passe pas tout seul en développement : `curl http://127.0.0.1:8787/_
 | Fichier | Rôle |
 |---|---|
 | `worker/index.ts`, `worker/app.ts` | Les deux entrées du Worker (Internet, le site) et son Cron ; l'API sous `/v1`, 404 et 500 sans corps |
-| `worker/auth.ts` | Les clients de l'entrée d'Internet (`API_TOKENS`), le token comparé à temps constant, 401 au journal |
-| `worker/limits.ts` | Les limites par adresse de l'entrée d'Internet (`ratelimits` de `wrangler.jsonc`), 429 |
+| `worker/auth.ts` | Les clients de l'entrée d'Internet (`API_TOKENS`), le token comparé à temps constant, 401 au journal ; un token envoyé en http, 403 |
+| `worker/limits.ts` | Les limites de l'entrée d'Internet (`ratelimits` de `wrangler.jsonc`) : par réseau (/64 en IPv6), puis les routes coûteuses par client ; 429 |
 | `worker/status.ts` | `/v1/status` (chaque tâche : libellé, état) et `/v1/health` |
 | `worker/reference.ts` | Espèces, catalogue, prix, historiques, liste de souhaits ; ETag des réponses tirées des prix (`pricesAnswer`) |
 | `worker/images.ts` | Les images, depuis R2, seulement un chemin plausible ; 404 pour une image absente |

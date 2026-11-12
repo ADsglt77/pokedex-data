@@ -10,6 +10,7 @@
  */
 
 import { env } from 'cloudflare:workers'
+import { getPath } from 'hono/utils/url'
 import { journalOnce } from './journal'
 
 /** Un token devinable ne protège rien. */
@@ -44,34 +45,53 @@ const hash = async (token: string) =>
 /** Les empreintes des tokens connus, calculées une fois. */
 let known: Promise<ArrayBuffer[]> | undefined
 
-/** La requête porte-t-elle le token d'un client ? */
-async function fromClient(request: Request) {
+/** Le client dont la requête porte le token, ou `null`. */
+async function clientOf(request: Request) {
   const token = /^Bearer (.+)$/.exec(request.headers.get('authorization') ?? '')?.[1]
-  if (!token) return false
+  if (!token) return null
   const sent = await hash(token)
   known ??= Promise.all(CLIENTS.map((client) => hash(client.token)))
   // Comparé à tous, sans s'arrêter au bon : la durée ne dit pas lequel c'était.
-  let found = false
-  for (const client of await known) {
-    if (crypto.subtle.timingSafeEqual(sent, client)) found = true
+  let found: string | null = null
+  for (const [index, client] of (await known).entries()) {
+    if (crypto.subtle.timingSafeEqual(sent, client)) found = CLIENTS[index]!.name
   }
   return found
 }
 
 /**
  * La garde de chaque requête de l'entrée d'Internet, avant toute route (une adresse inconnue
- * aussi : pas de 404 qui dirait ce qui existe) : rien, ou la réponse 401. `/v1/health` passe sans
- * token.
+ * aussi : pas de 404 qui dirait ce qui existe) : le nom du client, pour ses limites (`limits.ts`),
+ * ou la réponse 401. `/v1/health` passe sans token (`''` : aucun client). Le chemin lu comme Hono
+ * le route (`getPath`, décodé).
  */
-export async function guard(request: Request) {
-  const { pathname } = new URL(request.url)
-  if (pathname === '/v1/health' || (await fromClient(request))) return
+export async function guard(request: Request): Promise<string | Response> {
+  const path = getPath(request)
+  if (path === '/v1/health') return ''
+  const client = await clientOf(request)
+  if (client !== null) return client
   const reason = request.headers.has('authorization') ? 'token inconnu' : 'sans token'
   journalOnce(reason, {
     topic: 'accès',
     level: 'warn',
     message: 'Token refusé',
-    details: { raison: reason, route: `${request.method} ${pathname}` },
+    details: { raison: reason, route: `${request.method} ${path}` },
   })
   return new Response(null, { status: 401, headers: { 'Cache-Control': 'no-store' } })
+}
+
+/**
+ * Une requête en http qui porte un token : il a circulé en clair, il est à changer. 403 sans
+ * redirection : le script échoue au lieu de suivre (certains clients renverraient le token), et le
+ * journal nomme son client (`inconnu` : aucun des tokens connus).
+ */
+export async function sentInClear(request: Request) {
+  const client = (await clientOf(request)) ?? 'inconnu'
+  journalOnce(`en clair ${client}`, {
+    topic: 'accès',
+    level: 'warn',
+    message: 'Token envoyé en http, à changer',
+    details: { client, route: `${request.method} ${getPath(request)}` },
+  })
+  return new Response(null, { status: 403, headers: { 'Cache-Control': 'no-store' } })
 }

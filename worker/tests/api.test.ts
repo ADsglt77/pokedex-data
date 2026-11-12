@@ -1,14 +1,16 @@
 /**
  * L'accès à l'API. Sur l'entrée d'Internet (`api.pokecodex.fr`, l'entrée par défaut du Worker) :
- * https seulement, lecture seule, les en-têtes d'une API sur chaque réponse (rien à afficher ni à indexer) ;
- * sans token, aucune donnée (`auth.ts`), seul `/v1/health` passe sans ; avant le token, une limite
- * par adresse (`limits.ts`, comptée par Cloudflare) : fausse, elle bloquerait un client, ou
- * laisserait un afflux occuper l'API. L'entrée du site (sa liaison de service) : ni token ni
- * limite. Et l'état des tâches (`status.ts`), que montre la page Réglages du site : une tâche à la
- * demande n'est jamais en retard, un passage arrêté net est un échec, et la surveillance ne compte
- * que celles à rythme. Et les routes du catalogue : chaque langue rend ses réponses
- * (`/v1/catalog/…` les japonaises, `/v1/catalog/fr/…` les françaises), sans jamais mêler les unes
- * aux autres ; une réponse inchangée, 304.
+ * https seulement (un token envoyé en http : 403, sans redirection), lecture seule, les en-têtes
+ * d'une API sur chaque réponse (rien à afficher ni à indexer) ; sans token, aucune donnée
+ * (`auth.ts`), seul `/v1/health` passe sans ; avant le token, une limite par réseau (une IPv6 par
+ * son /64), puis celles des routes coûteuses par client (`limits.ts`, comptées par Cloudflare), sur
+ * le chemin décodé : fausses, elles bloqueraient un client, ou laisseraient un afflux, ou un token
+ * qui a fui, occuper l'API. L'entrée du site (sa liaison de service) : ni token ni limite. Et
+ * l'état des tâches (`status.ts`), que montre la page Réglages du site : une tâche à la demande
+ * n'est jamais en retard, un passage arrêté net est un échec, et la surveillance ne compte que
+ * celles à rythme. Et les routes du catalogue : chaque langue rend ses réponses (`/v1/catalog/…`
+ * les japonaises, `/v1/catalog/fr/…` les françaises), sans jamais mêler les unes aux autres ; une
+ * réponse inchangée, 304.
  */
 
 import { createExecutionContext } from 'cloudflare:test'
@@ -112,6 +114,26 @@ describe('le token', () => {
     expect(response.headers.get('strict-transport-security')).not.toBeNull()
   })
 
+  test('en http avec un token (envoyé en clair) : 403, sans redirection qu’un script suivrait ; le journal nomme son client', async () => {
+    const log = vi.spyOn(console, 'log')
+    for (const token of [TOKEN, 'un-token-que-personne-ne-connait-du-tout']) {
+      const response = await worker.fetch(
+        new Request('http://api.pokecodex.fr/v1/status', {
+          headers: { 'cf-connecting-ip': '203.0.113.1', Authorization: `Bearer ${token}` },
+        }),
+      )
+      expect(response.status).toBe(403)
+      expect(response.headers.get('location')).toBeNull()
+      expect(await response.text()).toBe('')
+    }
+    const lines = log.mock.calls.map(([line]) => String(line))
+    log.mockRestore()
+    expect(lines.filter((line) => line.includes('Token envoyé en http'))).toEqual([
+      expect.stringContaining('client=pokedex'),
+      expect.stringContaining('client=inconnu'),
+    ])
+  })
+
   test('les en-têtes d’une API sur chaque réponse, refusée ou non', async () => {
     await runs()
     for (const response of [await get('/v1/status'), await get('/v1/status', null)]) {
@@ -146,15 +168,68 @@ describe('les limites de l’entrée d’Internet', () => {
     }
   })
 
-  test('les routes coûteuses ont leur propre limite, sans gêner les autres', async () => {
+  test('une IPv6 comptée par son réseau /64 (un fournisseur en donne des milliards à chacun), une IPv4 entière', async () => {
+    await runs()
+    const any = vi.spyOn(env.ANY_LIMIT, 'limit').mockResolvedValue({ success: true })
+    try {
+      const addresses = [
+        '2001:db8:1:2::5',
+        '2001:db8:1:2:aaaa::1',
+        '2001:db8:1:3:0:0:0:1',
+        // `::` développé : au début du réseau, ou à la fin de l'adresse.
+        '2001:db8::1',
+        '2001:db8:0:0:1::',
+      ]
+      for (const address of addresses) {
+        await get('/v1/status', TOKEN, address)
+      }
+      await get('/v1/status', TOKEN, '203.0.113.7')
+      expect(any.mock.calls.map(([{ key }]) => key)).toEqual([
+        '2001:db8:1:2::/64',
+        '2001:db8:1:2::/64',
+        '2001:db8:1:3::/64',
+        '2001:db8:0:0::/64',
+        '2001:db8:0:0::/64',
+        '203.0.113.7',
+      ])
+    } finally {
+      any.mockRestore()
+    }
+  })
+
+  test('les routes coûteuses, comptées par client après le token (d’une autre adresse, le même compte) ; sans gêner les autres routes', async () => {
     await runs()
     const heavy = vi.spyOn(env.HEAVY_LIMIT, 'limit').mockResolvedValue({ success: false })
     try {
-      expect((await get('/v1/histories?ids=1')).status).toBe(429)
-      expect((await get('/v1/wants?ids=1')).status).toBe(429)
+      expect((await get('/v1/histories?ids=1', TOKEN, '203.0.113.1')).status).toBe(429)
+      expect((await get('/v1/histories?ids=1', TOKEN, '198.51.100.9')).status).toBe(429)
+      expect((await get('/v1/histories?ids=1', OTHER)).status).toBe(429)
+      expect(heavy.mock.calls).toEqual([
+        [{ key: 'pokedex' }],
+        [{ key: 'pokedex' }],
+        [{ key: 'moi' }],
+      ])
+      // Sans token : 401, avant la limite du client.
+      expect((await get('/v1/histories?ids=1', null)).status).toBe(401)
+      expect(heavy).toHaveBeenCalledTimes(3)
       expect((await get('/v1/status')).status).toBe(200)
-      expect(heavy).toHaveBeenCalledTimes(2)
     } finally {
+      heavy.mockRestore()
+    }
+  })
+
+  test('les lignes de la liste de souhaits ont leur limite, par client, sur le chemin décodé', async () => {
+    await runs()
+    const wants = vi.spyOn(env.WANTS_LIMIT, 'limit').mockResolvedValue({ success: false })
+    const heavy = vi.spyOn(env.HEAVY_LIMIT, 'limit')
+    try {
+      expect((await get('/v1/wants?ids=1')).status).toBe(429)
+      // Encodé, le même chemin pour la limite que pour la route.
+      expect((await get('/v1/%77ants?ids=1')).status).toBe(429)
+      expect(wants.mock.calls).toEqual([[{ key: 'pokedex' }], [{ key: 'pokedex' }]])
+      expect(heavy).not.toHaveBeenCalled()
+    } finally {
+      wants.mockRestore()
       heavy.mockRestore()
     }
   })
