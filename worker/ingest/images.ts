@@ -42,6 +42,7 @@ import { WEEK } from '@/lib/time'
 import { plural, reasonOf, taskJournal } from '../journal'
 import { saveCatalog } from './catalog'
 import { mapPool, politeFetch } from './net'
+import { withoutMetadata } from './webp'
 import type { Step } from './workflow'
 
 const SPRITES = 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon'
@@ -80,7 +81,8 @@ const keyOf = (path: string) => path.slice(1)
  * source ne l'a pas (404). Une autre erreur (panne, réponse qui n'est pas une image) est levée :
  * réessayer plus tard. `force` : copiée même si elle y est, qu'elle remplace (le scan d'une carte :
  * son chemin, celui de son rang, a pu être celui d'une autre carte de la série, avant une
- * renumérotation).
+ * renumérotation). Un WebP est écrit sans ses métadonnées XMP et EXIF (`withoutMetadata`) ; une
+ * image déjà copiée n'est pas reprise (`force` mis à part).
  */
 export async function mirror(path: string, { force = false } = {}) {
   if (!force && (await env.FILES.head(keyOf(path)))) return true
@@ -90,7 +92,7 @@ export async function mirror(path: string, { force = false } = {}) {
   if (!response.ok) throw new Error(`HTTP ${response.status} pour ${url}`)
   const contentType = response.headers.get('content-type')
   if (!contentType?.startsWith('image/')) throw new Error(`Pas une image : ${url}`)
-  await env.FILES.put(keyOf(path), await response.arrayBuffer(), {
+  await env.FILES.put(keyOf(path), withoutMetadata(new Uint8Array(await response.arrayBuffer())), {
     httpMetadata: { contentType },
   })
   return true

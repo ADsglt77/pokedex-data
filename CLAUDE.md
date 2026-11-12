@@ -110,7 +110,7 @@ Le Cron ne passe pas tout seul en développement : `curl http://127.0.0.1:8787/_
 | `worker/journal.ts` | Le journal du Worker, une ligne par évènement |
 | `worker/ingest/workflow.ts`, `scripts/ingest.ts` | Le Workflow `ingest` (un passage d'une ou plusieurs tâches, par étapes) ; `bun run ingest` le lance |
 | `worker/ingest/runs.ts`, `worker/ingest/sources.ts` | Les passages des tâches (`runs`) : une tâche à la fois, un signe de vie par étape (et chaque minute des longues), le rythme du Cron (`isDue`) ; le dernier passage de chaque source |
-| `worker/ingest/species.ts`, `catalog.ts`, `images.ts`, `prices.ts`, `history.ts` | Les cinq tâches ; la copie des images (`UPSTREAMS`) |
+| `worker/ingest/species.ts`, `catalog.ts`, `images.ts`, `prices.ts`, `history.ts` | Les cinq tâches ; la copie des images (`UPSTREAMS`), un WebP sans ses métadonnées (`webp.ts`) |
 | `worker/ingest/years.ts`, `json-stream.ts` | L'écriture de l'historique, année par année, sans rien effacer ; les gros fichiers JSON lus en flux |
 | `worker/ingest/net.ts`, `worker/ingest/pokecardex.ts` | Requêtes identifiées ; les pages de Pokécardex, déchiffrées, une toutes les 3 s |
 | `src/lib/history.ts`, `src/lib/image-paths.ts`, `src/lib/wants.ts` | L'historique par année et les chemins des images, communs aux tâches et à l'API ; la ligne d'une carte pour la liste de souhaits (l'API) |

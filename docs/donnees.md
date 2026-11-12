@@ -156,6 +156,16 @@ dossier `fr/` de plus, les japonais n'ont pas changé.
   série ou le rang viennent de changer : « Série renumérotée par la source », avec la langue et le
   nombre de cartes (`logTotals`, comptées par `saveSeries`, testé). Le nombre seulement : rien
   d'autre ne change, et aucune ligne tant que rien n'a bougé.
+- **Sans leurs métadonnées** (décision de l'utilisateur, novembre 2026 ; testé, `webp.test.ts`) :
+  un WebP copié est écrit sans ses blocs `XMP ` et `EXIF` (`withoutMetadata`,
+  `ingest/webp.ts`), leurs drapeaux effacés du `VP8X`, la taille RIFF réécrite. Certains logos
+  de la source portaient 1,5 Mo de XMP pour quelques Ko d'image. L'image, sa transparence, son
+  profil de couleur (`ICCP`) et une animation restent octet pour octet ; un autre format, ou un
+  WebP mal formé, est copié tel quel. Une image déjà copiée n'est pas reprise (`mirror` sans
+  `force`) : les deux logos lourds, en leurs deux tailles, sont à recopier à la main (les quatre
+  clés `images/sets/fr/SVP-md.webp`, `SVP-hd.webp`, `MEP-md.webp`, `MEP-hd.webp` supprimées de
+  R2, `sets.logo` remis à `NULL` pour (fr, SVP) et (fr, MEP), puis `bun run ingest images` ;
+  chacune doit ensuite peser moins de 20 Ko), les autres gardent leurs métadonnées, légères.
 - **Aucune copie à la demande** (décision du propriétaire, octobre 2026) : le Worker
   (`worker/images.ts`) sert l'image depuis R2 si elle y est, sinon 404 sans rien télécharger (une
   réponse sans cache : l'image est servie dès que la tâche l'a copiée) ; le site montre alors la
