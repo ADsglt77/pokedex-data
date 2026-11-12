@@ -9,9 +9,10 @@
  * impossible à enregistrer n'arrête jamais les prix du jour, et ne remplace pas celle d'avant ; un
  * passage arrêté en route ne laisse rien de ses prix ; une année que la tâche `history` change
  * entre sa lecture et son écriture est relue et refaite, son prix d'il y a 30 jours avec elle ;
- * chaque paquet de cartes redit le signe de vie de l'étape ; une valeur négative, nulle ou de
- * 100 000 € ou plus n'est pas un prix. Le guide et la liste, lus en flux : un document coupé avant
- * la fin de son tableau est refusé, jamais lu comme complet.
+ * chaque paquet de cartes redit le signe de vie de l'étape ; en janvier, le prix d'il y a 30 jours
+ * se lit dans l'année d'avant ; une valeur négative, nulle ou de 100 000 € ou plus n'est pas un
+ * prix. Le guide et la liste, lus en flux : un document coupé avant la fin de son tableau est
+ * refusé, jamais lu comme complet.
  */
 
 import { env } from 'cloudflare:workers'
@@ -355,6 +356,25 @@ describe('savePriceGuide : les prix du jour et l’historique', () => {
     expect(await priceRow(2)).toMatchObject({ monthAgo: 4 })
     // Plus d'une semaine plus tôt : rien.
     expect(await priceRow(3)).toMatchObject({ monthAgo: null })
+  })
+
+  test('au passage de l’année : le prix d’il y a 30 jours se lit dans l’année d’avant', async () => {
+    await reset()
+    // Le 11 décembre 2026 (jour 344), 30 jours avant le 10 janvier 2027.
+    await run(
+      "INSERT INTO cardmarket_history (id, year, first, prices) VALUES (1, 2026, 344, '[5]')",
+    )
+    await savePriceGuide(guide('2027-01-10', [[1, { avg30: 6 }]]), products([1]), 'a', alive)
+    expect(await priceRow(1)).toEqual({ price: 6, low: null, monthAgo: 5 })
+    expect(await history(1)).toMatchObject({ from: '2026-12-11' })
+    // Le 5 février : 30 jours avant, le 6 janvier, sans prix ; le plus proche, une semaine plus tôt
+    // au plus, est le 30 décembre (jour 363), dans l'année d'avant.
+    await reset()
+    await run(
+      "INSERT INTO cardmarket_history (id, year, first, prices) VALUES (2, 2026, 363, '[4]')",
+    )
+    await savePriceGuide(guide('2027-02-05', [[2, { avg30: 6 }]]), products([2]), 'b', alive)
+    expect(await priceRow(2)).toEqual({ price: 6, low: null, monthAgo: 4 })
   })
 
   test('une année que la tâche `history` change entre sa lecture et son écriture : relue et refaite, avec son prix d’il y a 30 jours', async () => {

@@ -6,20 +6,32 @@
  * range par année, l'API le rend d'un seul tenant (`joinYears`) : aucun prix ne doit se perdre,
  * changer de jour en route, ni passer d'une carte à une autre. Les deux tâches peuvent écrire la
  * même année en même temps : chacune ne la réécrit que si l'autre n'y a pas touché entre-temps
- * (`writeYears`, `unwritten`), sinon le prix du jour s'effacerait. Seuls des jours écrits
+ * (`writeYears`, `unwritten`), sinon le prix du jour s'effacerait : une reprise qui croise un prix
+ * du jour relit l'année et la refait (cinq fois au plus, puis une erreur). Seuls des jours écrits
  * AAAA-MM-JJ, au plus 200 jours avant le dernier relevé, et des prix plausibles sont repris. La
- * reprise (`historyTodo`) suit la langue : l'id d'une carte japonaise
- * lue ne fait pas sauter la française au même id.
+ * reprise (`historyTodo`) suit la langue : l'id d'une carte japonaise lue ne fait pas sauter la
+ * française au même id.
  */
 
 import { env } from 'cloudflare:workers'
-import { beforeEach, describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { joinYears, priceBefore, withPrice, yearDay, type HistoryYear } from '@/lib/history'
-import { historyTodo, mainHistory, mergeHistory } from '../ingest/history'
 import type { PokecardexHistory } from '../ingest/pokecardex'
 import { savePriceGuide, type PriceGuide } from '../ingest/prices'
 import { readYears, unwritten, writeYears } from '../ingest/years'
 import { alive, run } from './helpers'
+
+// `readYears` épié, pour que la tâche `prices` écrive entre la lecture d'une année et son écriture
+// par une reprise ; `history.ts`, déjà chargé par l'entrée du Worker, rechargé pour le prendre.
+const { readYears: readStoredYears } =
+  await vi.importActual<typeof import('../ingest/years')>('../ingest/years')
+const spiedYears = vi.hoisted(() => vi.fn<typeof import('../ingest/years').readYears>())
+vi.mock(import('../ingest/years'), async (original) => {
+  const years = await original()
+  return { ...years, readYears: spiedYears.mockImplementation(years.readYears) }
+})
+vi.resetModules()
+const { historyTodo, mainHistory, mergeHistory } = await import('../ingest/history')
 
 describe('jour de l’année', () => {
   test('le 1er janvier est le jour 0, les années bissextiles ont un jour de plus', () => {
@@ -220,6 +232,42 @@ describe('mergeHistory : des prix repris de Pokécardex', () => {
         'SELECT month_ago AS monthAgo FROM cardmarket_prices WHERE id = 1',
       ).first(),
     ).toEqual({ monthAgo: 5 })
+  })
+})
+
+describe('mergeHistory : la tâche `prices` écrit pendant la reprise', () => {
+  // Une doublure pas consommée (un test en échec) ne fuit pas vers le suivant.
+  afterEach(() => {
+    spiedYears.mockReset().mockImplementation(readStoredYears)
+  })
+
+  test('un prix du jour écrit entre la lecture et l’écriture de l’année : relue et refaite, les deux restent', async () => {
+    await reset()
+    // Aussitôt l'année lue, la tâche `prices` y écrit le 15 octobre (jour 287).
+    spiedYears.mockImplementationOnce(async (ids, years) => {
+      const read = await readStoredYears(ids, years)
+      await run("UPDATE cardmarket_history SET prices = '[10,11]' WHERE id = 1 AND year = 2026")
+      return read
+    })
+    expect(await mergeHistory(1, [['2026-10-10', 5]])).toBe(1)
+    expect(await yearsOf(1)).toEqual([
+      { year: 2026, first: 282, prices: [5, null, null, null, 10, 11] },
+    ])
+  })
+
+  test('une année changée à chaque essai : erreur après cinq, rien d’écrit par la reprise', async () => {
+    await reset()
+    let day = 11
+    spiedYears.mockImplementation(async (ids, years) => {
+      const read = await readStoredYears(ids, years)
+      await run(
+        `UPDATE cardmarket_history SET prices = '[10,${day++}]' WHERE id = 1 AND year = 2026`,
+      )
+      return read
+    })
+    await expect(mergeHistory(1, [['2026-10-10', 5]])).rejects.toThrow('changé sans cesse')
+    spiedYears.mockImplementation(readStoredYears)
+    expect(await yearsOf(1)).toEqual([{ year: 2026, first: 286, prices: [10, 15] }])
   })
 })
 
