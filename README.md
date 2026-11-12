@@ -19,7 +19,7 @@ bun run test           # tests, dans le moteur de Cloudflare (accès, état, pri
 bun run db:generate    # après une modification de worker/schema.ts : sa migration (puis
                        # `bun run format`, pour ses `meta/*.json`, que `bun run ci` vérifie)
 bun run typecheck      # TypeScript
-bun run lint           # ESLint, puis knip (code mort)
+bun run lint           # ESLint, knip (code mort), puis le contrat (quand le site est à côté)
 bun run format         # Prettier
 ```
 
@@ -64,11 +64,12 @@ sont `public, immutable`, il les rendrait sans token.
 | `GET /v1/images/…` | Une image copiée (404 tant que la tâche `images` ne l'a pas copiée : rien n'est copié à la demande) |
 | `GET /v1/health` | **Sans token** : 200, ou 503 si une tâche à rythme est en retard ou les prix figés |
 
-La forme de chaque réponse : `src/contract.ts`, dont le site garde une copie. Les réponses portent
-un ETag (304 tant qu'elles n'ont pas changé). Où vit chaque donnée : la base (D1, `worker/schema.ts`)
-pour ce qui se lit ligne à ligne (prix, historiques, produits, état des tâches) ; R2 pour les
-images (`images/…`) et les grosses réponses calculées par les tâches (`snapshots/…` : espèces,
-catalogue).
+La forme de chaque réponse : `src/contract.ts`, dont le site garde une copie, vérifiée par `bun run
+lint` quand le site est à côté ; une forme qui change suit la règle « élargir puis restreindre »
+(`../pokedex/docs/deploiement.md`). Les réponses portent un ETag (304 tant qu'elles n'ont pas
+changé). Où vit chaque donnée : la base (D1, `worker/schema.ts`) pour ce qui se lit ligne à ligne
+(prix, historiques, produits, état des tâches) ; R2 pour les images (`images/…`) et les grosses
+réponses calculées par les tâches (`snapshots/…` : espèces, catalogue).
 
 Les chemins des images ne nomment aucune source : `/v1/images/cards/<série>/<n>-<md|hd>.webp`,
 `/v1/images/sets/<série>-<md|hd>.webp` (celles des cartes japonaises ; les françaises, avec `fr/`

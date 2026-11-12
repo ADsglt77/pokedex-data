@@ -162,7 +162,7 @@ async function icons(): Promise<Batch<null>> {
     `SELECT DISTINCT rarities.id FROM rarities
      JOIN cards ON cards.lang = rarities.lang AND cards.rarity = rarities.id`,
   ).all<{ id: number }>()
-  const paths = [...CARD_TYPES].map(typeIcon).concat(results.map(({ id }) => rarityIcon(id)))
+  const paths = [...[...CARD_TYPES].map(typeIcon), ...results.map(({ id }) => rarityIcon(id))]
   const failed: string[] = []
   const copied = await mapPool(paths, 2, copier(failed))
   return { after: null, failed, found: copied.filter(Boolean).length }

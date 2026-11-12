@@ -26,7 +26,8 @@ bun run test           # les tests (worker/tests, dans le moteur de Cloudflare ;
 bun run db:generate    # après une modification de worker/schema.ts, puis `bun run format` :
                        # Prettier remet en forme ses `meta/*.json`, que `bun run ci` vérifie
 bun run typecheck      # tsc : le Worker et src/, puis scripts/ et les configurations
-bun run lint           # ESLint, puis knip : à lancer après chaque changement
+bun run lint           # ESLint, knip, puis le contrat (quand le site est à côté) : à lancer
+                       # après chaque changement
 bun run format         # Prettier sur src/, worker/ et scripts/ (`bun run ci` le vérifie : un
                        # oubli bloque le déploiement)
 ```
@@ -38,9 +39,12 @@ Le Cron ne passe pas tout seul en développement : `curl http://127.0.0.1:8787/_
 - **Volontairement simple** : pas d'abstraction « au cas où », pas de vérification défensive dans
   les fonctions ; on ne contrôle que ce qui vient de l'extérieur (les paramètres des routes, 422
   sinon ; le token ; les pages et fichiers des sources).
-- **Le contrat** (`src/contract.ts`) : la forme de chaque réponse. Le site en garde une copie
-  (`src/types.ts`) : une réponse qui change de forme change `FORMAT` (`worker/snapshots.ts`, dans
-  ses ETag), et la copie du site avec elle.
+- **Le contrat** (`src/contract.ts`) : la forme de chaque réponse, et les gabarits des chemins des
+  images. Le site en garde une copie (`src/types.ts`), vérifiée par `bun run lint` quand le site est
+  à côté (`scripts/contracts.ts`). Une forme qui change : « élargir puis restreindre », dans les
+  deux dépôts (`../pokedex/docs/deploiement.md`). `FORMAT` (`worker/snapshots.ts`, dans les ETag)
+  ne vaut que pour les réponses tirées des prix et les historiques ; les espèces et le catalogue,
+  gardés dans R2 tels qu'écrits, changent de forme en trois temps (même guide).
 - **Anonyme** : les chemins des images ne nomment aucune source (`cardScan`…,
   `lib/image-paths.ts`) ; seule la table `UPSTREAMS` (`worker/ingest/images.ts`) connaît leurs
   adresses d'origine. Rien de ce que rend l'API ne nomme une source (le site ne cite aucune
@@ -111,6 +115,7 @@ Le Cron ne passe pas tout seul en développement : `curl http://127.0.0.1:8787/_
 | `worker/ingest/net.ts`, `worker/ingest/pokecardex.ts` | Requêtes identifiées ; les pages de Pokécardex, déchiffrées, une toutes les 3 s |
 | `src/lib/history.ts`, `src/lib/image-paths.ts`, `src/lib/wants.ts` | L'historique par année et les chemins des images, communs aux tâches et à l'API ; la ligne d'une carte pour la liste de souhaits (l'API) |
 | `src/contract.ts`, `src/config/*` | Le contrat ; les tâches, les types de cartes, le Pokédex |
+| `scripts/contracts.ts` | Le contrôle du contrat (`bun run lint`), par le site quand il est à côté |
 
 Le détail de chaque domaine : `docs/donnees.md` (à lire avant d'y toucher, et à tenir à jour).
 Mise en ligne : le Worker `pokedex-data`, déployé par Workers Builds à chaque push sur `main`

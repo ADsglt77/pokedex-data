@@ -1,7 +1,10 @@
 /**
- * Le contrat de l'API : la forme de chacune de ses réponses (`/v1/…`). Le site en garde une copie
- * (`src/types.ts` du Pokédex), vérifiée depuis ce dernier par `bun run contracts` : une réponse qui
- * change de forme change aussi `FORMAT` (`snapshots.ts`), et la copie du site avec elle.
+ * Le contrat de l'API : la forme de chacune de ses réponses (`/v1/…`), et les gabarits des chemins
+ * de ses images. Le site en garde une copie (`src/types.ts` du Pokédex), vérifiée par
+ * `bun run contracts` du site (et par `bun run lint` ici, quand le site est à côté). Une forme qui
+ * change : la règle « élargir puis restreindre » de `../pokedex/docs/deploiement.md` (un champ
+ * ajouté facultatif d'abord, jamais un tuple réordonné) ; une réponse tirée des prix change
+ * `FORMAT` (`snapshots.ts`), une réponse gardée dans R2 change en trois temps.
  */
 
 /* Les espèces (PokéAPI) : `/v1/species`, `/v1/species/details` */
@@ -27,6 +30,12 @@ export type PokemonTypeId =
   | 'fairy'
 
 export type GenerationId = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9
+
+/**
+ * Le nombre d'espèces du Pokédex national, celles des générations de `GenerationId` : une
+ * génération ajoutée change les deux ensemble (le site d'abord : `../pokedex/docs/deploiement.md`).
+ */
+export type TotalSpecies = 1025
 
 export interface PokemonSpecies {
   /** Numéro du Pokédex national. */
@@ -148,6 +157,27 @@ export interface CatalogSetFile {
   cards: CatalogSetRow[]
   rarities: CatalogFile['rarities']
 }
+
+/*
+ * Les chemins des images (`/v1/images/…`, que le site sert sous `/images/…` ;
+ * `lib/image-paths.ts`), sans nom de source. Celui du scan d'une carte est gardé tel quel dans les
+ * collections des comptes (un gabarit changé, et chaque carte enregistrée montrerait la carte de
+ * substitution) ; les autres se recalculent à l'affichage. Le dossier d'une langue : aucun pour le
+ * japonais, `fr/` pour le français.
+ */
+
+/** La taille d'un scan ou d'un logo : `md` pour les grilles et les listes, `hd` en grand. */
+export type ImageSize = 'md' | 'hd'
+/** Le scan d'une carte : le code de sa série, son rang (celui du catalogue), sa taille. */
+export type CardScanPath = `/images/cards/${'' | 'fr/'}${string}/${number}-${ImageSize}.webp`
+/** Le logo d'une série. */
+export type SetLogoPath = `/images/sets/${'' | 'fr/'}${string}-${ImageSize}.webp`
+/** L'icône d'un type de carte, d'une rareté. */
+export type TypeIconPath = `/images/types/${number}.webp`
+export type RarityIconPath = `/images/rarities/${number}.webp`
+/** Le sprite et l'illustration officielle d'un Pokémon. */
+export type SpritePath = `/images/species/${number}.png`
+export type ArtworkPath = `/images/species/artwork/${number}.png`
 
 /* L'état des tâches d'ingestion : `/v1/status` (`status.ts`) */
 

@@ -1,6 +1,7 @@
 {
-  // Ce que lance Bun ou Node hors du Worker : `scripts/ingest.ts` (`bun run ingest`) et les
-  // configurations de Vitest et de Drizzle Kit. Les types de Bun, pas ceux de Cloudflare.
+  // Ce que lance Bun ou Node hors du Worker : `scripts/ingest.ts` (`bun run ingest`),
+  // `scripts/contracts.ts` (`bun run lint`) et les configurations de Vitest et de Drizzle Kit. Les
+  // types de Bun, pas ceux de Cloudflare.
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "types": ["bun"]

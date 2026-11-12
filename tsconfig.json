@@ -1,8 +1,9 @@
 {
   // Le Worker (`worker/`, ses tâches d'ingestion et ses tests) et `src/` (le contrat, que le site
   // vérifie contre sa copie ; la configuration et les règles pures du Worker) : les types de
-  // Cloudflare (et de `cloudflare:test`). `scripts/ingest.ts`, que lance Bun, et les
-  // configurations de Vitest et de Drizzle Kit : `tsconfig.scripts.json`.
+  // Cloudflare (et de `cloudflare:test`). Les scripts que lance Bun (`scripts/ingest.ts`,
+  // `scripts/contracts.ts`) et les configurations de Vitest et de Drizzle Kit :
+  // `tsconfig.scripts.json`.
   "compilerOptions": {
     "strict": true,
     "target": "es2024",

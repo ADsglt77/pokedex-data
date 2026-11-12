@@ -9,13 +9,15 @@ arrêté reprend où il en était.
 
 ## Espèces (`ingest/species.ts`, chaque mois)
 
-Les 1 025 espèces d'après PokéAPI (nom français, anglais et japonais, types, génération ;
-catégorie, description, taille, poids…), lues par `ingest/net.ts` (requêtes identifiées, deux par
-espèce, six espèces à la fois, réessayées en cas de panne), par étapes de 100 espèces :
-`/v1/species` et `/v1/species/details` (des réponses enregistrées dans R2). Une espèce sans nom
-français ou anglais, ou d'un type inconnu (une nouvelle génération pas encore traduite), fait
-échouer la tâche : les espèces d'avant restent. Une nouvelle génération s'ajoute dans
-`GENERATIONS` (`config/pokedex.ts`).
+Les 1 025 espèces d'après PokéAPI (nom français, anglais et japonais, types, génération ; catégorie,
+description, taille, poids…), lues par `ingest/net.ts` (requêtes identifiées, deux par espèce, six
+espèces à la fois, réessayées en cas de panne), par étapes de 100 espèces : `/v1/species` et
+`/v1/species/details` (des réponses enregistrées dans R2). Une espèce sans nom français ou anglais,
+ou d'un type inconnu (une nouvelle génération pas encore traduite), fait échouer la tâche : les
+espèces d'avant restent. Une nouvelle génération s'ajoute au contrat (`GenerationId`,
+`TotalSpecies`), le site d'abord, puis ici dans `GENERATIONS` et `TOTAL_SPECIES`
+(`config/pokedex.ts`), puis la tâche `species`, puis `cards` (catalogue et images, dont les sprites
+; l'ordre et pourquoi : `../pokedex/docs/deploiement.md`).
 
 ## Catalogue (`ingest/catalog.ts`, à la demande)
 

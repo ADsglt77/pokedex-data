@@ -3,10 +3,21 @@
  * scan d'une carte, le logo d'une série, l'icône d'un type ou d'une rareté, le sprite et
  * l'illustration d'un Pokémon. Communs à la tâche `images`, qui les copie
  * (`worker/ingest/images.ts`), et à l'API, qui les sert (`worker/images.ts`) : `IMAGE_PATHS` dit
- * les parties de chacun.
+ * les parties de chacun. Leurs gabarits sont dans le contrat (`CardScanPath`…) : même règle que
+ * `../pokedex/src/lib/card-images.ts` (et `spriteUrl`, `artworkUrl` de son `config/pokedex.ts`),
+ * qui les écrit dans les collections.
  */
 
-import type { CardLanguage } from '@/contract'
+import type {
+  ArtworkPath,
+  CardLanguage,
+  CardScanPath,
+  ImageSize,
+  RarityIconPath,
+  SetLogoPath,
+  SpritePath,
+  TypeIconPath,
+} from '@/contract'
 
 /**
  * Le dossier d'une langue dans les chemins : aucun pour le japonais (ses adresses, venues d'abord,
@@ -19,22 +30,26 @@ const folderOf = (lang: CardLanguage) => (lang === 'fr' ? 'fr/' : '')
  * Le scan d'une carte : sa langue, le code de sa série et son rang (celui du catalogue), en deux
  * tailles, `md` pour les grilles, `hd` pour la fiche.
  */
-export const cardScan = (lang: CardLanguage, set: string, rank: number, size: 'md' | 'hd') =>
-  `/images/cards/${folderOf(lang)}${set}/${rank}-${size}.webp`
+export const cardScan = (
+  lang: CardLanguage,
+  set: string,
+  rank: number,
+  size: ImageSize,
+): CardScanPath => `/images/cards/${folderOf(lang)}${set}/${rank}-${size}.webp`
 
 /** Le logo d'une série, en deux tailles : `md` pour la liste, `hd` en tête de page. */
-export const setLogo = (lang: CardLanguage, set: string, size: 'md' | 'hd') =>
+export const setLogo = (lang: CardLanguage, set: string, size: ImageSize): SetLogoPath =>
   `/images/sets/${folderOf(lang)}${set}-${size}.webp`
 
 /** L'icône d'un type de carte (`CARD_TYPES`). */
-export const typeIcon = (type: number) => `/images/types/${type}.webp`
+export const typeIcon = (type: number): TypeIconPath => `/images/types/${type}.webp`
 
 /** L'icône d'une rareté (« SAR », ●…), la même dans les deux langues : une par id chez la source. */
-export const rarityIcon = (rarity: number) => `/images/rarities/${rarity}.webp`
+export const rarityIcon = (rarity: number): RarityIconPath => `/images/rarities/${rarity}.webp`
 
 /** Le sprite et l'illustration officielle d'un Pokémon. */
-export const spriteUrl = (id: number) => `/images/species/${id}.png`
-export const artworkUrl = (id: number) => `/images/species/artwork/${id}.png`
+export const spriteUrl = (id: number): SpritePath => `/images/species/${id}.png`
+export const artworkUrl = (id: number): ArtworkPath => `/images/species/artwork/${id}.png`
 
 /**
  * Chaque sorte de chemin et ses parties : la série, le rang et la taille d'un scan (japonais, ou

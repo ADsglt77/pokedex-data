@@ -11,9 +11,11 @@
 import { env } from 'cloudflare:workers'
 
 /**
- * La forme des réponses de l'API (`contract.ts`, dont le site garde une copie dans son
- * `src/types.ts`), dans l'ETag des réponses calculées à la demande : à augmenter avec elle, un
- * client ne garde jamais une réponse d'une ancienne forme. 2 : les prix rendent une clé par carte
+ * La forme des réponses calculées à la demande (`serveTagged` : celles tirées des prix, et les
+ * historiques ; `contract.ts`), dans leur ETag : à augmenter quand l'une d'elles change de forme,
+ * un client ne garde jamais une réponse d'une ancienne forme. Les espèces et le catalogue, gardés
+ * dans R2 tels qu'écrits, n'en dépendent pas : leur changement de forme se fait en trois temps
+ * (`../pokedex/docs/deploiement.md`). 2 : les prix rendent une clé par carte
  * demandée, `null` sans prix (octobre 2026). 3 : le prix d'une carte suit la règle de Pokécardex,
  * et son troisième nombre est son prix d'il y a 30 jours (octobre 2026).
  */

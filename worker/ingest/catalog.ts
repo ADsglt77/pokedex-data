@@ -62,8 +62,8 @@ import {
 import type { Step } from './workflow'
 
 /**
- * Un numéro comparable : `017` et `17` sont la même carte, `tg01` et `TG01` aussi (la même règle
- * que la référence d'une carte dans le site).
+ * Un numéro comparable : `017` et `17` sont la même carte, `tg01` et `TG01` aussi. Même règle que
+ * `numberKey` de `../pokedex/src/lib/card-code.ts` (l'une change, l'autre aussi).
  */
 const numberKey = (number: string) =>
   /^\d+$/.test(number) ? String(Number(number)) : number.toUpperCase()

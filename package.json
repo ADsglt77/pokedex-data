@@ -10,7 +10,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "wrangler d1 migrations apply DB --local",
     "typecheck": "tsc && tsc -p tsconfig.scripts.json",
-    "lint": "eslint . && knip",
+    "lint": "eslint . && knip && bun scripts/contracts.ts",
     "test": "vitest run",
     "format": "prettier --write src/ worker/ scripts/",
     "format:check": "prettier --check src/ worker/ scripts/",
