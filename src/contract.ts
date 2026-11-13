@@ -175,9 +175,12 @@ export type SetLogoPath = `/images/sets/${'' | 'fr/'}${string}-${ImageSize}.webp
 /** L'icône d'un type de carte, d'une rareté. */
 export type TypeIconPath = `/images/types/${number}.webp`
 export type RarityIconPath = `/images/rarities/${number}.webp`
-/** Le sprite et l'illustration officielle d'un Pokémon. */
+/**
+ * Le sprite et l'illustration officielle d'un Pokémon ; l'illustration en WebP sans perte,
+ * convertie une fois hors du Worker (novembre 2026, `docs/donnees.md`).
+ */
 export type SpritePath = `/images/species/${number}.png`
-export type ArtworkPath = `/images/species/artwork/${number}.png`
+export type ArtworkPath = `/images/species/artwork/${number}.webp`
 
 /* L'état des tâches d'ingestion : `/v1/status` (`status.ts`) */
 

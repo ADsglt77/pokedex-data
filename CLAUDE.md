@@ -21,6 +21,9 @@ bun install
 bun run dev            # migre la D1 locale, puis le Worker sur le port 8787 (sa D1 et son R2 locaux)
 bun run ingest <tâche> # un passage dans ce Worker : species, catalog, images, prices, history ;
                        # `cards` : les trois à la demande ; `setup` : tout ; --refresh, --remote
+                       # (`setup` ne copie que le PNG des illustrations : leurs WebP n'existent
+                       # qu'après `node ../conversion-illustrations-webp.mjs`, un script ponctuel
+                       # hors des dépôts : docs/donnees.md)
 bun run test           # les tests (worker/tests, dans le moteur de Cloudflare ; pas `bun test`,
                        # qui les lancerait hors de ce moteur)
 bun run db:generate    # après une modification de worker/schema.ts, puis `bun run format` :

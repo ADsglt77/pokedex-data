@@ -12,13 +12,15 @@
  * fichier de son rang était celui d'une autre carte), ne garde aucun fichier pour une carte que la
  * source n'a pas (ni à sa recherche de la semaine suivante), et ne note jamais une carte que le
  * catalogue a déplacée pendant la copie. En fin de tâche, une réponse du catalogue inchangée n'est
- * pas réécrite dans R2 (`saveSnapshot`). Jamais le réseau : `fetch` est remplacé.
+ * pas réécrite dans R2 (`saveSnapshot`). L'illustration d'un Pokémon : la tâche copie son PNG
+ * (`artworkSource`, la source de son WebP converti hors du Worker), l'API sert les deux, chacun
+ * avec son type. Jamais le réseau : `fetch` est remplacé.
  */
 
 import { env } from 'cloudflare:workers'
 import { afterEach, beforeEach, describe, expect, test, vi, type MockInstance } from 'vitest'
 import type { CardLanguage } from '@/contract'
-import { cardScan, setLogo } from '@/lib/image-paths'
+import { artworkSource, artworkUrl, cardScan, setLogo } from '@/lib/image-paths'
 import { MINUTE } from '@/lib/time'
 import { app } from '../app'
 import { saveSeries } from '../ingest/catalog'
@@ -154,7 +156,8 @@ describe('les chemins par langue', () => {
         '/images/rarities/34.webp',
         '/images/types/1.webp',
         '/images/species/25.png',
-        '/images/species/artwork/25.png',
+        artworkUrl(25),
+        artworkSource(25),
       ]) {
         expect([path, await served(path)]).toEqual([path, 404])
       }
@@ -211,6 +214,17 @@ describe('les chemins par langue', () => {
     const response = await app.request('/v1/images/species/25.png')
     expect(response.headers.get('content-type')).toBe('image/png')
     expect(response.headers.get('cache-control')).toBe('public, max-age=31536000, immutable')
+    // L'illustration : son WebP (converti hors du Worker) ; le PNG d'avant, le temps de la
+    // transition, chacun avec son type.
+    await put(artworkUrl(25), 'illustration webp')
+    await put(artworkSource(25), 'illustration png')
+    for (const [path, type] of [
+      [artworkUrl(25), 'image/webp'],
+      [artworkSource(25), 'image/png'],
+    ]) {
+      const artwork = await app.request(`/v1${path}`)
+      expect(artwork.headers.get('content-type')).toBe(type)
+    }
   })
 })
 
@@ -459,16 +473,20 @@ describe('la copie des images (tâche `images`)', () => {
     expect(await copied(path)).toBe('image')
   })
 
-  test('l’adresse d’origine : le scan français est celui du dossier FR, jamais celui sans langue', async () => {
+  test('l’adresse d’origine : le scan français est celui du dossier FR, jamais celui sans langue ; l’illustration, son PNG', async () => {
     const paths = [
       cardScan('ja', 'SVP', 1, 'md'),
       cardScan('fr', 'SVP', 1, 'hd'),
       setLogo('ja', 'SVP', 'md'),
       setLogo('fr', 'SVP', 'hd'),
+      // La source de son WebP (converti hors du Worker), sous son propre chemin `.png`.
+      artworkSource(25),
     ]
     for (const path of paths) {
       network.mockResolvedValueOnce(
-        new Response('image', { headers: { 'Content-Type': 'image/webp' } }),
+        new Response('image', {
+          headers: { 'Content-Type': path.endsWith('.png') ? 'image/png' : 'image/webp' },
+        }),
       )
       expect(await mirror(path)).toBe(true)
       expect(await copied(path)).toBe('image')
@@ -478,6 +496,7 @@ describe('la copie des images (tâche `images`)', () => {
       'https://pokecardex-scans.b-cdn.net/sets/SVP/FR/1.jpg?class=hd',
       'https://pokecardex.b-cdn.net/assets/images/logos_jp/SVP.png?class=md',
       'https://pokecardex.b-cdn.net/assets/images/logos/SVP.png?class=hd',
+      'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/25.png',
     ])
   })
 })

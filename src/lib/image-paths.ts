@@ -47,16 +47,22 @@ export const typeIcon = (type: number): TypeIconPath => `/images/types/${type}.w
 /** L'icône d'une rareté (« SAR », ●…), la même dans les deux langues : une par id chez la source. */
 export const rarityIcon = (rarity: number): RarityIconPath => `/images/rarities/${rarity}.webp`
 
-/** Le sprite et l'illustration officielle d'un Pokémon. */
+/**
+ * Le sprite et l'illustration officielle d'un Pokémon. L'illustration est un WebP sans perte,
+ * converti une fois hors du Worker (`docs/donnees.md`) depuis son PNG de PokéAPI, que copie la
+ * tâche `images` (`artworkSource`).
+ */
 export const spriteUrl = (id: number): SpritePath => `/images/species/${id}.png`
-export const artworkUrl = (id: number): ArtworkPath => `/images/species/artwork/${id}.png`
+export const artworkUrl = (id: number): ArtworkPath => `/images/species/artwork/${id}.webp`
+export const artworkSource = (id: number) => `/images/species/artwork/${id}.png` as const
 
 /**
- * Chaque sorte de chemin et ses parties : la série, le rang et la taille d'un scan (japonais, ou
- * français : le dossier `fr/`), la série et la taille d'un logo, l'id d'un type, d'une rareté
- * (sans langue : les mêmes ids et la même icône dans les deux) ou d'un Pokémon.
+ * Chaque sorte de chemin que copie la tâche `images` (chacun depuis sa source, `UPSTREAMS`) et ses
+ * parties : la série, le rang et la taille d'un scan (japonais, ou français : le dossier `fr/`), la
+ * série et la taille d'un logo, l'id d'un type, d'une rareté (sans langue : les mêmes ids et la
+ * même icône dans les deux) ou d'un Pokémon.
  */
-const IMAGE_PATHS = {
+const COPIED_PATHS = {
   cardJa: /^\/images\/cards\/([A-Z0-9_-]+)\/(\d{1,4})-(md|hd)\.webp$/,
   cardFr: /^\/images\/cards\/fr\/([A-Z0-9_-]+)\/(\d{1,4})-(md|hd)\.webp$/,
   logoJa: /^\/images\/sets\/([A-Z0-9_-]+)-(md|hd)\.webp$/,
@@ -64,16 +70,31 @@ const IMAGE_PATHS = {
   type: /^\/images\/types\/(\d{1,2})\.webp$/,
   rarity: /^\/images\/rarities\/(\d{1,3})\.webp$/,
   sprite: /^\/images\/species\/(\d{1,4})\.png$/,
-  artwork: /^\/images\/species\/artwork\/(\d{1,4})\.png$/,
+  // L'illustration de PokéAPI, la source de son WebP (`artworkSource`). Encore servie pendant la
+  // transition (« élargir puis restreindre » : le site déployé avant L19 la demande).
+  artworkSource: /^\/images\/species\/artwork\/(\d{1,4})\.png$/,
 }
 
+/** Chaque chemin servi : ceux que copie la tâche, et l'illustration en WebP, convertie à part. */
+const IMAGE_PATHS = {
+  ...COPIED_PATHS,
+  artwork: /^\/images\/species\/artwork\/(\d{1,4})\.webp$/,
+}
+
+export type CopiedKind = keyof typeof COPIED_PATHS
 export type ImageKind = keyof typeof IMAGE_PATHS
 
-/** La sorte d'un chemin et ses parties ; `null` s'il n'est pas un chemin d'image. */
-export function imagePathOf(path: string) {
-  for (const [kind, pattern] of Object.entries(IMAGE_PATHS) as [ImageKind, RegExp][]) {
+/** La sorte d'un chemin parmi `paths` et ses parties ; `null` s'il n'en est pas un. */
+function pathOf<K extends string>(paths: Record<K, RegExp>, path: string) {
+  for (const [kind, pattern] of Object.entries(paths) as [K, RegExp][]) {
     const match = pattern.exec(path)
     if (match) return { kind, parts: match.slice(1) }
   }
   return null
 }
+
+/** La sorte d'un chemin servi et ses parties ; `null` s'il n'est pas un chemin d'image. */
+export const imagePathOf = (path: string) => pathOf<ImageKind>(IMAGE_PATHS, path)
+
+/** La sorte d'un chemin que copie la tâche `images` et ses parties ; `null` sinon. */
+export const copiedPathOf = (path: string) => pathOf<CopiedKind>(COPIED_PATHS, path)

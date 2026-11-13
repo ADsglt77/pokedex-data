@@ -80,6 +80,7 @@ const PLAUSIBLE: Record<ImageKind, (...parts: string[]) => boolean | Promise<boo
   // Sans langue : les raretés ont les mêmes ids dans les deux, et la même icône chez la source.
   rarity: knownRarity,
   sprite: (id) => within(id, 1, TOTAL_SPECIES),
+  artworkSource: (id) => within(id, 1, TOTAL_SPECIES),
   artwork: (id) => within(id, 1, TOTAL_SPECIES),
 }
 

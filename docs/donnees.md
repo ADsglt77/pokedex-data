@@ -128,19 +128,52 @@ dossier `fr/` de plus, les japonais n'ont pas changé.
 | `/images/cards/fr/<série>/<sort>-<md\|hd>.webp` | Le scan d'une carte française, Pokécardex (`sets/<série>/FR/`, jamais le dossier sans langue : section suivante) |
 | `/images/sets/<série>-<md\|hd>.webp`, `/images/sets/fr/<série>-<md\|hd>.webp` | Le logo d'une série, japonaise (`logos_jp`) ou française (`logos`) |
 | `/images/types/<n>.webp`, `/images/rarities/<n>.webp` | Les icônes des types et des raretés, communes aux deux langues : un même id de rareté a la même icône chez la source |
-| `/images/species/<n>.png`, `/images/species/artwork/<n>.png` | Le sprite et l'illustration d'un Pokémon, PokéAPI |
+| `/images/species/<n>.png`, `/images/species/artwork/<n>.webp` | Le sprite d'un Pokémon, PokéAPI ; son illustration officielle, en WebP sans perte, convertie hors du Worker depuis son PNG de PokéAPI (ci-dessous) |
+| `/images/species/artwork/<n>.png` | Le PNG de l'illustration, copié de PokéAPI par la tâche : la source de son WebP (encore servi pendant la transition, ci-dessous) |
 
 - La tâche, deux téléchargements à la fois, seulement ce qui manque (environ 1,5 Go la première
   fois pour les japonaises, 1 à 1,4 Go de plus pour les françaises) : les logos de chaque série du catalogue,
   dans chaque langue, notés s'ils existent (`sets.logo`, par langue ; cherché de nouveau chaque
   semaine), les icônes (les types ; les raretés qu'utilisent les cartes de l'une ou l'autre
-  langue, une icône par id), les sprites et illustrations des 1 025 Pokémon, puis le scan de
+  langue, une icône par id), les sprites des 1 025 Pokémon et le PNG de leurs illustrations (la source de leur WebP : ci-dessous), puis le scan de
   chaque carte, de chaque langue, en deux tailles, noté s'il existe (`cards.image` : le catalogue
   le dit d'avance ; une carte sans scan est recherchée chaque semaine), par étapes de 50 séries,
   100 Pokémon ou 50 cartes. Chaque requête et chaque note portent la langue : l'id 7091 de chaque
   langue est une autre carte. Une image en erreur n'arrête pas les autres : rien n'est noté pour
   elle, la tâche échoue à la fin (à la 20e erreur, elle s'arrête : la source est sans doute en
   panne). En fin de tâche, même arrêtée, le catalogue est recalculé.
+- **Les illustrations des Pokémon, en WebP sans perte** (décision D-10, lot L19, novembre 2026) :
+  les 1 025 PNG de PokéAPI (475 × 475, transparents, 100 avec un profil de couleur) faisaient
+  132,7 Mo ; leurs WebP sans perte font 83,2 Mo (−37,3 %), chacun identique à son PNG au pixel
+  près (RGBA, couleurs sous les pixels transparents comprises), aux mêmes dimensions et au même
+  profil de couleur (octet pour octet). Le Worker ne sait pas encoder un WebP : la tâche `images`
+  copie le PNG (`artworkSource`, `images/species/artwork/<n>.png`, testé), et un script ponctuel,
+  hors du Worker et **hors des dépôts**, en fait le WebP (`images/species/artwork/<n>.webp`,
+  `image/webp`).
+  - **Le script** : `conversion-illustrations-webp.mjs`, dans le dossier qui contient les deux
+    dépôts (`../conversion-illustrations-webp.mjs` vu d'ici ; sur ce poste,
+    `C:\Users\a.segalat\Documents\pokedex\conversion-illustrations-webp.mjs`), lancé depuis ce
+    dépôt : il ouvre le R2 **local** (`getPlatformProxy`, `.wrangler/state`) et prend `sharp` dans
+    les dépendances de Wrangler, sans rien ajouter aux nôtres. Il n'est pas versionné (une
+    conversion ponctuelle, D-10) : le garder à côté des dépôts.
+  - **Ses contrôles** : chaque WebP doit être sans perte (un bloc `VP8L`, aucun `VP8 `), de mêmes
+    dimensions, d'un PNG de 8 bits par canal, au même profil de couleur et aux mêmes pixels RGBA ;
+    au moindre écart, rien n'est écrit, et sans gain de poids non plus. `--mesure` mesure sans
+    rien écrire ; sans lui, chaque WebP est vérifié puis écrit aussitôt (reprenable : un WebP déjà
+    là est relu et revérifié, réécrit seulement s'il diffère). Fait sur le R2 local le 13 novembre
+    2026 (1 025 identiques, relus ensuite sans rien réécrire).
+  - **Un environnement neuf** (une D1 et un R2 vides), dans l'ordre :
+    1. `bun run dev`, puis `bun run ingest setup` : la tâche `images` copie, avec le reste, les
+       1 025 sprites et les 1 025 PNG des illustrations ;
+    2. le Worker local arrêté, `node ../conversion-illustrations-webp.mjs --mesure`, puis, si tout
+       passe, `node ../conversion-illustrations-webp.mjs` : les 1 025 WebP ;
+    3. alors seulement, les illustrations s'affichent sur le site (il demande le WebP ; tant
+       qu'il manque, l'API répond 404 et la page montre sa substitution).
+  - **Transition** (« élargir puis restreindre ») : l'API sert les deux chemins, le `.png` pour le
+    site d'avant L19 ; le PNG reste dans R2 (la source du WebP), seul ce chemin servi sera retiré
+    une fois le site en ligne passé au WebP.
+  - **En ligne**, l'ordre (`../pokedex/docs/REVIEW-PLAN.md`, action A-09) : préparer les WebP du R2
+    de production, pousser ce dépôt et attendre sa mise en ligne, puis seulement pousser le site.
 - **Une série renumérotée** (testé) : le chemin d'un scan suit le rang de la carte. Quand la
   source change le rang ou la série d'une carte (une carte arrivée en tête de série décale les
   suivantes), le catalogue la remet à chercher (`cards.image` nul), et le fichier de son nouveau

@@ -7,7 +7,9 @@
  * - D'abord, chaque série du catalogue, japonaise et française : son logo chez Pokécardex, en deux
  *   tailles, ou aucun (noté : `sets.logo`, cherché de nouveau chaque semaine) ; les icônes des types
  *   et des raretés (celles des cartes des deux langues, les mêmes pour un même id).
- * - Les 1 025 Pokémon : sprite et illustration officielle (PokéAPI).
+ * - Les 1 025 Pokémon : leur sprite et le PNG de leur illustration officielle (PokéAPI). L'app
+ *   montre l'illustration en WebP sans perte, que le Worker ne sait pas produire : convertie depuis
+ *   ce PNG, hors du Worker, par un script ponctuel (`docs/donnees.md`).
  * - Chaque carte du catalogue, dans ses deux langues : son scan chez Pokécardex, en deux tailles
  *   (`md` pour les grilles, `hd` pour la fiche), ou aucun. Le résultat est noté (`cards.image`) :
  *   l'app sait d'avance quelle carte n'a pas d'image. Une carte sans scan est recherchée chaque
@@ -29,14 +31,14 @@ import { CARD_TYPES } from '@/config/catalog'
 import { SPECIES_IDS } from '@/config/pokedex'
 import type { CardLanguage } from '@/contract'
 import {
-  artworkUrl,
+  artworkSource,
   cardScan,
-  imagePathOf,
+  copiedPathOf,
   rarityIcon,
   setLogo,
   spriteUrl,
   typeIcon,
-  type ImageKind,
+  type CopiedKind,
 } from '@/lib/image-paths'
 import { WEEK } from '@/lib/time'
 import { plural, reasonOf, taskJournal } from '../journal'
@@ -51,8 +53,11 @@ const SCANS = 'https://pokecardex-scans.b-cdn.net'
 /** Les images du site de Pokécardex, en WebP (`class`) : logos, icônes. */
 const ASSETS = 'https://pokecardex.b-cdn.net/assets/images'
 
-/** L'adresse d'origine de chaque sorte de chemin (`IMAGE_PATHS`). */
-const UPSTREAMS: Record<ImageKind, (...parts: string[]) => string> = {
+/**
+ * L'adresse d'origine de chaque sorte de chemin copié (`COPIED_PATHS`) ; pas l'illustration en
+ * WebP, convertie hors du Worker depuis son PNG (`artworkSource`).
+ */
+const UPSTREAMS: Record<CopiedKind, (...parts: string[]) => string> = {
   // Le scan d'une carte japonaise (`cardScan`) : sa série, son rang, sa taille.
   cardJa: (set, rank, size) => `${SCANS}/sets_jp/${set}/${rank}.jpg?class=${size}`,
   // Celui d'une carte française : le dossier de sa langue (`FR`), jamais celui sans langue
@@ -64,12 +69,12 @@ const UPSTREAMS: Record<ImageKind, (...parts: string[]) => string> = {
   // Sans langue : les raretés ont les mêmes ids dans les deux, et la même icône chez la source.
   rarity: (rarity) => `${ASSETS}/rarete/ids/rarete_${rarity}.png?class=md`,
   sprite: (id) => `${SPRITES}/${id}.png`,
-  artwork: (id) => `${SPRITES}/other/official-artwork/${id}.png`,
+  artworkSource: (id) => `${SPRITES}/other/official-artwork/${id}.png`,
 }
 
-/** L'adresse d'origine d'un chemin (`/images/…`), toujours connu : bâti par `cardScan`… */
+/** L'adresse d'origine d'un chemin copié (`/images/…`), toujours connu : bâti par `cardScan`… */
 function upstreamOf(path: string) {
-  const { kind, parts } = imagePathOf(path)!
+  const { kind, parts } = copiedPathOf(path)!
   return UPSTREAMS[kind](...parts)
 }
 
@@ -179,13 +184,16 @@ async function icons(): Promise<Batch<null>> {
   return { after: null, failed, found: copied.filter(Boolean).length }
 }
 
-/** Le sprite et l'illustration de ces Pokémon. */
+/**
+ * Le sprite de ces Pokémon, et le PNG de leur illustration, la source de son WebP (converti hors du
+ * Worker : `docs/donnees.md`).
+ */
 async function species(ids: readonly number[]): Promise<Batch<null>> {
   const failed: string[] = []
   const copy = copier(failed)
   const copied = await mapPool(ids, 2, async (id) => {
     await copy(spriteUrl(id))
-    return copy(artworkUrl(id))
+    return copy(artworkSource(id))
   })
   return { after: null, failed, found: copied.filter(Boolean).length }
 }
