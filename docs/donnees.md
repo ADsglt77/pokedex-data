@@ -203,10 +203,12 @@ dossier `fr/` de plus, les japonais n'ont pas changé.
   de la source portaient 1,5 Mo de XMP pour quelques Ko d'image. L'image, sa transparence, son
   profil de couleur (`ICCP`) et une animation restent octet pour octet ; un autre format, ou un
   WebP mal formé, est copié tel quel. Une image déjà copiée n'est pas reprise (`mirror` sans
-  `force`) : les deux logos lourds, en leurs deux tailles, sont à recopier à la main (les quatre
-  clés `images/sets/fr/SVP-md.webp`, `SVP-hd.webp`, `MEP-md.webp`, `MEP-hd.webp` supprimées de
-  R2, `sets.logo` remis à `NULL` pour (fr, SVP) et (fr, MEP), puis `bun run ingest images` ;
-  chacune doit ensuite peser moins de 20 Ko), les autres gardent leurs métadonnées, légères.
+  `force`) : les deux logos lourds, en leurs deux tailles, ont été recopiés à la main en ligne le
+  13 novembre 2026 (A-03 : les quatre clés `images/sets/fr/SVP-md.webp`, `SVP-hd.webp`,
+  `MEP-md.webp`, `MEP-hd.webp` supprimées de R2, `sets.logo` remis à `NULL` pour (fr, SVP) et
+  (fr, MEP), puis `bun run ingest images --remote` ; sans `--remote`, la commande vise le Worker
+  local) : de 1 534 592 à 1 546 174 octets, ils pèsent maintenant 5 384 à 16 966 octets, sans
+  XMP ni EXIF, leurs pixels identiques. Les autres gardent leurs métadonnées, légères.
 - **Aucune copie à la demande** (décision du propriétaire, octobre 2026) : le Worker
   (`worker/images.ts`) sert l'image depuis R2 si elle y est (la tâche ne copie qu'un WebP, un PNG
   ou un JPEG de 5 Mo au plus, testé), sinon 404 sans rien télécharger (une
