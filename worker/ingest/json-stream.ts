@@ -5,7 +5,13 @@
  * d'un coup : leurs objets prendraient plus que les 128 Mo du Worker. Les objets du tableau sont
  * plats ou non ; un texte peut contenir accolades et guillemets échappés. Un document coupé avant
  * la fin du tableau (une connexion rompue) est refusé : lu jusque-là, il passerait pour complet.
+ * Un objet du tableau, ou le reste du document, de plus d'un million de caractères (environ 1 Mo)
+ * n'est pas celui d'un fichier de Cardmarket (quelques centaines d'octets) : une erreur, plutôt
+ * que la mémoire du Worker épuisée.
  */
+
+/** Au-delà, un objet en cours ou le reste du document : une erreur (en caractères). */
+const MAX_TEXT = 1_000_000
 
 export async function streamArray<T>(
   body: ReadableStream<Uint8Array>,
@@ -18,15 +24,28 @@ export async function streamArray<T>(
   /** Le texte reçu, pas encore lu : avant le tableau, puis son objet en cours. */
   let pending = ''
   let state: 'before' | 'inside' | 'after' = 'before'
+  /** Trop long : la lecture s'arrête là. */
+  const tooLong = async () => {
+    await reader.cancel()
+    return new Error(`${key} : plus d'un million de caractères d'un tenant (document inattendu ?)`)
+  }
+  /** L'objet en cours (pas encore fini) et le reste du document, bornés. */
+  const bounded = async () => {
+    if (pending.length > MAX_TEXT || rest.length > MAX_TEXT) throw await tooLong()
+  }
   for (let next = await reader.read(); !next.done; next = await reader.read()) {
     if (state === 'after') {
       rest += next.value
+      await bounded()
       continue
     }
     pending += next.value
     if (state === 'before') {
       const found = opening.exec(pending)
-      if (!found) continue
+      if (!found) {
+        await bounded()
+        continue
+      }
       rest += pending.slice(0, found.index)
       pending = pending.slice(found.index + found[0].length)
       state = 'inside'
@@ -48,6 +67,8 @@ export async function streamArray<T>(
         if (depth++ === 0) start = index
       } else if (char === '}') {
         if (--depth === 0) {
+          // Fini dans ce morceau, il n'a pas été vu en cours : borné ici aussi.
+          if (index + 1 - start > MAX_TEXT) throw await tooLong()
           onItem(JSON.parse(pending.slice(start, index + 1)) as T)
           start = -1
         }
@@ -59,6 +80,7 @@ export async function streamArray<T>(
     }
     // Ce qui reste à lire : l'objet en cours, relu depuis son début à la prochaine réception.
     pending = state === 'inside' && start >= 0 ? pending.slice(start) : ''
+    await bounded()
   }
   // Sans la fin de son tableau, le document est coupé (ou n'a pas ce tableau) : ce qui en a été lu
   // n'est pas le document entier.

@@ -442,6 +442,23 @@ describe('la copie des images (tâche `images`)', () => {
     })
   })
 
+  test('seulement une image WebP, PNG ou JPEG de 5 Mo au plus : sinon une erreur, rien d’écrit', async () => {
+    const path = cardScan('ja', 'SVP', 1, 'md')
+    const answer = (body: BodyInit, type: string) =>
+      network.mockResolvedValueOnce(new Response(body, { headers: { 'Content-Type': type } }))
+    for (const type of ['image/svg+xml', 'image/gif', 'text/html', '']) {
+      answer('<svg/>', type)
+      await expect(mirror(path)).rejects.toThrow('Pas une image attendue')
+    }
+    answer(new Uint8Array(5_000_001), 'image/webp')
+    await expect(mirror(path)).rejects.toThrow('Plus de 5 Mo')
+    expect(await copied(path)).toBe(404)
+    // Un type avec ses paramètres reste le sien.
+    answer('image', 'image/jpeg; charset=binary')
+    expect(await mirror(path)).toBe(true)
+    expect(await copied(path)).toBe('image')
+  })
+
   test('l’adresse d’origine : le scan français est celui du dossier FR, jamais celui sans langue', async () => {
     const paths = [
       cardScan('ja', 'SVP', 1, 'md'),

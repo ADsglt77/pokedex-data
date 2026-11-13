@@ -563,4 +563,20 @@ describe('streamArray : le guide des prix et la liste des produits, lus en flux'
       'priceGuides',
     )
   })
+
+  test('un objet, ou le texte avant le tableau, de plus d’un million de caractères : refusé', async () => {
+    const long = 'x'.repeat(1_000_001)
+    const chunks = (document: string) =>
+      [...document.matchAll(/[^]{1,65536}/g)].map(([part]) => new TextEncoder().encode(part))
+    await expect(
+      read(chunks(`{"priceGuides":[{"idProduct":1,"name":"${long}"}]}`)),
+    ).rejects.toThrow("plus d'un million")
+    await expect(read(chunks(`{"autre":"${long}","priceGuides":[]}`))).rejects.toThrow(
+      "plus d'un million",
+    )
+    // Juste en dessous, et autant d'objets qu'on veut : lu.
+    const many = Array.from({ length: 30_000 }, (_, id) => `{"idProduct":${id},"name":"nom"}`)
+    const { items } = await read(chunks(`{"priceGuides":[${many.join()}]}`))
+    expect(items).toHaveLength(30_000)
+  })
 })

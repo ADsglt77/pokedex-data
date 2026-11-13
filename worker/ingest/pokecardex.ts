@@ -4,12 +4,13 @@
  * porte ses données chiffrées (AES-CBC, `__INITIAL_DATA_ENCRYPTED__`), que son propre JavaScript
  * déchiffre. On fait de même, avec la clé lue dans ce JavaScript et relue quand son adresse
  * change (à chaque mise en ligne du site), jamais recopiée ici.
- * Une page toutes les 3 s, User-Agent identifié. S'il présentait un défi anti-robot (Cloudflare),
- * la lecture échouerait : on ne le contourne pas.
+ * Une page toutes les 3 s, User-Agent identifié, 5 Mo au plus (`readText`) ; le script de la clé
+ * seulement depuis le site lui-même. S'il présentait un défi anti-robot (Cloudflare), la lecture
+ * échouerait : on ne le contourne pas.
  */
 
 import type { CardLanguage } from '@/contract'
-import { download, sleep } from './net'
+import { download, readText, sleep } from './net'
 
 const SITE = 'https://www.pokecardex.com'
 /** Une requête toutes les 3 s au plus. */
@@ -101,7 +102,7 @@ async function read(url: string) {
   const wait = last + PACE - Date.now()
   if (wait > 0) await sleep(wait)
   last = Date.now()
-  return (await download(url)).text()
+  return readText(await download(url), url)
 }
 
 /**
@@ -133,7 +134,11 @@ let decryption: { script: string; key: CryptoKey } | null = null
 /** La clé du script de la page : relue seulement quand le script change. */
 async function keyOf(script: string) {
   if (decryption?.script === script) return decryption.key
-  const code = await read(new URL(script, SITE).href)
+  // L'adresse du script vient de la page : seulement un script du site lui-même, jamais d'ailleurs
+  // (`new URL` accepterait une adresse absolue).
+  const url = new URL(script, SITE)
+  if (url.origin !== SITE) throw new Error(`Pokécardex : script hors du site (${url.origin})`)
+  const code = await read(url.href)
   // La constante que la fonction de déchiffrement passe à `TextEncoder().encode(…)`.
   const name =
     /new TextEncoder\(\)\.encode\((\w+)\),\w+=await crypto\.subtle\.importKey\("raw"/.exec(

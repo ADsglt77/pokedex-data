@@ -66,7 +66,13 @@ d'une zone à l'autre (la carte 7091, la série SVP, la rareté 48) : chaque lig
   un jour si elle est récente), toutes d'un coup avec `--refresh`.
 - Ses pages portent leurs données chiffrées (`__INITIAL_DATA_ENCRYPTED__`, AES-CBC) : déchiffrées
   avec la clé que contient son JavaScript, relue quand l'adresse de son script change, jamais
-  recopiée dans le dépôt. Une page toutes les 3 s, User-Agent identifié : le premier passage prend
+  recopiée dans le dépôt ; ce script seulement depuis le site lui-même (son adresse vient de la
+  page : une adresse d'ailleurs est une erreur, sans être lue ; testé). Les lectures des tâches
+  (`ingest/net.ts`, novembre 2026, testé) ne suivent aucune redirection (une réponse 3xx est une
+  erreur), et une réponse lue d'un coup (une page, un script, une image, un document de PokéAPI)
+  l'est jusqu'à 5 Mo, sa taille annoncée ou non (`readCapped`) ; le guide des prix et la liste des
+  produits, lus en flux, refusent un objet ou un en-tête de plus d'un million de caractères
+  (`streamArray`). Une page toutes les 3 s, User-Agent identifié : le premier passage prend
   une vingtaine de minutes pour les japonaises, une douzaine pour les françaises ; ensuite, une
   série est relue après une semaine, après un jour si elle est sortie depuis moins de 90 jours
   (`read_at`), et `--refresh` les relit toutes.
@@ -169,7 +175,8 @@ dossier `fr/` de plus, les japonais n'ont pas changé.
   R2, `sets.logo` remis à `NULL` pour (fr, SVP) et (fr, MEP), puis `bun run ingest images` ;
   chacune doit ensuite peser moins de 20 Ko), les autres gardent leurs métadonnées, légères.
 - **Aucune copie à la demande** (décision du propriétaire, octobre 2026) : le Worker
-  (`worker/images.ts`) sert l'image depuis R2 si elle y est, sinon 404 sans rien télécharger (une
+  (`worker/images.ts`) sert l'image depuis R2 si elle y est (la tâche ne copie qu'un WebP, un PNG
+  ou un JPEG de 5 Mo au plus, testé), sinon 404 sans rien télécharger (une
   réponse sans cache : l'image est servie dès que la tâche l'a copiée) ; le site montre alors la
   carte de substitution. Seulement pour un chemin plausible (`IMAGE_PATHS` : une série du
   catalogue **de sa langue** et un numéro jusqu'au plus grand des siens, le logo d'une série du
@@ -451,6 +458,14 @@ Workflow ne tient que pour lui ; une tâche de `cards` qui trouve l'autre en cou
 passée, comme une tâche déjà en cours), mais un passage sans signe de vie depuis 5 min a été
 arrêté net (son Workflow terminé, ou en échec sans avoir pu noter sa fin) : il ne bloque plus sa
 tâche, et il est noté interrompu à son passage suivant (testé).
+
+Écart connu, reporté (décision D-12 de la revue de novembre 2026) : si l'étape « début » d'un
+Workflow est rejouée après que `startRun` a écrit son passage (la réponse perdue), elle trouve ce
+passage en vie et saute la tâche (« Tâche déjà en cours ») ; le passage orphelin est noté
+interrompu 5 min plus tard. Une tâche à la demande reste « en échec » jusqu'à son prochain
+lancement ; `prices` est rattrapée par le Cron. La correction (une colonne `runs.instance`, et
+`startRun` qui rend d'abord le passage ouvert de la même instance) demande une migration : elle
+partira avec la prochaine migration des données.
 
 Le Cron (toutes les heures, `worker/index.ts`) lance une tâche à rythme quand le début de son
 dernier passage terminé a plus que son intervalle (`INGEST_JOBS`) s'il a réussi ; après un échec,

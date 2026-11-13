@@ -41,7 +41,7 @@ import {
 import { WEEK } from '@/lib/time'
 import { plural, reasonOf, taskJournal } from '../journal'
 import { saveCatalog } from './catalog'
-import { mapPool, politeFetch } from './net'
+import { mapPool, politeFetch, readCapped } from './net'
 import { withoutMetadata } from './webp'
 import type { Step } from './workflow'
 
@@ -77,12 +77,19 @@ function upstreamOf(path: string) {
 const keyOf = (path: string) => path.slice(1)
 
 /**
+ * Les seuls types d'images copiés : ceux des sources (WebP de Pokécardex, PNG de PokéAPI), et
+ * JPEG.
+ */
+const IMAGE_TYPES = new Set(['image/webp', 'image/png', 'image/jpeg'])
+
+/**
  * Copie dans R2 l'image d'un chemin : `true` si elle y est (déjà, ou maintenant), `false` si la
- * source ne l'a pas (404). Une autre erreur (panne, réponse qui n'est pas une image) est levée :
- * réessayer plus tard. `force` : copiée même si elle y est, qu'elle remplace (le scan d'une carte :
- * son chemin, celui de son rang, a pu être celui d'une autre carte de la série, avant une
- * renumérotation). Un WebP est écrit sans ses métadonnées XMP et EXIF (`withoutMetadata`) ; une
- * image déjà copiée n'est pas reprise (`force` mis à part).
+ * source ne l'a pas (404). Une autre erreur (panne, redirection, réponse qui n'est pas une image
+ * WebP, PNG ou JPEG, ou de plus de 5 Mo : `readCapped`) est levée : réessayer plus tard.
+ * `force` : copiée même si elle y est, qu'elle remplace (le scan d'une carte : son chemin, celui de
+ * son rang, a pu être celui d'une autre carte de la série, avant une renumérotation). Un WebP est
+ * écrit sans ses métadonnées XMP et EXIF (`withoutMetadata`) ; une image déjà copiée n'est pas
+ * reprise (`force` mis à part).
  */
 export async function mirror(path: string, { force = false } = {}) {
   if (!force && (await env.FILES.head(keyOf(path)))) return true
@@ -90,9 +97,11 @@ export async function mirror(path: string, { force = false } = {}) {
   const response = await politeFetch(url)
   if (response.status === 404) return false
   if (!response.ok) throw new Error(`HTTP ${response.status} pour ${url}`)
-  const contentType = response.headers.get('content-type')
-  if (!contentType?.startsWith('image/')) throw new Error(`Pas une image : ${url}`)
-  await env.FILES.put(keyOf(path), withoutMetadata(new Uint8Array(await response.arrayBuffer())), {
+  const contentType = response.headers.get('content-type') ?? ''
+  if (!IMAGE_TYPES.has(contentType.split(';')[0]!.trim())) {
+    throw new Error(`Pas une image attendue (${contentType}) : ${url}`)
+  }
+  await env.FILES.put(keyOf(path), withoutMetadata(await readCapped(response, url)), {
     httpMetadata: { contentType },
   })
   return true

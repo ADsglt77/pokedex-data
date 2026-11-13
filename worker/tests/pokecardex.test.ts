@@ -5,10 +5,12 @@
  * du menu sont ceux d'une langue, quelles séries sont des exclusivités d'autres pays d'Asie
  * (rangées avec les japonaises, mais pas japonaises : écartées), et le nom d'extension Cardmarket
  * d'une série française (un nom qui ne correspond pas au sien ferait tomber la liste de souhaits
- * sur une autre extension : mieux vaut aucun nom).
+ * sur une autre extension : mieux vaut aucun nom). Et le script d'où vient la clé de ses données :
+ * seulement depuis le site lui-même, son adresse venant de la page. Jamais le réseau : `fetch` est
+ * remplacé.
  */
 
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
 import {
   asiaExclusive,
   cardmarketSlug,
@@ -17,6 +19,15 @@ import {
   seriesIn,
   type PokecardexSeries,
 } from '../ingest/pokecardex'
+
+// Sans les 3 s d'attente entre deux pages ; `pokecardex.ts`, déjà chargé par l'entrée du Worker,
+// rechargé pour le prendre.
+vi.mock(import('../ingest/net'), async (original) => ({
+  ...(await original()),
+  sleep: async () => undefined,
+}))
+vi.resetModules()
+const { readSeries } = await import('../ingest/pokecardex')
 
 const SITEMAP = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
@@ -30,6 +41,39 @@ const SITEMAP = `<?xml version="1.0" encoding="UTF-8"?>
   <url><loc>https://www.pokecardex.com/series/BS</loc></url>
   <url><loc>https://www.pokecardex.com/series/HS</loc></url>
 </urlset>`
+
+describe('le script de la clé de déchiffrement', () => {
+  /** Une page de Pokécardex dont le script est à cette adresse. */
+  const page = (script: string) =>
+    new Response(
+      `<script type="module" crossorigin src="${script}"></script>` +
+        '<script>window.__INITIAL_DATA_ENCRYPTED__ = {"iv":"AAAA","data":"AAAA"}</script>',
+    )
+
+  test('seulement depuis le site lui-même : une adresse d’ailleurs est refusée sans être lue', async () => {
+    const network = vi.spyOn(globalThis, 'fetch')
+    try {
+      for (const script of ['https://ailleurs.example/index.js', '//ailleurs.example/index.js']) {
+        network.mockResolvedValueOnce(page(script))
+        await expect(readSeries('ja', 'SV2A')).rejects.toThrow(
+          'script hors du site (https://ailleurs.example)',
+        )
+      }
+      // Celui du site est lu (ici sans clé : une erreur, mais après l'avoir lu).
+      network.mockResolvedValueOnce(page('/assets/index-abc.js'))
+      network.mockResolvedValueOnce(new Response('export {}'))
+      await expect(readSeries('ja', 'SV2A')).rejects.toThrow('clé de ses données introuvable')
+      expect(network.mock.calls.map(([url]) => String(url))).toEqual([
+        'https://www.pokecardex.com/series/jp/SV2A',
+        'https://www.pokecardex.com/series/jp/SV2A',
+        'https://www.pokecardex.com/series/jp/SV2A',
+        'https://www.pokecardex.com/assets/index-abc.js',
+      ])
+    } finally {
+      network.mockRestore()
+    }
+  })
+})
 
 describe('seriesIn', () => {
   test('japonaises : /series/jp/<code>, sans doublon ni autre pays', () => {
