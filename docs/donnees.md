@@ -87,7 +87,9 @@ d'une zone à l'autre (la carte 7091, la série SVP, la rareté 48) : chaque lig
   cette taille se retire alors à la main (D1). Tant qu'aucune carte d'une langue n'a été lue, les
   réponses de cette langue répondent 404.
 - Les réponses, recalculées en fin de tâche, chaque langue d'après ses seules lignes, une étape
-  chacune (`saveCatalog`, `saveLanguage`, testé : enregistrées dans R2, `snapshots/…`, et celles
+  chacune (`saveCatalog`, `saveLanguage`, testé : enregistrées dans R2, `snapshots/…`, seulement
+  celles qui ont changé, leur MD5 comparé à l'ETag de R2, `saveSnapshot`, testé : un passage
+  `cards` en recalcule environ 5 500, deux fois, presque toutes inchangées ; et celles
   d'une série retirée retirées, dans sa langue seulement ; `snapshotName` : celles du japonais gardent leurs noms, `catalog/…`, celles du français, de même
   forme, sont nommées `catalog/fr/…`, la sortie y étant celle en France ; l'API sert chacune à la
   route de même nom, `/v1/catalog/…` et `/v1/catalog/fr/…`, mêmes paramètres, `worker/reference.ts`) :
@@ -172,8 +174,12 @@ dossier `fr/` de plus, les japonais n'ont pas changé.
   carte de substitution. Seulement pour un chemin plausible (`IMAGE_PATHS` : une série du
   catalogue **de sa langue** et un numéro jusqu'au plus grand des siens, le logo d'une série du
   catalogue de sa langue, un type de `CARD_TYPES`, une rareté connue d'une langue ou de l'autre,
-  un Pokémon de 1 à 1 025). Une image est écrite d'un coup dans R2 : l'API ne sert jamais une
-  image à moitié écrite.
+  un Pokémon de 1 à 1 025). Le plus grand rang de chaque série lue et les raretés sont gardés
+  10 min dans la mémoire de chaque exemplaire du Worker (une page du catalogue demande des dizaines
+  d'images d'une même série : une requête D1 par série, plus une par image ; testé). Contrepartie
+  acceptée : une série ou une rareté nouvelle est servie au plus 10 min après la tâche, une série
+  retirée l'est encore jusqu'à 10 min ; un chemin inventé n'est jamais gardé. Une image est écrite
+  d'un coup dans R2 : l'API ne sert jamais une image à moitié écrite.
 
 ## La zone française de Pokécardex (repérée le 22 octobre 2026)
 
@@ -313,7 +319,10 @@ seulement les cartes à l'unité (catégorie 51) :
 - Les réponses : `/v1/prices?ids=…` (`readPrices` : le jour, et une clé par carte demandée,
   `[prix, plus bas, prix d'il y a 30 jours]` ou `null` sans prix ; 404 tant que le guide n'a
   jamais été lu) ; `/v1/prices/<id>` (l'historique d'une carte) et `/v1/histories?ids=…` (ceux de
-  plusieurs, une clé par id, `null` sans historique). Les ids : des entiers de 1 à 9 chiffres sans
+  plusieurs, une clé par id, `null` sans historique), assemblés en texte : les prix de chaque année
+  tels qu'en base (`json()` les rend compacts), un `null` par jour manquant entre deux années,
+  jamais relus ni réécrits (`joinYears`, testé : le même JSON, octet pour octet, que les années
+  relues puis réécrites ; 1 000 cartes sur un an prenaient environ 90 ms). Les ids : des entiers de 1 à 9 chiffres sans
   zéro devant, 1 025 au plus (422 sinon). Leur ETag est tiré du passage de la tâche `prices` et de
   l'avancée de la tâche `history` (`pricesAnswer`, lu avant la réponse : au pire des prix neufs
   sous l'ancien ETag, jamais d'anciens sous le nouveau) : 304 tant que rien n'a changé.
@@ -335,7 +344,8 @@ montre 180, et il écrirait loin dans l'historique ; une carte dont aucun jour n
 compte comme une carte sans historique : la garde du format, ci-dessous). La tâche `prices` peut
 écrire les mêmes lignes pendant que `history` tourne : l'année de la carte est lue avec le jour du
 dernier relevé, fusionnée, puis réécrite seulement si personne n'y a touché entre-temps
-(`writeYears`, testé), sinon relue et refaite (une année réécrite d'après une lecture d'avant
+(`writeYears`, testé ; l'`INSERT` ne reçoit que les années nouvelles, l'`UPDATE` que les autres),
+sinon relue et refaite (une année réécrite d'après une lecture d'avant
 effacerait le prix du jour) ; son prix d'il y a 30 jours suit, dans `cardmarket_prices` seulement.
 Écart accepté (décision de l'utilisateur, novembre 2026) : quand la reprise croise un relevé des
 prix, celui-ci remplace ensuite cette table par ses prix mis de côté (`cardmarket_prices_next`), et

@@ -22,9 +22,9 @@ import { env } from 'cloudflare:workers'
 import { Hono } from 'hono'
 import { snapshotName } from '@/config/catalog'
 import { TOTAL_SPECIES } from '@/config/pokedex'
-import type { CardLanguage, PriceFile, PriceHistories, WantsLines } from '@/contract'
+import type { CardLanguage, PriceFile, WantsLines } from '@/contract'
 import { wantsLine, type ExpansionName } from '@/lib/wants'
-import { readHistories } from './history'
+import { readHistories, readHistoriesText } from './history'
 import { notFound, serveSnapshot, serveTagged } from './snapshots'
 
 /**
@@ -63,7 +63,7 @@ async function pricesSource() {
 async function pricesAnswer(
   request: Request,
   what: string,
-  read: (date: string) => Promise<unknown>,
+  read: (date: string) => Promise<string | null>,
 ) {
   const source = await pricesSource()
   if (!source) return notFound()
@@ -199,21 +199,25 @@ export const referenceRoutes = new Hono()
   .get('/prices', (c) => {
     const ids = idsOf(c.req.query('ids'))
     if (!ids) return refused()
-    return pricesAnswer(c.req.raw, `prices:${ids.join()}`, (date) => readPrices(ids, date))
+    return pricesAnswer(c.req.raw, `prices:${ids.join()}`, async (date) =>
+      JSON.stringify(await readPrices(ids, date)),
+    )
   })
   // Pas de 404 retenu : la carte peut avoir un prix au prochain passage.
   .get('/prices/:id', (c) => {
     const id = c.req.param('id')
     if (!/^[1-9]\d{0,8}$/.test(id)) return refused()
     const card = Number(id)
-    return pricesAnswer(c.req.raw, `history:${id}`, async () => (await readHistories([card]))[card])
+    return pricesAnswer(
+      c.req.raw,
+      `history:${id}`,
+      async () => (await readHistories([card])).get(card) ?? null,
+    )
   })
   .get('/histories', (c) => {
     const ids = idsOf(c.req.query('ids'))
     if (!ids) return refused()
-    return pricesAnswer(c.req.raw, `histories:${ids.join()}`, (): Promise<PriceHistories> =>
-      readHistories(ids),
-    )
+    return pricesAnswer(c.req.raw, `histories:${ids.join()}`, () => readHistoriesText(ids))
   })
   // Sans cache : les produits et le catalogue changent avec les tâches.
   .get('/wants', async (c) => {

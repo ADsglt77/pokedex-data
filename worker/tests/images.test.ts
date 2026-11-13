@@ -3,24 +3,28 @@
  * série (SVP) mènent chacun à leur image, plausibles seulement si leur langue a la série (sinon une
  * carte française montrerait le scan d'une japonaise), et jusqu'au plus grand rang des cartes de
  * la série dans cette langue ; une image qui n'est pas copiée répond 404, sans rien télécharger
- * (la tâche `images` les copie toutes d'avance).
+ * (la tâche `images` les copie toutes d'avance). Le plus grand rang de chaque série et les raretés
+ * sont gardés 10 min en mémoire : une requête par série, pas une par image.
  *
  * Et leur copie (`worker/ingest/images.ts`) : l'adresse d'origine de chaque chemin (le scan
  * français est celui du dossier `FR`, jamais celui sans langue, qui n'est pas lui). Après une
  * renumérotation d'une série par la source, la tâche recopie le scan de chaque carte cherchée (le
  * fichier de son rang était celui d'une autre carte), ne garde aucun fichier pour une carte que la
  * source n'a pas (ni à sa recherche de la semaine suivante), et ne note jamais une carte que le
- * catalogue a déplacée pendant la copie. Jamais le réseau : `fetch` est remplacé.
+ * catalogue a déplacée pendant la copie. En fin de tâche, une réponse du catalogue inchangée n'est
+ * pas réécrite dans R2 (`saveSnapshot`). Jamais le réseau : `fetch` est remplacé.
  */
 
 import { env } from 'cloudflare:workers'
 import { afterEach, beforeEach, describe, expect, test, vi, type MockInstance } from 'vitest'
 import type { CardLanguage } from '@/contract'
 import { cardScan, setLogo } from '@/lib/image-paths'
+import { MINUTE } from '@/lib/time'
 import { app } from '../app'
 import { saveSeries } from '../ingest/catalog'
 import type { PokecardexSeries } from '../ingest/pokecardex'
 import type { Step } from '../ingest/workflow'
+import { saveSnapshot } from '../snapshots'
 import { alive, emptyFiles, rows } from './helpers'
 
 // `politeFetch` sans ses 100 ms d'attente ; `images.ts`, déjà chargé par l'entrée du Worker,
@@ -71,6 +75,18 @@ async function served(path: string) {
 }
 
 describe('les chemins par langue', () => {
+  // L'horloge des contrôles des chemins, gardés 10 min en mémoire (`worker/images.ts`) : elle
+  // avance de 10 min à chaque test, et après chaque changement du catalogue (`later`), toujours en
+  // avant (ce qui est gardé ne passe jamais pour plus récent qu'il n'est).
+  let clock = Date.now()
+  const later = () => (clock += 10 * MINUTE)
+  let now: MockInstance<typeof Date.now>
+  beforeEach(() => {
+    later()
+    now = vi.spyOn(Date, 'now').mockImplementation(() => clock)
+  })
+  afterEach(() => now.mockRestore())
+
   test('un chemin français ne mène qu’à une image française', async () => {
     expect(cardScan('ja', 'SVP', 1, 'md')).toBe('/images/cards/SVP/1-md.webp')
     expect(cardScan('fr', 'SVP', 1, 'md')).toBe('/images/cards/fr/SVP/1-md.webp')
@@ -86,6 +102,7 @@ describe('les chemins par langue', () => {
 
     // La série dans les deux langues : chaque chemin son image.
     await catalog('ja', 'fr')
+    later()
     expect(await served('/images/cards/SVP/1-md.webp')).toBe('scan japonais')
     expect(await served('/images/cards/fr/SVP/1-md.webp')).toBe('scan français')
     expect(await served('/images/sets/SVP-hd.webp')).toBe('logo japonais')
@@ -96,6 +113,7 @@ describe('les chemins par langue', () => {
 
     // La série en japonais seulement : rien en français, même avec l'image.
     await catalog('ja')
+    later()
     expect(await served('/images/cards/SVP/1-md.webp')).toBe('scan japonais')
     expect(await served('/images/sets/SVP-hd.webp')).toBe('logo japonais')
     expect(await served('/images/cards/fr/SVP/1-md.webp')).toBe(404)
@@ -103,6 +121,7 @@ describe('les chemins par langue', () => {
 
     // La série en français seulement : rien en japonais.
     await catalog('fr')
+    later()
     expect(await served('/images/cards/fr/SVP/1-md.webp')).toBe('scan français')
     expect(await served('/images/sets/fr/SVP-hd.webp')).toBe('logo français')
     expect(await served('/images/cards/SVP/1-md.webp')).toBe(404)
@@ -114,12 +133,14 @@ describe('les chemins par langue', () => {
     await env.DB.prepare(
       "INSERT INTO rarities (lang, id, name, rank) VALUES ('fr', 33, 'Double Rare', 1)",
     ).run()
+    later()
     expect(await served('/images/rarities/33.webp')).toBe('icône')
   })
 
   test('une image absente répond 404 sans rien télécharger', async () => {
     await emptyFiles()
     await catalog('ja', 'fr')
+    later()
     await env.DB.prepare(
       "INSERT INTO rarities (lang, id, name, rank) VALUES ('fr', 34, 'Ultra Rare', 2)",
     ).run()
@@ -140,6 +161,48 @@ describe('les chemins par langue', () => {
       expect(network).not.toHaveBeenCalled()
     } finally {
       network.mockRestore()
+    }
+  })
+
+  test('le plus grand rang d’une série et les raretés : lus une fois par 10 min, pas à chaque image', async () => {
+    await put('/images/cards/fr/SVP/1-md.webp', 'scan français')
+    await put('/images/cards/fr/SVP/2-md.webp', 'deuxième scan français')
+    await put('/images/rarities/35.webp', 'icône')
+    await catalog('ja', 'fr')
+    await env.DB.prepare(
+      "INSERT INTO rarities (lang, id, name, rank) VALUES ('ja', 35, 'Special Art Rare', 3)",
+    ).run()
+    later()
+    const prepare = vi.spyOn(env.DB, 'prepare')
+    const read = (sql: string) => prepare.mock.calls.filter(([query]) => query.includes(sql)).length
+    try {
+      for (const path of [
+        '/images/cards/fr/SVP/1-md.webp',
+        '/images/cards/fr/SVP/2-md.webp',
+        '/images/cards/fr/SVP/1-md.webp',
+        '/images/rarities/35.webp',
+        '/images/rarities/35.webp',
+      ]) {
+        expect(await served(path)).not.toBe(404)
+      }
+      expect(read('MAX(sort)')).toBe(1)
+      expect(read('FROM rarities')).toBe(1)
+      // Un chemin inventé n'est pas gardé : relu à chaque fois.
+      expect(await served('/images/cards/fr/XYZ/1-md.webp')).toBe(404)
+      expect(await served('/images/cards/fr/XYZ/1-md.webp')).toBe(404)
+      expect(read('MAX(sort)')).toBe(3)
+
+      // La série retirée du français : encore servie jusqu'à 10 min, puis plus.
+      await catalog('ja')
+      expect(await served('/images/cards/fr/SVP/1-md.webp')).toBe('scan français')
+      clock += 10 * MINUTE - 1
+      expect(await served('/images/cards/fr/SVP/1-md.webp')).toBe('scan français')
+      clock += 1
+      expect(await served('/images/cards/fr/SVP/1-md.webp')).toBe(404)
+      // Les raretés aussi, relues après 10 min (`catalog` les a effacées).
+      expect(await served('/images/rarities/35.webp')).toBe(404)
+    } finally {
+      prepare.mockRestore()
     }
   })
 
@@ -170,6 +233,20 @@ describe('la copie des images (tâche `images`)', () => {
     const object = await env.FILES.get(path.slice(1))
     return object ? text(await object.arrayBuffer()) : 404
   }
+
+  test('en fin de tâche, une réponse du catalogue inchangée n’est pas réécrite dans R2', async () => {
+    const write = vi.spyOn(env.FILES, 'put')
+    try {
+      await saveSnapshot('catalog/sets/SVP', { cards: [1] })
+      await saveSnapshot('catalog/sets/SVP', { cards: [1] })
+      expect(write).toHaveBeenCalledTimes(1)
+      await saveSnapshot('catalog/sets/SVP', { cards: [1, 2] })
+      expect(write).toHaveBeenCalledTimes(2)
+      expect(await copied('/snapshots/catalog/sets/SVP.json')).toBe('{"cards":[1,2]}')
+    } finally {
+      write.mockRestore()
+    }
+  })
 
   describe('une série renumérotée par la source', () => {
     // Les chemins des scans suivent le rang : après l'arrivée d'une carte en tête de série, le

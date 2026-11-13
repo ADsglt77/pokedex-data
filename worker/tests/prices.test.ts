@@ -146,6 +146,38 @@ describe('l’historique de chaque carte', () => {
     })
     expect((await get('/prices/1')).status).toBe(404)
   })
+
+  test('assemblée en texte, la réponse est celle que donneraient les années relues puis réécrites', async () => {
+    await seed()
+    // Une année écrite avec des espaces, une autre sans aucun prix, des jours vides.
+    const year = env.DB.prepare('INSERT INTO cardmarket_history VALUES (719447, ?, ?, ?)')
+    await env.DB.batch([
+      year.bind(2024, 364, '[ 1.5 , null ]'),
+      year.bind(2025, 0, '[]'),
+      year.bind(2026, 1, '[2,null,3]'),
+    ])
+    const history = {
+      name: null,
+      from: '2024-12-30',
+      prices: [1.5, null, ...Array<null>(366).fill(null), 2, null, 3],
+    }
+    expect(await (await get('/prices/719447')).text()).toBe(JSON.stringify(history))
+    // Une clé par id, dans l'ordre des ids, comme `JSON.stringify` : la même réponse qu'avant.
+    const response = await get('/histories?ids=719621,1,719447,719446')
+    expect(response.headers.get('content-type')).toBe('application/json')
+    expect(await response.text()).toBe(
+      JSON.stringify({
+        '1': null,
+        '719446': { name: null, from: '2026-10-14', prices: [7] },
+        '719447': history,
+        '719621': {
+          name: 'Charmander [Blazing Destruction]',
+          from: '2025-12-30',
+          prices: [1, null, 2, 3],
+        },
+      }),
+    )
+  })
 })
 
 describe('savePriceGuide : les prix du jour et l’historique', () => {
@@ -189,7 +221,8 @@ describe('savePriceGuide : les prix du jour et l’historique', () => {
     })),
   })
   /** L'historique d'une carte, tel que le rend l'API, avec son nom. */
-  const history = async (id: number) => (await readHistories([id]))[id]
+  const history = async (id: number) =>
+    JSON.parse((await readHistories([id])).get(id) ?? 'null') as unknown
   const priceRow = (id: number) =>
     env.DB.prepare('SELECT price, low, month_ago AS monthAgo FROM cardmarket_prices WHERE id = ?')
       .bind(id)

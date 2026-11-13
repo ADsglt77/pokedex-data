@@ -13,20 +13,57 @@ import { CARD_TYPES } from '@/config/catalog'
 import { TOTAL_SPECIES } from '@/config/pokedex'
 import type { CardLanguage } from '@/contract'
 import { imagePathOf, type ImageKind } from '@/lib/image-paths'
+import { MINUTE } from '@/lib/time'
 import { notFound } from './snapshots'
 
 /** Un nombre lu dans un chemin. */
 const within = (value: string, min: number, max: number) =>
   Number(value) >= min && Number(value) <= max
 
+/**
+ * Ce que gardent en mémoire les contrôles des chemins, pour chaque exemplaire du Worker : une page
+ * du catalogue demande des dizaines d'images d'une même série, chacune attendait sinon sa requête
+ * D1. Relu au-delà : une série ou une rareté que vient d'ajouter une tâche est servie au plus
+ * 10 min plus tard (ses images, copiées ensuite, ne sont pas encore là), et une série retirée
+ * l'est encore jusqu'à 10 min.
+ */
+const KEPT = 10 * MINUTE
+
+/**
+ * Le plus grand rang des cartes de chaque série lue (`ja|SVP`), et quand. Seulement une série qui a
+ * des cartes : un chemin inventé n'y reste pas, il est relu à chaque fois.
+ */
+const maxRanks = new Map<string, { max: number; at: number }>()
+
 /** Un scan est plausible jusqu'au plus grand rang des cartes de la série, dans cette langue. */
 const plausibleScan = (lang: CardLanguage) => async (set: string, rank: string) => {
-  const row = await env.DB.prepare(
-    'SELECT MAX(sort) AS max FROM cards WHERE lang = ? AND set_id = ?',
-  )
-    .bind(lang, set)
-    .first<{ max: number | null }>()
-  return row?.max != null && within(rank, 1, row.max)
+  const key = `${lang}|${set}`
+  let known = maxRanks.get(key)
+  if (!known || Date.now() - known.at >= KEPT) {
+    const row = await env.DB.prepare(
+      'SELECT MAX(sort) AS max FROM cards WHERE lang = ? AND set_id = ?',
+    )
+      .bind(lang, set)
+      .first<{ max: number | null }>()
+    known = row?.max == null ? undefined : { max: row.max, at: Date.now() }
+    if (known) maxRanks.set(key, known)
+    else maxRanks.delete(key)
+  }
+  return known !== undefined && within(rank, 1, known.max)
+}
+
+/** Les raretés connues des deux langues (quelques dizaines), et quand elles ont été lues. */
+let rarities: { ids: Set<number>; at: number } | undefined
+
+/** Une rareté connue d'une langue ou de l'autre. */
+async function knownRarity(rarity: string) {
+  if (!rarities || Date.now() - rarities.at >= KEPT) {
+    const { results } = await env.DB.prepare('SELECT DISTINCT id FROM rarities').all<{
+      id: number
+    }>()
+    rarities = { ids: new Set(results.map(({ id }) => id)), at: Date.now() }
+  }
+  return rarities.ids.has(Number(rarity))
 }
 
 /** Un logo est plausible pour une série de cette langue. */
@@ -41,9 +78,7 @@ const PLAUSIBLE: Record<ImageKind, (...parts: string[]) => boolean | Promise<boo
   logoFr: plausibleLogo('fr'),
   type: (type) => CARD_TYPES.has(Number(type)),
   // Sans langue : les raretés ont les mêmes ids dans les deux, et la même icône chez la source.
-  rarity: async (rarity) =>
-    (await env.DB.prepare('SELECT 1 FROM rarities WHERE id = ?').bind(Number(rarity)).first()) !==
-    null,
+  rarity: knownRarity,
   sprite: (id) => within(id, 1, TOTAL_SPECIES),
   artwork: (id) => within(id, 1, TOTAL_SPECIES),
 }

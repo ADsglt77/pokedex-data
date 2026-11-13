@@ -2,8 +2,8 @@
  * L'historique des prix, tel que l'écrivent les tâches et le lit l'API (`worker/ingest/prices.ts`,
  * `worker/ingest/history.ts`, et `worker/history.ts`) : un tableau par carte et par année, à partir
  * de son premier jour avec un prix ; pour l'app, un prix par jour depuis ce premier jour
- * (`joinYears`). Chaque prix plausible et au centime (`plausiblePrice`), celui du jour comme celui
- * repris. Sans base : commun aux tâches et à l'API.
+ * (`joinYears`, assemblé en texte). Chaque prix plausible et au centime (`plausiblePrice`), celui
+ * du jour comme celui repris. Sans base : commun aux tâches et à l'API.
  */
 
 import type { CardPriceHistory } from '@/contract'
@@ -78,19 +78,36 @@ export const monthAgoYears = (date: string) => [
 ]
 
 /**
- * Les années, dans l'ordre, mises bout à bout : un prix par jour, du premier au dernier prix ;
- * `null` si aucune n'en a.
+ * Une année telle qu'en base : ses prix en texte JSON compact (`[6.87,null,7.1]`), et leur nombre
+ * (`length`).
  */
-export function joinYears(years: HistoryYear[]): Pick<CardPriceHistory, 'from' | 'prices'> | null {
+export interface StoredYear {
+  year: number
+  first: number
+  prices: string
+  length: number
+}
+
+/**
+ * Les années, dans l'ordre, mises bout à bout sans les relire : le premier jour, et le texte JSON
+ * d'un prix par jour du premier au dernier prix (`CardPriceHistory`) ; `null` sans année. Les prix
+ * de chaque année tels qu'en base, et un `null` par jour sans prix entre deux années : relus puis
+ * réécrits, 1 000 cartes sur un an prendraient environ 90 ms (testé contre les années relues).
+ */
+export function joinYears(
+  years: StoredYear[],
+): (Pick<CardPriceHistory, 'from'> & { prices: string }) | null {
   const [head] = years
   if (!head) return null
   const from = addDays(`${head.year}-01-01`, head.first)
-  const prices: (number | null)[] = []
-  for (const { year, first, prices: list } of years) {
+  const parts: string[] = []
+  let days = 0
+  for (const { year, first, prices, length } of years) {
     // Les jours sans prix entre deux années restent `null`.
-    const offset = daysBetween(from, addDays(`${year}-01-01`, first))
-    while (prices.length < offset) prices.push(null)
-    prices.push(...list)
+    const gap = Math.max(0, daysBetween(from, addDays(`${year}-01-01`, first)) - days)
+    if (gap) parts.push(Array<string>(gap).fill('null').join())
+    if (length) parts.push(prices.slice(1, -1))
+    days += gap + length
   }
-  return { from, prices }
+  return { from, prices: `[${parts.join()}]` }
 }

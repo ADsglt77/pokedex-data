@@ -33,25 +33,34 @@ const sentEtag = (request: Request) => request.headers.get('if-none-match')?.rep
 
 /**
  * Un ETag tiré d'un texte : les 12 premiers octets de son empreinte SHA-256 (la même règle que
- * `serveJson`, `../pokedex/worker/vitrine.ts`).
+ * `etagOf`, `../pokedex/worker/vitrine.ts`).
  */
 async function etagOf(text: string) {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text))
-  const hex = [...new Uint8Array(digest).slice(0, 12)]
-  return `"${hex.map((byte) => byte.toString(16).padStart(2, '0')).join('')}"`
+  return `"${hexOf(digest).slice(0, 24)}"`
 }
 
+/** Une empreinte en hexadécimal. */
+const hexOf = (digest: ArrayBuffer) =>
+  [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('')
+
 /**
- * Une réponse JSON calculée à la demande (`read`), dont l'ETag se tire de ce dont elle dépend
- * (`version` : le jour des prix et ce qui est demandé, par exemple), connu sans la calculer : 304
- * sans rien lire si le client l'a déjà ; 404 si `read` ne rend rien.
+ * Une réponse JSON calculée à la demande (`read` : son texte, les historiques étant assemblés en
+ * texte), dont l'ETag se tire de ce dont elle dépend (`version` : le jour des prix et ce qui est
+ * demandé, par exemple), connu sans la calculer : 304 sans rien lire si le client l'a déjà ; 404 si
+ * `read` ne rend rien.
  */
-export async function serveTagged(request: Request, version: string, read: () => Promise<unknown>) {
+export async function serveTagged(
+  request: Request,
+  version: string,
+  read: () => Promise<string | null>,
+) {
   const etag = await etagOf(`${FORMAT}|${version}`)
   const headers = { 'Cache-Control': 'no-cache', ETag: etag }
   if (sentEtag(request) === etag) return new Response(null, { status: 304, headers })
-  const body = await read()
-  return body === null ? notFound() : Response.json(body, { headers })
+  const text = await read()
+  if (text === null) return notFound()
+  return new Response(text, { headers: { ...headers, 'Content-Type': 'application/json' } })
 }
 
 /** La clé R2 d'une réponse calculée. */
@@ -77,9 +86,17 @@ export async function serveSnapshot(name: string, request: Request) {
   return new Response(object.body, { headers })
 }
 
-/** Enregistre une réponse calculée par une tâche (`name` : `species`, `catalog/sets/SV2A`…). */
+/**
+ * Enregistre une réponse calculée par une tâche (`name` : `species`, `catalog/sets/SV2A`…),
+ * seulement si elle a changé : son MD5 comparé à l'ETag de R2 (celui d'un objet écrit d'un coup).
+ * Un passage `cards` en recalcule environ 5 500, deux fois, presque toutes inchangées : une
+ * lecture de leur en-tête plutôt qu'une écriture.
+ */
 export async function saveSnapshot(name: string, data: unknown) {
-  await env.FILES.put(snapshotKey(name), JSON.stringify(data), {
+  const text = new TextEncoder().encode(JSON.stringify(data))
+  const md5 = hexOf(await crypto.subtle.digest('MD5', text))
+  if ((await env.FILES.head(snapshotKey(name)))?.etag === md5) return
+  await env.FILES.put(snapshotKey(name), text, {
     httpMetadata: { contentType: 'application/json' },
   })
 }

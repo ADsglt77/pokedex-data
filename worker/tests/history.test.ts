@@ -73,12 +73,23 @@ describe('prix du jour ajouté à une année', () => {
 })
 
 describe('historique rangé par année, puis relu', () => {
+  /** Les années telles qu'en base (leurs prix en texte), mises bout à bout, puis relues. */
+  const joined = (years: HistoryYear[]) => {
+    const stored = years.map((row) => ({
+      ...row,
+      prices: JSON.stringify(row.prices),
+      length: row.prices.length,
+    }))
+    const result = joinYears(stored)
+    return result && { from: result.from, prices: JSON.parse(result.prices) as unknown }
+  }
+
   test('à cheval sur deux années : chaque prix garde son jour', () => {
     const years = [
       { year: 2025, first: 363, prices: [1] },
       { year: 2026, first: 0, prices: [2, 3] },
     ]
-    expect(joinYears(years)).toEqual({ from: '2025-12-30', prices: [1, null, 2, 3] })
+    expect(joined(years)).toEqual({ from: '2025-12-30', prices: [1, null, 2, 3] })
   })
 
   test('une année entière sans prix : les jours vides reviennent tels quels', () => {
@@ -86,14 +97,14 @@ describe('historique rangé par année, puis relu', () => {
       { year: 2024, first: 365, prices: [1] },
       { year: 2026, first: 0, prices: [2] },
     ]
-    expect(joinYears(years)).toEqual({
+    expect(joined(years)).toEqual({
       from: '2024-12-31',
       prices: [1, ...Array<null>(365).fill(null), 2],
     })
   })
 
   test('l’historique part du premier jour avec un prix', () => {
-    expect(joinYears([{ year: 2026, first: 2, prices: [5] }])).toEqual({
+    expect(joined([{ year: 2026, first: 2, prices: [5] }])).toEqual({
       from: '2026-01-03',
       prices: [5],
     })
@@ -112,11 +123,19 @@ describe('historique rangé par année, puis relu', () => {
       const next = withPrice(known, year, day, price)
       years = [...years.filter((row) => row.year !== year), next].sort((a, b) => a.year - b.year)
     }
-    expect(joinYears(years)).toEqual({ from: '2025-12-30', prices: [10, null, 12, 11] })
+    expect(joined(years)).toEqual({ from: '2025-12-30', prices: [10, null, 12, 11] })
   })
 
   test('sans aucun prix : pas d’historique', () => {
-    expect(joinYears([])).toBeNull()
+    expect(joined([])).toBeNull()
+  })
+
+  test('assemblé en texte : les prix de chaque année tels qu’en base, un `null` par jour manquant', () => {
+    const years = [
+      { year: 2025, first: 363, prices: '[1.5,null]', length: 2 },
+      { year: 2026, first: 1, prices: '[2]', length: 1 },
+    ]
+    expect(joinYears(years)).toEqual({ from: '2025-12-30', prices: '[1.5,null,null,2]' })
   })
 })
 

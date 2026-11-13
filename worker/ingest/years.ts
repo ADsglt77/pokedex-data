@@ -38,19 +38,20 @@ export interface YearWrite {
 /**
  * Les requêtes qui écrivent les années, chacune seulement si celle en base est encore celle lue
  * (`old`) ; aucune sans année à écrire. À envoyer d'un seul tenant (`env.DB.batch`), avec d'autres
- * au besoin, puis leurs résultats à lire par `unwritten`.
+ * au besoin, puis leurs résultats à lire par `unwritten`. L'`INSERT` ne reçoit que les années
+ * nouvelles, l'`UPDATE` que les autres : chaque texte n'est envoyé qu'une fois (environ 0,8 Mo par
+ * paquet de 200 cartes en fin d'année). Le `WHERE true` de l'`INSERT` lève l'ambiguïté de SQLite
+ * entre `ON CONFLICT` et le `ON` d'une jointure.
  */
 export function writeYears(rows: YearWrite[]) {
   if (!rows.length) return []
-  const json = JSON.stringify(rows)
   return [
     env.DB.prepare(
       `INSERT INTO cardmarket_history (id, year, first, prices)
        SELECT json_extract(value, '$.id'), json_extract(value, '$.year'),
               json_extract(value, '$.first'), json_extract(value, '$.prices')
-       FROM json_each(?) WHERE json_extract(value, '$.old') IS NULL
-       ON CONFLICT DO NOTHING RETURNING id, year`,
-    ).bind(json),
+       FROM json_each(?) WHERE true ON CONFLICT DO NOTHING RETURNING id, year`,
+    ).bind(JSON.stringify(rows.filter(({ old }) => old === null))),
     env.DB.prepare(
       `UPDATE cardmarket_history
        SET first = json_extract(sent.value, '$.first'), prices = json_extract(sent.value, '$.prices')
@@ -59,7 +60,7 @@ export function writeYears(rows: YearWrite[]) {
          AND cardmarket_history.year = json_extract(sent.value, '$.year')
          AND cardmarket_history.prices = json_extract(sent.value, '$.old')
        RETURNING cardmarket_history.id, cardmarket_history.year`,
-    ).bind(json),
+    ).bind(JSON.stringify(rows.filter(({ old }) => old !== null))),
   ]
 }
 
