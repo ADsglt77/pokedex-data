@@ -153,15 +153,19 @@ dossier `fr/` de plus, les japonais n'ont pas changé.
   - **Le script** : `conversion-illustrations-webp.mjs`, dans le dossier qui contient les deux
     dépôts (`../conversion-illustrations-webp.mjs` vu d'ici ; sur ce poste,
     `C:\Users\a.segalat\Documents\pokedex\conversion-illustrations-webp.mjs`), lancé depuis ce
-    dépôt : il ouvre le R2 **local** (`getPlatformProxy`, `.wrangler/state`) et prend `sharp` dans
-    les dépendances de Wrangler, sans rien ajouter aux nôtres. Il n'est pas versionné (une
-    conversion ponctuelle, D-10) : le garder à côté des dépôts.
+    dépôt : par défaut, il ouvre le R2 **local** (`getPlatformProxy`, `.wrangler/state`) ; ses
+    sous-commandes de production (`telecharger`, `dossier`, `ecrire-production`,
+    `echantillon-production`, `verifier-site`) passent par des fichiers sur disque, et exigent
+    `--lecture-production` ou `--ecriture-production --je-confirme-A-09`
+    (`../procedure-A-09.md`). Il prend `sharp` dans les dépendances de Wrangler, sans rien ajouter
+    aux nôtres. Il n'est pas versionné (une conversion ponctuelle, D-10) : le garder à côté des
+    dépôts.
   - **Ses contrôles** : chaque WebP doit être sans perte (un bloc `VP8L`, aucun `VP8 `), de mêmes
     dimensions, d'un PNG de 8 bits par canal, au même profil de couleur et aux mêmes pixels RGBA ;
     au moindre écart, rien n'est écrit, et sans gain de poids non plus. `--mesure` mesure sans
     rien écrire ; sans lui, chaque WebP est vérifié puis écrit aussitôt (reprenable : un WebP déjà
-    là est relu et revérifié, réécrit seulement s'il diffère). Fait sur le R2 local le 13 novembre
-    2026 (1 025 identiques, relus ensuite sans rien réécrire).
+    là est relu et revérifié, réécrit seulement s'il diffère). Fait sur le R2 local, puis en ligne,
+    le 13 novembre 2026 (1 025 identiques dans les deux cas).
   - **Un environnement neuf** (une D1 et un R2 vides), dans l'ordre :
     1. `bun run dev`, puis `bun run ingest setup` : la tâche `images` copie, avec le reste, les
        1 025 sprites et les 1 025 PNG des illustrations ;
@@ -169,11 +173,13 @@ dossier `fr/` de plus, les japonais n'ont pas changé.
        passe, `node ../conversion-illustrations-webp.mjs` : les 1 025 WebP ;
     3. alors seulement, les illustrations s'affichent sur le site (il demande le WebP ; tant
        qu'il manque, l'API répond 404 et la page montre sa substitution).
-  - **Transition** (« élargir puis restreindre ») : l'API sert les deux chemins, le `.png` pour le
-    site d'avant L19 ; le PNG reste dans R2 (la source du WebP), seul ce chemin servi sera retiré
-    une fois le site en ligne passé au WebP.
-  - **En ligne**, l'ordre (`../pokedex/docs/REVIEW-PLAN.md`, action A-09) : préparer les WebP du R2
-    de production, pousser ce dépôt et attendre sa mise en ligne, puis seulement pousser le site.
+  - **Transition** (« élargir puis restreindre ») : l'API sert encore les deux chemins, le `.png`
+    pour le site d'avant L19 (un onglet resté ouvert) ; le PNG reste dans R2 (la source du WebP),
+    seul ce chemin servi sera retiré, dans un lot futur.
+  - **En ligne depuis le 13 novembre 2026** (action A-09, `../pokedex/docs/REVIEW-PLAN.md`) : les
+    1 025 WebP écrits dans le R2 de production et vérifiés (132 662 089 → 83 193 706 octets,
+    −37,3 %, pixels identiques), puis ce dépôt déployé (version `8d3aa672`), puis le site
+    (`d0b53a8d`). Les PNG y sont conservés.
 - **Une série renumérotée** (testé) : le chemin d'un scan suit le rang de la carte. Quand la
   source change le rang ou la série d'une carte (une carte arrivée en tête de série décale les
   suivantes), le catalogue la remet à chercher (`cards.image` nul), et le fichier de son nouveau
