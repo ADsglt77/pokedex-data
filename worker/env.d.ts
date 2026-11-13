@@ -6,8 +6,18 @@ declare namespace Cloudflare {
   interface Env {
     /** Les données de référence (`schema.ts`). */
     DB: D1Database
-    /** Les images (`images/…`) et les réponses volumineuses (`snapshots/…`). */
+    /**
+     * Le catalogue de TCGdex que copie l'importateur `pokecodex-importer` (son schéma, pas le
+     * nôtre) : lu seulement, par la tâche `catalog` (`ingest/catalog.ts`).
+     */
+    CARDS: D1Database
+    /** Les images des Pokémon (`images/species/…`) et les réponses volumineuses (`snapshots/…`). */
     FILES: R2Bucket
+    /**
+     * Les images des cartes et les logos des séries que copie l'importateur (`cards/…`) : lues
+     * seulement (`images.ts`).
+     */
+    IMPORTS: R2Bucket
     /** Les limites de l'entrée d'Internet (`limits.ts`). */
     ANY_LIMIT: RateLimit
     HEAVY_LIMIT: RateLimit

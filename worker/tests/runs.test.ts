@@ -1,13 +1,14 @@
 /**
  * Les passages des tâches (`worker/ingest/runs.ts`) : une tâche qui tourne déjà (un passage ouvert
- * qui donne signe de vie) n'est pas lancée une seconde fois, ni `catalog` pendant `history` (elles
- * lisent les mêmes pages : deux à la fois doubleraient le rythme convenu avec la source) ; un
- * passage arrêté net (sans signe de vie depuis 5 min : son Workflow arrêté) ne bloque plus sa
- * tâche, et il est noté interrompu. Sinon, après un arrêt brutal, plus rien ne relancerait
- * l'historique des prix. Et quand le Cron relance une tâche à rythme (`isDue`) : à son intervalle
- * (depuis le début du passage, moins la marge du Cron : au Cron 6 h plus tard, pas 7 h), plus
- * tôt après un échec, de plus en plus tard s'ils se suivent ; il ne lance que `species` et
- * `prices`, jamais `catalog`, `images` ni `history` (à la demande seulement).
+ * qui donne signe de vie) n'est pas lancée une seconde fois ; un passage arrêté net (sans signe de
+ * vie depuis 5 min : son Workflow arrêté) ne bloque plus sa tâche, et il est noté interrompu.
+ * Sinon, après un arrêt brutal, plus rien ne relancerait les prix. Et quand le Cron relance une
+ * tâche à rythme (`isDue`) : à son intervalle (depuis le début du passage, moins la marge du
+ * Cron : au Cron 6 h plus tard, pas 7 h), plus tôt après un échec, de plus en plus tard s'ils se
+ * suivent. Le Cron lance les tâches dues dans un seul passage, dans l'ordre (le catalogue avant
+ * les prix, qui lisent son miroir : un prix faux resterait dans l'historique) ; `sprites`, à la
+ * demande, seulement si une de ses sorties manque, comme toute tâche dont une sortie a été effacée
+ * de R2 (avant son rythme).
  */
 
 import { createScheduledController } from 'cloudflare:test'
@@ -43,8 +44,8 @@ describe('startRun', () => {
   beforeEach(clear)
 
   test('un passage ouvert sans signe de vie depuis plus de 5 min : la tâche démarre, lui est noté interrompu', async () => {
-    const orphan = await openRun('history', 6 * MINUTE)
-    const id = await startRun('history')
+    const orphan = await openRun('catalog', 6 * MINUTE)
+    const id = await startRun('catalog')
     expect(id).not.toBeNull()
     const closed = await run(orphan)
     expect(closed).toEqual({
@@ -57,8 +58,8 @@ describe('startRun', () => {
   })
 
   test('un passage qui donne signe de vie, même commencé il y a longtemps : la tâche ne démarre pas', async () => {
-    const running = await openRun('history', 2 * MINUTE)
-    expect(await startRun('history')).toBeNull()
+    const running = await openRun('catalog', 2 * MINUTE)
+    expect(await startRun('catalog')).toBeNull()
     expect((await run(running)).finished_at).toBeNull()
     expect(await env.DB.prepare('SELECT COUNT(*) AS count FROM runs').first()).toEqual({
       count: 1,
@@ -67,23 +68,9 @@ describe('startRun', () => {
 
   test('le passage en vie d’une autre tâche ne bloque pas celle-ci', async () => {
     const prices = await openRun('prices', MINUTE)
-    expect(await startRun('history')).not.toBeNull()
-    expect((await run(prices)).finished_at).toBeNull()
-  })
-
-  test('catalog et history lisent les mêmes pages : l’une en vie bloque l’autre, pas un passage arrêté net', async () => {
-    const catalog = await openRun('catalog', MINUTE)
-    expect(await startRun('history')).toBeNull()
-    expect((await run(catalog)).finished_at).toBeNull()
-    await clear()
-    await openRun('history', MINUTE)
-    expect(await startRun('catalog')).toBeNull()
-    // Sans signe de vie depuis plus de 5 min : il ne bloque plus l'autre.
-    await clear()
-    const orphan = await openRun('history', 6 * MINUTE)
     expect(await startRun('catalog')).not.toBeNull()
-    expect((await run(orphan)).finished_at).toBeNull()
-    expect(await startRun('images')).not.toBeNull()
+    expect(await startRun('sprites')).not.toBeNull()
+    expect((await run(prices)).finished_at).toBeNull()
   })
 })
 
@@ -153,26 +140,52 @@ describe('isDue : quand le Cron relance une tâche à rythme', () => {
 describe('le Cron', () => {
   beforeEach(clear)
 
-  test('seulement les tâches à rythme qui sont dues : species puis prices, jamais les autres', async () => {
-    // Un vrai Workflow lirait les sources : seule sa création est notée.
+  /** Ce que les tâches écrivent dans R2 (`missingOutputs`) : présent, sauf `except`. */
+  const outputs = async (...except: string[]) => {
+    const keys = [
+      'snapshots/species.json',
+      'snapshots/species-details.json',
+      'snapshots/catalog/sets.json',
+      'snapshots/catalog/fr/sets.json',
+      'images/species/1025.png',
+      'images/species/artwork/1025.png',
+    ]
+    await Promise.all(keys.map((key) => env.FILES.put(key, '{}')))
+    if (except.length) await env.FILES.delete(except)
+  }
+
+  /** Les passages créés par un Cron : un vrai Workflow lirait les sources, seule sa création compte. */
+  async function cron() {
     const create = vi
       .spyOn(env.INGEST, 'create')
       .mockResolvedValue({ id: 'essai' } as WorkflowInstance)
     try {
-      // Aucun passage : toutes seraient dues, si elles avaient un rythme.
       await worker.scheduled(createScheduledController(), env)
-      expect(create.mock.calls).toEqual([
-        [{ params: { jobs: ['species'] } }],
-        [{ params: { jobs: ['prices'] } }],
-      ])
-      // Réussies à l'instant : rien à lancer.
-      create.mockClear()
-      await finished('species', [1, 0])
-      await finished('prices', [1, 0])
-      await worker.scheduled(createScheduledController(), env)
-      expect(create).not.toHaveBeenCalled()
+      return create.mock.calls.map(([options]) => options)
     } finally {
       create.mockRestore()
     }
+  }
+
+  test('les tâches dues dans un seul passage, dans l’ordre : le catalogue avant les prix', async () => {
+    await outputs()
+    // Aucun passage : toutes celles à rythme sont dues ; jamais `sprites`, ses sorties présentes.
+    expect(await cron()).toEqual([{ params: { jobs: ['species', 'catalog', 'prices'] } }])
+    // Réussies à l'instant : rien à lancer.
+    await finished('species', [1, 0])
+    await finished('catalog', [1, 0])
+    await finished('prices', [1, 0])
+    expect(await cron()).toEqual([])
+  })
+
+  test('une sortie effacée de R2 : sa tâche relancée avant son rythme, à la demande comprise ; après un échec, au rythme des nouvelles tentatives', async () => {
+    await finished('species', [1, 0])
+    await finished('catalog', [1, 0])
+    await finished('prices', [1, 0])
+    await outputs('snapshots/species.json', 'images/species/artwork/1025.png')
+    expect(await cron()).toEqual([{ params: { jobs: ['species', 'sprites'] } }])
+    // `sprites` vient d'échouer trois fois : pas avant 40 min (moins la marge du Cron).
+    await finished('sprites', [0, 3 * MINUTE], [0, 2 * MINUTE], [0, MINUTE])
+    expect(await cron()).toEqual([{ params: { jobs: ['species'] } }])
   })
 })

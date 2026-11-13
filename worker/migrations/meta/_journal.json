@@ -29,6 +29,20 @@
       "when": 1794175563409,
       "tag": "0003_adresses-cardmarket",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1794606048803,
+      "tag": "0004_catalogue-pokecardex-retire",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1794606056578,
+      "tag": "0005_miroir-du-catalogue",
+      "breakpoints": true
     }
   ]
 }

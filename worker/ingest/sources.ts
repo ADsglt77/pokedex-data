@@ -1,8 +1,7 @@
 /**
  * Ce qu'on a lu de chaque source à son dernier passage (`sources`) : `stamp`, sa date de mise à
  * jour (pour ne pas la retélécharger si elle n'a pas changé), et `date`, le jour de ses données.
- * `cardmarket` : le guide des prix (tâche `prices`) ; `history` : l'avancée de la reprise de
- * l'historique (tâche `history`). Les deux font l'ETag des réponses tirées des prix.
+ * `cardmarket` : le guide des prix (tâche `prices`), qui fait l'ETag des réponses tirées des prix.
  */
 
 import { env } from 'cloudflare:workers'

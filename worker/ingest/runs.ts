@@ -6,23 +6,42 @@
  */
 
 import { env } from 'cloudflare:workers'
-import { aliveSince, type IngestJob } from '@/config/jobs'
+import { snapshotName } from '@/config/catalog'
+import { aliveSince, INGEST_JOB_NAMES, type IngestJob } from '@/config/jobs'
+import { artworkSource, spriteUrl } from '@/lib/image-paths'
 import { HOUR, MINUTE } from '@/lib/time'
+import { snapshotKey } from '../snapshots'
 
 /**
- * Les tâches qui lisent les pages de Pokécardex : une seule à la fois. Son rythme (une page toutes
- * les 3 s, `pokecardex.ts`) n'est tenu que dans un Workflow : deux à la fois le doubleraient.
+ * Ce qu'écrit chaque tâche dans R2 (`FILES`), dont l'absence la rend due quel que soit son rythme
+ * (`outputMissing`) : les réponses des espèces et du catalogue des deux langues, et le sprite et
+ * l'illustration du dernier Pokémon (les derniers que copie `sprites`). Sans ce contrôle, une
+ * réponse effacée (le bucket vidé, novembre 2026) resterait absente jusqu'au passage suivant de sa
+ * tâche, 30 jours plus tard pour les espèces, jamais pour les sprites, pendant que les passages
+ * notés (`runs`) disent tout à jour. Les prix sont en base : rien à vérifier ici.
  */
-const POKECARDEX_PAGES: IngestJob[] = ['catalog', 'history']
+const OUTPUTS: Partial<Record<IngestJob, string[]>> = {
+  species: [snapshotKey('species'), snapshotKey('species-details')],
+  catalog: [snapshotKey(snapshotName('ja', 'sets')), snapshotKey(snapshotName('fr', 'sets'))],
+  sprites: [spriteUrl(1025).slice(1), artworkSource(1025).slice(1)],
+}
 
-/** Les tâches qu'un passage de `job` ne doit pas croiser : elle-même, et celles de ses pages. */
-const exclusive = (job: IngestJob) => (POKECARDEX_PAGES.includes(job) ? POKECARDEX_PAGES : [job])
+/** Les tâches dont une sortie manque dans R2 (`OUTPUTS`). */
+export async function missingOutputs() {
+  const missing = await Promise.all(
+    INGEST_JOB_NAMES.map(async (job) => {
+      const heads = await Promise.all((OUTPUTS[job] ?? []).map((key) => env.FILES.head(key)))
+      return heads.some((head) => head === null) ? job : null
+    }),
+  )
+  return new Set(missing.filter((job) => job !== null))
+}
 
 /**
- * Commence un passage de `job` : son id, ou `null` si la tâche tourne déjà, ou une tâche qui lit
- * les mêmes pages (un passage ouvert, en vie). Un passage de `job` ouvert sans signe de vie est noté
- * interrompu, terminé à son dernier signe de vie. D'un seul tenant (`batch`) : deux passages lancés
- * ensemble ne commencent pas tous deux.
+ * Commence un passage de `job` : son id, ou `null` si la tâche tourne déjà (un passage ouvert, en
+ * vie). Un passage de `job` ouvert sans signe de vie est noté interrompu, terminé à son dernier
+ * signe de vie. D'un seul tenant (`batch`) : deux passages lancés ensemble ne commencent pas tous
+ * deux.
  */
 export async function startRun(job: IngestJob) {
   const now = Date.now()
@@ -34,10 +53,10 @@ export async function startRun(job: IngestJob) {
     ).bind(job, aliveSince(now)),
     env.DB.prepare(
       `INSERT INTO runs (job, started_at, alive_at) SELECT ?1, ?2, ?2
-       WHERE NOT EXISTS (SELECT 1 FROM runs WHERE job IN (SELECT value FROM json_each(?3))
-                         AND finished_at IS NULL AND alive_at >= ?4)
+       WHERE NOT EXISTS (SELECT 1 FROM runs WHERE job = ?1 AND finished_at IS NULL
+                         AND alive_at >= ?3)
        RETURNING id`,
-    ).bind(job, at, JSON.stringify(exclusive(job)), aliveSince(now)),
+    ).bind(job, at, aliveSince(now)),
   ])
   return (started!.results[0] as { id: number } | undefined)?.id ?? null
 }

@@ -1,792 +1,479 @@
 /**
- * Tâche `catalog`, à la demande (quand de nouvelles cartes sortent : `bun run ingest cards`) : le
- * catalogue des cartes japonaises, puis des françaises, d'après Pokécardex (avec son accord,
- * `pokecardex.ts`). Ses 450 séries japonaises environ et ses 250 françaises (son plan du site), de
- * 1996 à aujourd'hui, decks et promos ; pour chacune, sa page : son nom, sa date de sortie (au
- * Japon, en France), et toutes ses cartes, dresseurs et énergies compris (numéro, noms français,
- * anglais et allemand, Pokémon, id Cardmarket, rang de son image, rareté, type, illustrateur,
- * versions), les noms des raretés de sa zone et le menu des séries (le bloc de chacune). Aucune
- * sélection ni détection : la rareté et le type servent aux filtres que choisit l'utilisateur. Les
- * ids des cartes et des raretés et les codes des séries se répètent d'une zone à l'autre : chaque
- * langue a ses lignes (`lang`) et ses réponses.
+ * Tâche `catalog`, chaque jour (le Cron, `index.ts`) : le catalogue des cartes japonaises, puis des
+ * françaises, d'après TCGdex, tel que l'importateur `pokecodex-importer` (dépôt `../pokecodex-api`)
+ * le copie dans sa base (`CARDS`, lue seulement) et ses images dans R2 : aucune requête vers TCGdex
+ * ici. Pokémon, dresseurs et énergies de chaque série, sauf celles de Pokémon TCG Pocket (des
+ * cartes numériques : `EXCLUDED_SERIES`) et les cartes que TCGdex ne liste plus (`removed_at`).
+ * Les champs du détail de chaque carte (`metadata_json`, le document de TCGdex) sont extraits par
+ * la base elle-même (`json_extract`), page par page : jamais tous les détails en mémoire (le Worker
+ * a 128 Mo). Une carte dont l'importateur n'a pas encore lu le détail (`metadata_json` vide : la
+ * plupart des japonaises le 13 novembre 2026) est gardée dans sa série, sans Pokémon, type, rareté,
+ * versions ni id Cardmarket : elle les aura au passage qui suit leur lecture.
  *
- * Les exclusivités d'autres pays d'Asie (bloc « Asia Exclusive » du menu japonais), rangées avec
- * les japonaises, sont écartées, comme, en français, les cartes qui n'existent qu'en anglais
- * (`only_english`). Le nom de l'extension de chaque série chez Cardmarket (la liste de souhaits) :
- * pour une japonaise, son nom ; pour une française, son nom anglais (le menu d'une page anglaise,
- * lue une fois par passage ; sans elle, ou s'il ne s'accorde pas, celui déjà confirmé) si les
- * adresses Cardmarket de ses cartes le confirment, sinon aucun ; avec ce nom écrit comme dans une
- * adresse de Cardmarket, et l'extension commune des adresses de ses cartes (dans les deux langues).
- * Une série est relue après une semaine, après un jour si elle est sortie depuis moins de 90 jours
- * (Pokécardex la complète) ; `refresh` les relit toutes. Une étape du Workflow par série, une page
- * toutes les 3 s : le premier passage prend une vingtaine de minutes pour les japonaises, une
- * douzaine pour les françaises. Une page en échec n'empêche pas les autres ; la tâche échoue
- * ensuite, pour être relancée. Une page soudain vide (le site a changé) ne retire rien. Une série
- * renumérotée par la source (les cartes déjà copiées qui changent de série ou de rang) : le journal
- * compte ces cartes, en fin de langue (docs/donnees.md, « Une série renumérotée »). En fin de tâche,
- * les réponses du catalogue de chaque langue sont recalculées, dans R2 (`saveCatalog`) :
- * `/v1/catalog/species/<n°>` (les cartes d'un Pokémon : la fenêtre d'ajout), `/v1/catalog/sets`
- * (les séries) et `/v1/catalog/sets/<code>` (toutes les cartes d'une série : la page Catalogue,
- * l'image d'une référence) ; en français, `/v1/catalog/fr/…`.
+ * Une étape par langue (`Step`) : les réponses de la langue, dans R2 (`/v1/catalog/species/<n°>`,
+ * `/v1/catalog/sets`, `/v1/catalog/sets/<id>` ; en français, `/v1/catalog/fr/…`), seulement
+ * celles qui ont changé (`saveSnapshot`), celles des séries qui n'ont plus de cartes retirées ; et
+ * le miroir de ses cartes (`catalog_cards`, ce que lit la tâche `prices`). Une langue sans aucune
+ * carte, ou avec moins de la moitié des cartes de son miroir (la base de l'importateur vidée, son
+ * format changé), n'écrit rien : la tâche échoue, après l'autre langue.
  */
 
 import { env } from 'cloudflare:workers'
-import { snapshotName } from '@/config/catalog'
+import {
+  CATEGORIES,
+  ENERGY_TYPES,
+  EXCLUDED_SERIES,
+  FIRST_EDITION,
+  FIRST_EDITION_STAMPS,
+  POKEMON_TYPES,
+  RARITIES,
+  SET_ID,
+  snapshotName,
+  TRAINER_TYPES,
+  UNKNOWN_RARITY_RANK,
+  VERSION_FLAGS,
+  VERSIONS,
+} from '@/config/catalog'
 import { SPECIES_IDS, TOTAL_SPECIES } from '@/config/pokedex'
 import type {
   CardLanguage,
+  CardType,
   CatalogFile,
   CatalogRow,
   CatalogSetFile,
   CatalogSetRow,
   CatalogSetsFile,
+  ImageKey,
 } from '@/contract'
-import { DAY, HOUR } from '@/lib/time'
-import { plural, reasonOf, taskJournal } from '../journal'
+import { importedKey } from '@/lib/image-paths'
+import { taskJournal } from '../journal'
 import { removeSnapshots, saveSnapshot } from '../snapshots'
 import { mapPool } from './net'
-import {
-  asiaExclusive,
-  cardmarketSlug,
-  commonCardmarketSlug,
-  expansionNameOf,
-  MAX_FAILURES_IN_A_ROW,
-  menuBlocks,
-  readEnglishSeriesNames,
-  readSeries,
-  readSitemap,
-  seriesIn,
-  type PokecardexCard,
-  type PokecardexSeries,
-} from './pokecardex'
-import type { Step } from './workflow'
-
-/**
- * Un numéro comparable : `017` et `17` sont la même carte, `tg01` et `TG01` aussi. Même règle que
- * `numberKey` de `../pokedex/src/lib/card-code.ts` (l'une change, l'autre aussi).
- */
-const numberKey = (number: string) =>
-  /^\d+$/.test(number) ? String(Number(number)) : number.toUpperCase()
-
-/** Un texte de Pokécardex ; '' pour un tiret seul, qu'il écrit pour « inconnu » (« — »). */
-const stated = (text: string | null) => (/^[\s—–-]*$/.test(text ?? '') ? '' : text!.trim())
-
-/** Le numéro imprimé : « 001/165 » → 001, « TG01/TG30 » → TG01 ; « — », « SV-P » : aucun. */
-function printedNumber(text: string) {
-  const number = text.split('/')[0]!.trim()
-  return /\d/.test(number) ? number : ''
-}
-
-/** Une série, telle que la gardent les tables. */
-interface SetRecord {
-  id: string
-  name: string
-  released: string
-  logo: 'pokecardex' | 'none' | null
-  block: string | null
-  blockRank: number | null
-  deck: 0 | 1
-}
-
-/** Une carte, telle que la gardent les tables, avec ses Pokémon (JSON). */
-interface CardRecord {
-  set: string
-  number: string
-  printed: string
-  sort: number
-  name: string
-  en: string
-  de: string
-  cardmarket: number
-  image: 'pokecardex' | 'none' | null
-  rarity: number | null
-  type: number | null
-  illustrator: string
-  versions: string
-  dexIds: string
-}
-
-interface RarityRecord {
-  id: number
-  name: string
-  rank: number
-}
+import type { Alive, Step } from './workflow'
 
 /** Les langues du catalogue, dans l'ordre de leur lecture. */
 const LANGUAGES: CardLanguage[] = ['ja', 'fr']
+
+/** Une série, telle que la lit la tâche dans la base de l'importateur. */
+interface SetRow {
+  id: string
+  name: string
+  released: string | null
+  official: number | null
+  logo: string | null
+  series: string | null
+  block: string | null
+}
+
+/** Une carte, telle que la lit la tâche : ses colonnes, et ce que la base extrait de son détail. */
+interface CardRow {
+  tcgdexId: string
+  set: string
+  number: string
+  name: string
+  illustrator: string | null
+  rarity: string | null
+  category: string | null
+  image: string | null
+  dexIds: string | null
+  pokemonType: string | null
+  trainerType: string | null
+  energyType: string | null
+  variants: string | null
+  flags: string | null
+}
+
+/** Une série du catalogue. */
+interface CatalogSet {
+  id: string
+  name: string
+  released: string
+  logo: ImageKey
+  /** Sa série chez TCGdex (son bloc) : son id et son nom ; `null` sans. */
+  series: string | null
+  block: string | null
+}
+
+/** Une carte du catalogue, avec sa série (son id). */
+interface Card extends CatalogSetRow {
+  set: string
+}
+
+/**
+ * Les séries d'une langue, hors des séries de TCGdex écartées (`EXCLUDED_SERIES`) : leur logo
+ * seulement s'il est copié (`logo_status`, que l'importateur remplit ; nul : aucun).
+ */
+const SETS = `
+  SELECT sets.tcgdex_id AS id, sets.name, sets.release_date AS released,
+         sets.official_cards AS official,
+         CASE WHEN sets.logo_status = 'downloaded' THEN sets.logo_r2_key END AS logo,
+         series.id AS series, series.name AS block
+  FROM sets LEFT JOIN series ON series.id = sets.series_id
+  WHERE sets.language = ?1
+    AND COALESCE(series.tcgdex_id, '') NOT IN (SELECT value FROM json_each(?2))`
+
+/**
+ * Une page des cartes d'une langue (`?4` cartes après l'id TCGdex `?3`, dans l'ordre de l'index
+ * `(language, tcgdex_id)` de l'importateur), hors des séries écartées et des cartes retirées : leur
+ * image seulement si elle est copiée, et ce qu'en lit le catalogue dans leur détail.
+ */
+const CARDS = `
+  SELECT cards.tcgdex_id AS tcgdexId, sets.tcgdex_id AS 'set', cards.local_id AS number,
+         cards.name, cards.illustrator, cards.rarity, cards.category,
+         CASE WHEN cards.image_status IN ('downloaded', 'recovered_from_cdn', 'already_present')
+              THEN cards.image_r2_key END AS image,
+         json_extract(cards.metadata_json, '$.dexId') AS dexIds,
+         json_extract(cards.metadata_json, '$.types[0]') AS pokemonType,
+         json_extract(cards.metadata_json, '$.trainerType') AS trainerType,
+         json_extract(cards.metadata_json, '$.energyType') AS energyType,
+         json_extract(cards.metadata_json, '$.variants_detailed') AS variants,
+         json_extract(cards.metadata_json, '$.variants') AS flags
+  FROM cards JOIN sets ON sets.id = cards.set_id
+  LEFT JOIN series ON series.id = sets.series_id
+  WHERE cards.language = ?1 AND cards.tcgdex_id > ?3 AND cards.removed_at IS NULL
+    AND COALESCE(series.tcgdex_id, '') NOT IN (SELECT value FROM json_each(?2))
+  ORDER BY cards.tcgdex_id LIMIT ?4`
+
+/** Les cartes lues par requête : quelques Mo au plus (leurs versions comprises). */
+const CARDS_PER_PAGE = 2000
+
+/** Un document JSON de TCGdex (extrait par la base) ; `null` s'il n'y en a pas. */
+const parsed = (json: string | null): unknown => (json === null ? null : JSON.parse(json))
+
+/** Un tableau d'un document de TCGdex ; vide s'il n'en est pas un. */
+const listOf = (json: string | null) => {
+  const value = parsed(json)
+  return Array.isArray(value) ? (value as unknown[]) : []
+}
+
+/** La sortie d'une série, YYYY-MM-DD ; '' si TCGdex ne la donne pas ainsi. */
+const releasedOf = (raw: string | null) => /^\d{4}-\d{2}-\d{2}/.exec(raw ?? '')?.[0] ?? ''
+
+/**
+ * Le numéro tel qu'imprimé : `localId/nombre officiel` (« 006/165 », le nombre écrit avec autant
+ * de chiffres que le numéro), quand la série a un nombre officiel de cartes et que le numéro n'est
+ * fait que de chiffres ; sinon le numéro seul (« TG01 », une promo).
+ */
+const printedOf = (number: string, official: number | null) =>
+  official && official > 0 && /^\d+$/.test(number)
+    ? `${number}/${String(official).padStart(number.length, '0')}`
+    : number
+
+/**
+ * L'ordre des cartes d'une série : par le nombre en tête de leur numéro (« 006 » : 6), celles qui
+ * n'en ont pas après (« TG01 »), puis par le numéro, ses nombres comparés en nombres (« BW9 »
+ * avant « BW10 »).
+ */
+const leadingNumber = (number: string) => Number(/^\d+/.exec(number)?.[0] ?? Infinity)
+const byNumber = (a: string, b: string) =>
+  leadingNumber(a) - leadingNumber(b) || a.localeCompare(b, 'en', { numeric: true })
+
+/** Un id Cardmarket de TCGdex : un entier positif ; sinon aucun (0). */
+const productOf = (variant: unknown) => {
+  const id = (variant as { thirdParty?: { cardmarket?: unknown } } | null)?.thirdParty?.cardmarket
+  return typeof id === 'number' && Number.isInteger(id) && id > 0 ? id : 0
+}
+
+/** Le type d'une version de TCGdex (« Normal », « reverse »…), en minuscules ; '' sans. */
+const variantType = (variant: unknown) => {
+  const type = (variant as { type?: unknown } | null)?.type
+  return typeof type === 'string' ? type.toLowerCase() : ''
+}
+
+/**
+ * L'id Cardmarket d'une carte : celui de sa version normale sans tampon s'il y en a un (une version
+ * tamponnée, « Pokémon Center »…, est souvent un autre produit), sinon d'une version normale, sinon
+ * de la première version qui en a un ; 0 sinon.
+ */
+function cardmarketOf(variants: unknown[]) {
+  const sold = variants.filter(productOf)
+  const normal = sold.filter((variant) => variantType(variant) === 'normal')
+  const stamped = (variant: unknown) => !!(variant as { stamp?: unknown }).stamp
+  return productOf(normal.find((variant) => !stamped(variant)) ?? normal[0] ?? sold[0])
+}
+
+/**
+ * Ses versions, en français (`VERSIONS`), dans l'ordre de TCGdex, chacune une fois ; et la
+ * première édition, si l'une porte son tampon. Sans versions détaillées, d'après les drapeaux de
+ * TCGdex (`variants`).
+ */
+function versionsOf(variants: unknown[], flags: unknown) {
+  const names = variants.length
+    ? variants.flatMap((variant) => {
+        const raw = (variant as { type?: unknown } | null)?.type
+        const name = VERSIONS.get(variantType(variant)) ?? (typeof raw === 'string' ? raw : '')
+        const stamps = (variant as { stamp?: unknown } | null)?.stamp
+        const first =
+          Array.isArray(stamps) && stamps.some((stamp) => FIRST_EDITION_STAMPS.has(stamp))
+        return first ? [name, FIRST_EDITION] : [name]
+      })
+    : VERSION_FLAGS.filter(
+        ([flag]) => (flags as Record<string, unknown> | null)?.[flag] === true,
+      ).map(([, name]) => name)
+  return [...new Set(names.filter(Boolean))]
+}
+
+/** Le type d'une carte (`CardType`), d'après sa catégorie ; '' sans catégorie (détail pas lu). */
+function typeOf(row: CardRow): CardType {
+  switch (CATEGORIES.get(row.category ?? '')) {
+    case 'pokemon':
+      return POKEMON_TYPES.get(row.pokemonType ?? '') ?? ''
+    case 'trainer':
+      return TRAINER_TYPES.get(row.trainerType ?? '') ?? 'trainer'
+    case 'energy':
+      return ENERGY_TYPES.get(row.energyType ?? '') ?? 'energy'
+    default:
+      return ''
+  }
+}
+
+/** Ses Pokémon : les numéros du Pokédex national de son détail (`dexId`), de 1 à 1 025, une fois. */
+const dexIdsOf = (json: string | null) => [
+  ...new Set(
+    listOf(json).filter(
+      (id): id is number =>
+        Number.isInteger(id) && (id as number) >= 1 && (id as number) <= TOTAL_SPECIES,
+    ),
+  ),
+]
+
+/** Une carte du catalogue, d'après sa ligne de l'importateur. */
+function cardOf(lang: CardLanguage, row: CardRow, official: number | null): Card {
+  const variants = listOf(row.variants)
+  return {
+    set: row.set,
+    number: row.number,
+    printed: printedOf(row.number, official),
+    name: row.name,
+    dexIds: dexIdsOf(row.dexIds),
+    cardmarket: cardmarketOf(variants),
+    image: importedKey('card', lang, row.image),
+    rarity: row.rarity ?? '',
+    type: typeOf(row),
+    illustrator: row.illustrator ?? '',
+    versions: versionsOf(variants, parsed(row.flags)),
+  }
+}
+
+/**
+ * Les séries et les cartes d'une langue, d'après la base de l'importateur : seulement les séries
+ * qui ont des cartes, et dont l'id peut nommer une réponse (`SET_ID` ; les autres sont comptées,
+ * `skipped`), et le nombre de cartes dont l'importateur n'a pas encore lu le détail
+ * (`withoutDetail`). Les cartes lues page par page, chacune redisant le signe de vie de l'étape.
+ */
+async function readLanguage(lang: CardLanguage, alive: Alive) {
+  const excluded = JSON.stringify(EXCLUDED_SERIES)
+  const { results: setRows } = await env.CARDS.prepare(SETS).bind(lang, excluded).all<SetRow>()
+  const official = new Map(setRows.map((set) => [set.id, set.official]))
+  const cards: Card[] = []
+  let withoutDetail = 0
+  for (let after = ''; ;) {
+    const { results } = await env.CARDS.prepare(CARDS)
+      .bind(lang, excluded, after, CARDS_PER_PAGE)
+      .all<CardRow>()
+    for (const row of results) {
+      cards.push(cardOf(lang, row, official.get(row.set) ?? null))
+      if (row.category === null) withoutDetail++
+    }
+    await alive()
+    if (results.length < CARDS_PER_PAGE) break
+    after = results.at(-1)!.tcgdexId
+  }
+  const listed = new Set(cards.map((card) => card.set))
+  const sets = setRows
+    .filter((set) => listed.has(set.id))
+    .map((set): CatalogSet => ({
+      id: set.id,
+      name: set.name,
+      released: releasedOf(set.released),
+      logo: importedKey('logo', lang, set.logo),
+      series: set.series,
+      block: set.block,
+    }))
+  const named = sets.filter((set) => SET_ID.test(set.id))
+  const kept = new Set(named.map((set) => set.id))
+  return {
+    sets: named,
+    cards: cards.filter((card) => kept.has(card.set)),
+    skipped: sets.length - named.length,
+    withoutDetail,
+  }
+}
+
+/** Les raretés de ces cartes : `[nom en français, rang]` par rareté telle que l'écrit TCGdex. */
+const raritiesOf = (cards: Card[]): CatalogFile['rarities'] =>
+  Object.fromEntries(
+    [...new Set(cards.map((card) => card.rarity))]
+      .filter(Boolean)
+      .map((rarity) => [rarity, RARITIES.get(rarity) ?? [rarity, UNKNOWN_RARITY_RANK]]),
+  )
+
+/** Une carte Pokémon, telle que la donne `/v1/catalog/species/<n°>`. */
+function catalogRow(card: Card): CatalogRow {
+  const row: CatalogRow = [
+    card.set,
+    card.number,
+    card.cardmarket,
+    card.name,
+    card.image,
+    card.rarity,
+    card.type,
+  ]
+  if (card.dexIds.length > 1) row.push(card.dexIds)
+  return row
+}
+
+/** Une carte d'une série, telle que la donne `/v1/catalog/sets/<id>` (sans sa série). */
+const setRow = ({ set, ...card }: Card): CatalogSetRow => card
+
+/**
+ * Les réponses du catalogue d'une langue (`[nom, données]`) : chaque Pokémon, même sans carte (la
+ * fenêtre d'ajout dit alors qu'il n'en a pas), ses cartes des plus récentes aux plus anciennes et,
+ * dans une série, de la dernière à la première ; les séries, des plus récentes aux plus anciennes,
+ * avec leurs blocs (leur série chez TCGdex, des plus récents aux plus anciens) ; chaque série, ses
+ * cartes dans son ordre (`byNumber`).
+ */
+function catalogResponses(lang: CardLanguage, sets: CatalogSet[], cards: Card[]) {
+  // Sorties le même jour : dans l'ordre de leur id.
+  const ordered = sets.toSorted(
+    (a, b) => b.released.localeCompare(a.released) || a.id.localeCompare(b.id),
+  )
+  const rank = new Map(ordered.map((set, index) => [set.id, index]))
+  const byId = new Map(ordered.map((set) => [set.id, set]))
+  const bySet = Map.groupBy(
+    cards.toSorted((a, b) => byNumber(a.number, b.number)),
+    (card) => card.set,
+  )
+  // Les blocs, dans l'ordre de leur série la plus récente ; chaque série renvoie au sien par son rang.
+  const series = [...new Set(ordered.map((set) => set.series).filter((id) => id !== null))]
+  const blocks = series.map((id) => ordered.find((set) => set.series === id)!.block ?? '')
+  const setsFile: CatalogSetsFile = {
+    blocks,
+    sets: ordered.map((set) => [
+      set.id,
+      set.name,
+      set.released,
+      set.logo,
+      bySet.get(set.id)!.length,
+      set.series === null ? -1 : series.indexOf(set.series),
+    ]),
+  }
+  const newestFirst = cards.toSorted(
+    (a, b) => rank.get(a.set)! - rank.get(b.set)! || byNumber(b.number, a.number),
+  )
+  const bySpecies = new Map<number, Card[]>()
+  for (const card of newestFirst) {
+    for (const dexId of card.dexIds) {
+      const own = bySpecies.get(dexId)
+      if (own) own.push(card)
+      else bySpecies.set(dexId, [card])
+    }
+  }
+  const speciesFile = (dexId: number): CatalogFile => {
+    const own = bySpecies.get(dexId) ?? []
+    return {
+      sets: Object.fromEntries(
+        [...new Set(own.map((card) => card.set))].map((id) => {
+          const { name, released, logo } = byId.get(id)!
+          return [id, [name, released, logo]]
+        }),
+      ),
+      cards: own.length ? { [dexId]: own.map(catalogRow) } : {},
+      rarities: raritiesOf(own),
+    }
+  }
+  return [
+    ...SPECIES_IDS.map((id): [string, unknown] => [
+      snapshotName(lang, `species/${id}`),
+      speciesFile(id),
+    ]),
+    [snapshotName(lang, 'sets'), setsFile] as [string, unknown],
+    ...ordered.map((set): [string, unknown] => {
+      const own = bySet.get(set.id)!
+      const file: CatalogSetFile = { cards: own.map(setRow), rarities: raritiesOf(own) }
+      return [snapshotName(lang, `sets/${set.id}`), file]
+    }),
+  ]
+}
+
+/** Les cartes du miroir écrites par requête (le texte d'un paramètre : 2 Mo au plus). */
+const MIRROR_PER_QUERY = 5000
+
+/**
+ * Le miroir des cartes d'une langue (`catalog_cards`), d'un seul tenant : chaque carte, son id
+ * Cardmarket et la sortie de sa série (seules les lignes qui changent sont réécrites) ; celles qui
+ * ne sont plus au catalogue, retirées.
+ */
+async function saveMirror(lang: CardLanguage, sets: CatalogSet[], cards: Card[]) {
+  const released = new Map(sets.map((set) => [set.id, set.released]))
+  const rows = cards.map((card) => [card.set, card.number, card.cardmarket, released.get(card.set)])
+  const write = env.DB.prepare(
+    `INSERT INTO catalog_cards (lang, set_id, number, cardmarket, released)
+     SELECT ?1, json_extract(value, '$[0]'), json_extract(value, '$[1]'),
+            json_extract(value, '$[2]'), json_extract(value, '$[3]')
+     FROM json_each(?2) WHERE true
+     ON CONFLICT (lang, set_id, number) DO UPDATE SET
+       cardmarket = excluded.cardmarket, released = excluded.released
+     WHERE cardmarket != excluded.cardmarket OR released != excluded.released`,
+  )
+  const statements = []
+  for (let from = 0; from < rows.length; from += MIRROR_PER_QUERY) {
+    statements.push(write.bind(lang, JSON.stringify(rows.slice(from, from + MIRROR_PER_QUERY))))
+  }
+  statements.push(
+    env.DB.prepare(
+      `DELETE FROM catalog_cards WHERE lang = ?1
+       AND (set_id, number) NOT IN (SELECT json_extract(value, '$[0]'), json_extract(value, '$[1]')
+                                   FROM json_each(?2))`,
+    ).bind(lang, JSON.stringify(rows.map(([set, number]) => [set, number]))),
+  )
+  await env.DB.batch(statements)
+}
 
 /** Les séries d'une langue, dans le journal : « séries japonaises ». */
 const LANGUAGE_NAMES: Record<CardLanguage, string> = { ja: 'japonaises', fr: 'françaises' }
 
 /**
- * Enregistre les réponses du catalogue de chaque langue, une étape chacune, d'après ses seules
- * lignes ; rien pour une langue tant qu'aucune de ses cartes n'a été lue : un catalogue vide
- * passerait pour disponible (l'API répond 404 en attendant).
+ * Le catalogue d'une langue : ses réponses et son miroir ; `refused`, la raison pour laquelle rien
+ * n'est écrit (aucune carte, ou moins de la moitié de celles du miroir), `null` sinon.
  */
-export async function saveCatalog(step: Step) {
-  for (const lang of LANGUAGES) {
-    await step(`réponses du catalogue ${lang}`, () => saveLanguage(lang))
+export async function saveLanguage(lang: CardLanguage, alive: Alive) {
+  const { sets, cards, skipped, withoutDetail } = await readLanguage(lang, alive)
+  const before = (await env.DB.prepare('SELECT COUNT(*) AS count FROM catalog_cards WHERE lang = ?')
+    .bind(lang)
+    .first<{ count: number }>())!.count
+  if (!cards.length || cards.length < before / 2) {
+    const refused = `Cartes ${LANGUAGE_NAMES[lang]} : ${cards.length}, contre ${before} (base de l'importateur vide ou changée ?)`
+    taskJournal('warn', 'Catalogue gardé', { raison: refused })
+    return { refused }
   }
-}
-
-/** Les réponses du catalogue d'une langue, écrites quelques-unes à la fois. */
-export async function saveLanguage(lang: CardLanguage) {
-  const [setRows, cardRows, rarityRows] = await env.DB.batch([
-    env.DB.prepare(
-      `SELECT id, name, released, logo, block, block_rank AS blockRank, deck FROM sets
-       WHERE lang = ? AND id IN (SELECT set_id FROM cards WHERE lang = ?)`,
-    ).bind(lang, lang),
-    env.DB.prepare(
-      `SELECT set_id AS 'set', number, printed, sort, name, name_en AS en, name_de AS de,
-              cardmarket, image, rarity, type, illustrator, versions,
-              (SELECT json_group_array(dex_id ORDER BY rank) FROM card_species
-               WHERE card_species.lang = cards.lang AND card = cards.id) AS dexIds
-       FROM cards WHERE lang = ? ORDER BY sort`,
-    ).bind(lang),
-    env.DB.prepare('SELECT id, name, rank FROM rarities WHERE lang = ?').bind(lang),
-  ])
-  const cards = cardRows!.results as CardRecord[]
-  if (!cards.length) return
-  const sets = (setRows!.results as SetRecord[])
-    // Des plus récentes aux plus anciennes ; sorties le même jour, dans l'ordre de leur code.
-    .sort((a, b) => b.released.localeCompare(a.released) || a.id.localeCompare(b.id))
-  const rarities = new Map(
-    (rarityRows!.results as RarityRecord[]).map((rarity) => [rarity.id, rarity]),
-  )
-  const bySet = Map.groupBy(cards, (card) => card.set)
-  const byId = new Map(sets.map((set) => [set.id, set]))
-  const bySpecies = cardsBySpecies(cards, byId)
-  const setPrefix = snapshotName(lang, 'sets/')
-  const responses: [name: string, data: unknown][] = [
-    // Chaque Pokémon, même sans carte : la fenêtre d'ajout dit alors qu'il n'en a pas (404 :
-    // catalogue pas disponible).
-    ...SPECIES_IDS.map((id): [string, unknown] => [
-      snapshotName(lang, `species/${id}`),
-      speciesResponse(id, bySpecies[id] ?? [], byId, rarities),
-    ]),
-    [snapshotName(lang, 'sets'), setsResponse(sets, bySet)],
-    ...sets.map((set): [string, unknown] => [
-      `${setPrefix}${set.id}`,
-      setResponse(bySet.get(set.id)!, rarities),
-    ]),
-  ]
-  await mapPool(responses, 6, ([name, data]) => saveSnapshot(name, data))
+  await saveMirror(lang, sets, cards)
+  const responses = catalogResponses(lang, sets, cards)
+  await mapPool(responses, 6, async ([name, data]) => {
+    await saveSnapshot(name, data)
+    await alive()
+  })
   // Celles des séries de la langue qui n'ont plus de cartes : retirées (l'API répond 404). Le
   // préfixe d'une langue ne couvre pas celui de l'autre (`catalog/sets/`, `catalog/fr/sets/`).
-  await removeSnapshots(setPrefix, new Set(sets.map((set) => `${setPrefix}${set.id}`)))
-}
-
-/** Les raretés de ces cartes : `[nom, rang]` par numéro. */
-const raritiesOf = (cards: CardRecord[], rarities: Map<number, RarityRecord>) =>
-  Object.fromEntries(
-    [...new Set(cards.map((card) => card.rarity))]
-      .map((id) => id !== null && rarities.get(id))
-      .filter((rarity) => !!rarity)
-      .map(({ id, name, rank }) => [id, [name, rank]]),
-  ) as CatalogFile['rarities']
-
-/**
- * Le numéro de l'image chez Pokécardex : son rang ; 0 s'il n'en a pas. Une image pas encore
- * cherchée : celle de Pokécardex, qui les a presque toutes (la tâche `images` la copie ; d'ici là,
- * l'API répond 404 et le site montre la carte de substitution).
- */
-const imageOf = (card: CardRecord) => (card.image === 'none' ? 0 : card.sort)
-
-/** Le numéro d'une carte dans les réponses : l'imprimé (`saveSeries`), sinon son rang. */
-const shownNumber = (card: CardRecord) => card.number || String(card.sort)
-
-/** Le logo d'une série dans les réponses : 0 si la source n'en a pas, sinon 1. */
-const logoOf = (set: SetRecord) => (set.logo === 'none' ? 0 : 1)
-
-/**
- * Les cartes Pokémon de chaque Pokémon, des plus récentes aux plus anciennes ; dans une série, de
- * la dernière carte à la première.
- */
-function cardsBySpecies(cards: CardRecord[], sets: Map<string, SetRecord>) {
-  const released = (card: CardRecord) => sets.get(card.set)!.released
-  const sorted = cards.toSorted(
-    (a, b) =>
-      released(b).localeCompare(released(a)) || a.set.localeCompare(b.set) || b.sort - a.sort,
-  )
-  const bySpecies: Record<number, CardRecord[]> = {}
-  for (const card of sorted) {
-    for (const dexId of JSON.parse(card.dexIds) as number[]) (bySpecies[dexId] ??= []).push(card)
-  }
-  return bySpecies
-}
-
-/** Une carte Pokémon, telle que la donne `/v1/catalog/species/<n°>`. */
-function catalogRow(card: CardRecord): CatalogRow {
-  const dexIds = JSON.parse(card.dexIds) as number[]
-  const row: CatalogRow = [
-    card.set,
-    shownNumber(card),
-    card.cardmarket,
-    card.name,
-    imageOf(card),
-    card.rarity ?? 0,
-    card.type ?? 0,
-  ]
-  if (dexIds.length > 1) row.push(dexIds)
-  return row
-}
-
-/**
- * `/v1/catalog/species/<n°>` : les cartes d'un Pokémon (`cardsBySpecies` : la fenêtre d'ajout d'une
- * carte), avec leurs seules séries, dans l'ordre de ses cartes, et leurs raretés.
- */
-function speciesResponse(
-  dexId: number,
-  cards: CardRecord[],
-  sets: Map<string, SetRecord>,
-  rarities: Map<number, RarityRecord>,
-): CatalogFile {
-  return {
-    sets: Object.fromEntries(
-      [...new Set(cards.map((card) => card.set))].map((id) => {
-        const set = sets.get(id)!
-        return [id, [set.name, set.released, logoOf(set)]]
-      }),
-    ),
-    cards: cards.length ? { [dexId]: cards.map(catalogRow) } : {},
-    rarities: raritiesOf(cards, rarities),
-  }
-}
-
-/** `/v1/catalog/sets` : les séries, leur bloc et leur nombre de cartes (la page Catalogue). */
-function setsResponse(sets: SetRecord[], bySet: Map<string, CardRecord[]>): CatalogSetsFile {
-  // Les blocs dans l'ordre du menu ; chaque série renvoie au sien par son rang dans la liste.
-  const blocks = [
-    ...new Set(
-      sets
-        .filter((set) => set.block !== null)
-        .sort((a, b) => a.blockRank! - b.blockRank!)
-        .map((set) => set.block!),
-    ),
-  ]
-  return {
-    blocks,
-    sets: sets.map((set) => [
-      set.id,
-      set.name,
-      set.released,
-      logoOf(set),
-      bySet.get(set.id)!.length,
-      set.block === null ? -1 : blocks.indexOf(set.block),
-      set.deck,
-    ]),
-  }
-}
-
-/** `/v1/catalog/sets/<code>` : toutes les cartes d'une série, dans son ordre. */
-function setResponse(cards: CardRecord[], rarities: Map<number, RarityRecord>): CatalogSetFile {
-  return {
-    cards: cards.map((card): CatalogSetRow => ({
-      number: shownNumber(card),
-      printed: card.printed,
-      name: card.name,
-      en: card.en,
-      de: card.de,
-      dexIds: JSON.parse(card.dexIds) as number[],
-      cardmarket: card.cardmarket,
-      image: imageOf(card),
-      rarity: card.rarity ?? 0,
-      type: card.type ?? 0,
-      illustrator: card.illustrator,
-      versions: JSON.parse(card.versions) as string[],
-    })),
-    rarities: raritiesOf(cards, rarities),
-  }
-}
-
-/**
- * Les séries d'une langue à relire (`codes` : celles du plan du site) : nouvelles, lues il y a plus
- * d'une semaine, ou d'un jour si récentes ; toutes avec `refresh`.
- */
-async function dueSeries(lang: CardLanguage, codes: string[], now: number, refresh: boolean) {
-  if (refresh) return codes
-  const { results } = await env.DB.prepare(
-    'SELECT id, released, read_at AS readAt FROM sets WHERE lang = ?',
-  )
-    .bind(lang)
-    .all<{ id: string; released: string; readAt: string }>()
-  const known = new Map(results.map((set) => [set.id, set]))
-  return codes.filter((code) => {
-    const set = known.get(code)
-    if (!set) return true
-    const recent = !set.released || now - Date.parse(set.released) < 90 * DAY
-    // Un peu moins qu'un jour et qu'une semaine : relancée à la même heure (à la main, la tâche
-    // n'a pas de rythme), elle relit bien ce qui a un jour ou une semaine.
-    return now - Date.parse(set.readAt) > (recent ? 20 * HOUR : 6 * DAY + 20 * HOUR)
+  const prefix = snapshotName(lang, 'sets/')
+  await removeSnapshots(prefix, new Set(sets.map((set) => `${prefix}${set.id}`)))
+  taskJournal('ok', `Catalogue des cartes ${LANGUAGE_NAMES[lang]}`, {
+    séries: sets.length,
+    cartes: cards.length,
+    sansDétail: withoutDetail,
+    sansCardmarket: cards.filter((card) => !card.cardmarket).length,
+    sansImage: cards.filter((card) => !card.image).length,
   })
+  if (skipped) taskJournal('warn', 'Séries écartées (leur id)', { langue: lang, séries: skipped })
+  return { refused: null }
 }
 
-/**
- * La requête du nombre de cartes déjà enregistrées d'une série (`count`) : seule (`first()`) ou
- * dans un `batch`.
- */
-const storedCards = (lang: CardLanguage, code: string) =>
-  env.DB.prepare('SELECT COUNT(*) AS count FROM cards WHERE lang = ? AND set_id = ?').bind(
-    lang,
-    code,
-  )
-
-/**
- * Une carte que le catalogue peut garder : son id (sa clé) et son rang (le chemin de son image, de
- * 1 à 9 999 : `lib/image-paths.ts`) des entiers positifs. Sinon, une erreur de la source : la carte
- * est écartée, le journal le dit, et cette lecture ne retire aucune carte de la série (déjà connue,
- * elle garde sa ligne d'avant ; moins de la moitié des cartes d'avant gardées : la série entière
- * est refusée).
- */
-const wellFormed = ({ id_card, sort }: PokecardexCard) =>
-  Number.isInteger(id_card) && id_card > 0 && Number.isInteger(sort) && sort > 0 && sort < 10_000
-
-/**
- * Son id Cardmarket : un entier positif, en nombre ou en texte (comme dans les pages des cartes :
- * un format changé ne les effacerait pas toutes) ; sinon aucun (`0` : ni prix ni lien, comme sans
- * id).
- */
-function cardmarketOf(id: number | null) {
-  const value = Number(id)
-  return Number.isInteger(value) && value > 0 ? value : 0
-}
-
-/**
- * La page d'une série, enregistrée d'un seul tenant (`batch`) : son nombre de cartes, celui de ses
- * cartes d'avant (`known`), et celui de ses cartes déjà copiées (`image` noté) que la source a
- * changées de série ou de rang (docs/donnees.md, « Une série renumérotée »). En français, sans les
- * cartes qui n'existent qu'en anglais ; `englishName` : le nom anglais d'une série française, que
- * les adresses Cardmarket de ses cartes doivent confirmer (`null` : indisponible ce passage). Une
- * carte dont la série ou le rang changent a une autre image : à chercher de nouveau. Une carte dont
- * l'id ou le rang ne sont pas des entiers positifs est écartée (`wellFormed`, comptée :
- * `rejected`), et rien n'est alors retiré de la série ; un id Cardmarket mal formé ne compte pas
- * (`cardmarketOf`) : testé.
- */
-export async function saveSeries(
-  lang: CardLanguage,
-  code: string,
-  page: PokecardexSeries,
-  readAt: string,
-  englishName: string | null,
-) {
-  const listed = lang === 'fr' ? page.cartes.filter((card) => !card.only_english) : page.cartes
-  const cartes = listed.filter(wellFormed)
-  const { fullName, releaseDateFR } = page.currentSeries
-  const placed = JSON.stringify(cartes.map(({ id_card, sort }) => ({ id: id_card, sort })))
-  const [count, stored, renumbered] = await env.DB.batch([
-    storedCards(lang, code),
-    env.DB.prepare('SELECT expansion_name AS name FROM sets WHERE lang = ? AND id = ?').bind(
-      lang,
-      code,
-    ),
-    // La page d'abord (`CROSS JOIN` : SQLite garde cet ordre), puis chacune de ses cartes par sa
-    // clé : sans statistiques, il partirait des cartes de la langue et relirait toute la page pour
-    // chacune (jusqu'à quelques secondes par série, la base bloquée pendant ce temps).
-    env.DB.prepare(
-      `SELECT COUNT(*) AS count FROM json_each(?) AS page
-       CROSS JOIN cards ON cards.lang = ? AND cards.id = json_extract(page.value, '$.id')
-       WHERE cards.image = 'pokecardex'
-         AND (cards.set_id != ? OR cards.sort != json_extract(page.value, '$.sort'))`,
-    ).bind(placed, lang, code),
-  ])
-  const before = (count!.results[0] as { count: number }).count
-  // Moins de la moitié des cartes d'avant : le format des pages a changé (un champ renommé), pas
-  // l'extension. Rien n'est gardé de cette lecture : elle compte comme un échec.
-  if (cartes.length < before / 2) {
-    throw new Error(
-      `${code} : ${cartes.length} cartes retenues sur ${before} (format des pages changé ?)`,
-    )
-  }
-  // Le nom de son extension chez Cardmarket (la liste de souhaits) : pour une japonaise, son nom ;
-  // pour une française, son nom anglais, s'il s'accorde avec ses cartes. Sans nom anglais ce
-  // passage (page anglaise illisible, série absente de son menu), ou avec un nom que ses cartes ne
-  // confirment pas (le menu anglais en donne un autre) : celui qu'un passage d'avant a confirmé,
-  // tant que ses cartes le confirment encore (sinon aucun).
-  const urls = cartes.map((card) => card.cardmarket_url)
-  const storedName = (stored!.results[0] as { name: string } | undefined)?.name || null
-  const expansion =
-    lang === 'ja'
-      ? fullName
-      : expansionNameOf(englishName, urls) || expansionNameOf(storedName, urls)
-  // Ce nom écrit comme dans une adresse de Cardmarket, et l'extension des adresses de ses cartes,
-  // dans les deux langues, nom confirmé ou pas : la liste de souhaits ne donne pas de ligne pour un
-  // nom qui désigne aussi l'extension d'une autre série (`readWants`, `worker/reference.ts`).
-  const expansionSlug = expansion && cardmarketSlug(expansion)
-  const slug = commonCardmarketSlug(urls)
-  // Le numéro imprimé, sinon le rang. Si deux cartes de la série se confondraient (deux
-  // demi-decks numérotés chacun : HS ; cartes géantes de séries diverses : JUMBO), toutes
-  // prennent leur rang.
-  const keys = cartes.map((card) => numberKey(printedNumber(card.num_card) || `${card.sort}`))
-  const distinct = new Set(keys).size === keys.length
-  const numberOf = (card: PokecardexCard) => (distinct ? printedNumber(card.num_card) : '')
-  const rows = cartes.map((card) => {
-    const english = stated(card.name_card_en)
-    return {
-      id: card.id_card,
-      number: numberOf(card),
-      printed: stated(card.num_card),
-      sort: card.sort,
-      name: stated(card.name_card_fr) || english,
-      en: english,
-      de: stated(card.name_card_de),
-      cardmarket: cardmarketOf(card.id_cardmarket),
-      rarity: card.id_rarete,
-      type: card.id_type,
-      illustrator: stated(card.nom_illustrateur),
-      versions: JSON.stringify((card.versions ?? []).map((version) => version.nom_version)),
-      dexIds: (card.id_pokedex_list ?? []).filter(
-        (id) => Number.isInteger(id) && id >= 1 && id <= TOTAL_SPECIES,
-      ),
-    }
-  })
-  const json = JSON.stringify(rows)
-  await env.DB.batch([
-    env.DB.prepare(
-      `INSERT INTO sets (lang, id, name, released, read_at, expansion_name, expansion_slug,
-                         cardmarket_slug)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT (lang, id) DO UPDATE SET name = excluded.name, released = excluded.released,
-                                            read_at = excluded.read_at,
-                                            expansion_name = excluded.expansion_name,
-                                            expansion_slug = excluded.expansion_slug,
-                                            cardmarket_slug = excluded.cardmarket_slug`,
-    ).bind(
-      lang,
-      code,
-      fullName,
-      releaseDateFR?.slice(0, 10) ?? '',
-      readAt,
-      expansion,
-      expansionSlug,
-      slug,
-    ),
-    env.DB.prepare(
-      `INSERT INTO cards (lang, id, set_id, number, printed, sort, name, name_en, name_de,
-                          cardmarket, rarity, type, illustrator, versions, seen)
-       SELECT ?2, json_extract(value, '$.id'), ?3, json_extract(value, '$.number'),
-              json_extract(value, '$.printed'), json_extract(value, '$.sort'),
-              json_extract(value, '$.name'), json_extract(value, '$.en'),
-              json_extract(value, '$.de'), json_extract(value, '$.cardmarket'),
-              json_extract(value, '$.rarity'), json_extract(value, '$.type'),
-              json_extract(value, '$.illustrator'), json_extract(value, '$.versions'), ?4
-       FROM json_each(?1) WHERE true
-       ON CONFLICT (lang, id) DO UPDATE SET
-         number = excluded.number, printed = excluded.printed, name = excluded.name,
-         name_en = excluded.name_en, name_de = excluded.name_de, cardmarket = excluded.cardmarket,
-         rarity = excluded.rarity, type = excluded.type, illustrator = excluded.illustrator,
-         versions = excluded.versions, seen = excluded.seen,
-         image = CASE WHEN set_id = excluded.set_id AND sort = excluded.sort THEN image END,
-         image_checked = CASE WHEN set_id = excluded.set_id AND sort = excluded.sort
-                              THEN image_checked END,
-         set_id = excluded.set_id, sort = excluded.sort`,
-    ).bind(json, lang, code, readAt),
-    env.DB.prepare(
-      `DELETE FROM card_species WHERE lang = ?2
-       AND card IN (SELECT json_extract(value, '$.id') FROM json_each(?1))`,
-    ).bind(json, lang),
-    env.DB.prepare(
-      `INSERT INTO card_species (lang, card, rank, dex_id)
-       SELECT ?2, json_extract(card.value, '$.id'), dex.key, dex.value
-       FROM json_each(?1) AS card, json_each(card.value, '$.dexIds') AS dex`,
-    ).bind(json, lang),
-    // Les cartes que cette lecture n'a pas vues : retirées, sauf si elle a écarté des cartes mal
-    // formées (l'une d'elles peut être une carte d'avant).
-    ...(cartes.length === listed.length
-      ? [
-          env.DB.prepare('DELETE FROM cards WHERE lang = ? AND set_id = ? AND seen != ?').bind(
-            lang,
-            code,
-            readAt,
-          ),
-        ]
-      : []),
-  ])
-  return {
-    saved: cartes.length,
-    moved: (renumbered!.results[0] as { count: number }).count,
-    known: before,
-    rejected: listed.length - cartes.length,
-  }
-}
-
-/** Les raretés d'une langue, que chaque page de sa zone donne toutes. */
-async function saveRarities(lang: CardLanguage, page: PokecardexSeries) {
-  const raretes = page.raretes ?? []
-  if (!raretes.length) return
-  await env.DB.prepare(
-    `INSERT INTO rarities (lang, id, name, rank)
-     SELECT ?2, json_extract(value, '$.id_rarete'), json_extract(value, '$.nom_rarete'),
-            json_extract(value, '$.order_rarete')
-     FROM json_each(?1) WHERE true
-     ON CONFLICT (lang, id) DO UPDATE SET name = excluded.name, rank = excluded.rank`,
-  )
-    .bind(JSON.stringify(raretes), lang)
-    .run()
-}
-
-/** Un bloc du menu des séries : son nom, ses séries en boosters, puis ses decks. */
-interface MenuBlock {
-  name: string
-  series: string[]
-  decks: string[]
-}
-
-/** Les blocs du menu d'une page, ce qu'en garde la tâche. */
-const blocksOf = (page: PokecardexSeries, lang: CardLanguage): MenuBlock[] =>
-  menuBlocks(page, lang).map((block) => ({
-    name: block.name,
-    series: block.series.map((series) => series.shortName),
-    decks: (block.decks ?? []).map((deck) => deck.shortName),
-  }))
-
-/**
- * Au plus, les séries connues qu'un passage retire, et les cartes de chacune (décision de
- * l'utilisateur, novembre 2026) : au-delà, le menu s'est trompé (une série japonaise rangée en
- * « Asia Exclusive »), et le retrait effacerait des cartes que des collections montrent.
- */
-const MAX_REMOVED_SETS = 3
-const MAX_REMOVED_CARDS = 20
-
-/**
- * Le bloc de chaque série d'une langue, d'après son menu : ses séries en boosters, puis ses decks
- * (le menu français n'en a pas : ses decks et kits sont des séries) ; et les séries retirées
- * (`removed` : les exclusivités d'autres pays d'Asie qu'un passage d'avant aurait gardées). Plus
- * de 3 séries connues à retirer, ou l'une de plus de 20 cartes : aucune n'est retirée, et le refus
- * est rendu (`null` sinon), pour que la tâche enregistre le reste puis échoue (testé).
- */
-export async function saveBlocks(
-  lang: CardLanguage,
-  blocks: MenuBlock[],
-  removed: string[],
-): Promise<string | null> {
-  const block = env.DB.prepare(
-    'UPDATE sets SET block = ?, block_rank = ?, deck = ? WHERE lang = ? AND id = ?',
-  )
-  const gone = JSON.stringify(removed)
-  const { results: known } = await env.DB.prepare(
-    `SELECT sets.id AS code, COUNT(cards.id) AS cards FROM sets
-     LEFT JOIN cards ON cards.lang = sets.lang AND cards.set_id = sets.id
-     WHERE sets.lang = ? AND sets.id IN (SELECT value FROM json_each(?)) GROUP BY sets.id`,
-  )
-    .bind(lang, gone)
-    .all<{ code: string; cards: number }>()
-  const refused =
-    known.length > MAX_REMOVED_SETS || known.some(({ cards }) => cards > MAX_REMOVED_CARDS)
-  const removals = [
-    env.DB.prepare(
-      'DELETE FROM cards WHERE lang = ? AND set_id IN (SELECT value FROM json_each(?))',
-    ).bind(lang, gone),
-    env.DB.prepare(
-      'DELETE FROM sets WHERE lang = ? AND id IN (SELECT value FROM json_each(?))',
-    ).bind(lang, gone),
-  ]
-  const statements = [
-    ...blocks.flatMap(({ name, series, decks }, rank) => [
-      ...series.map((code) => block.bind(name, rank, 0, lang, code)),
-      ...decks.map((code) => block.bind(name, rank, 1, lang, code)),
-    ]),
-    ...(refused ? [] : removals),
-  ]
-  if (statements.length) await env.DB.batch(statements)
-  if (!refused) return null
-  const named = known
-    .map(({ code, cards }) => `${code} (${plural(cards, 'carte', 'cartes')})`)
-    .join(', ')
-  return `Séries ${LANGUAGE_NAMES[lang]} à retirer, gardées (${known.length}) : ${named}`
-}
-
-/**
- * Ce que ce passage a relu dans une langue, et ce que compte son catalogue en tout ; et les cartes
- * déjà copiées qu'il a vues changer de série ou de rang : le fichier du rang d'une carte est alors
- * celui d'une autre, et la collection d'un compte qui garde l'ancien chemin montre ce scan-là. Le
- * nombre seulement : rien d'autre ne change.
- */
-async function logTotals(lang: CardLanguage, read: number, cards: number, renumbered: number) {
-  const totals = await env.DB.prepare(
-    `SELECT COUNT(*) AS cards, SUM(cardmarket = 0) AS withoutCardmarket,
-            SUM(number != '' AND CAST(number AS INTEGER) != sort) AS otherNumber
-     FROM cards WHERE lang = ?`,
-  )
-    .bind(lang)
-    .first<{ cards: number; withoutCardmarket: number | null; otherNumber: number | null }>()
-  taskJournal('ok', `Séries ${LANGUAGE_NAMES[lang]} relues`, {
-    séries: read,
-    cartes: cards,
-    catalogue: totals!.cards,
-    sansCardmarket: totals!.withoutCardmarket ?? 0,
-    autreNuméro: totals!.otherNumber ?? 0,
-  })
-  if (renumbered) {
-    taskJournal('warn', 'Série renumérotée par la source', {
-      langue: lang,
-      cartesCopiées: renumbered,
-    })
-  }
-}
-
-/** Les pages anglaises essayées, au plus, pour les noms anglais des séries françaises. */
-const ENGLISH_PAGES = 3
-
-/**
- * Les noms anglais des séries françaises (`readEnglishSeriesNames`), d'après la page anglaise de la
- * première à relire, sinon des suivantes (trois au plus) : une page illisible, ou sans ces noms (son
- * menu a changé), ne compte pas. Aucune : aucun nom, la tâche n'échoue pas pour autant ; chaque
- * série française relue garde alors celui que ses cartes confirmaient déjà (`saveSeries`).
- */
-async function englishNames(due: string[]): Promise<[string, string][]> {
-  for (const code of due.slice(0, ENGLISH_PAGES)) {
-    try {
-      const names = await readEnglishSeriesNames(code)
-      if (names.size) return [...names]
-    } catch (error) {
-      taskJournal('warn', 'Page anglaise illisible', { série: code, raison: reasonOf(error) })
-    }
-  }
-  taskJournal('warn', 'Noms anglais des séries indisponibles')
-  return []
-}
-
-/** Ce qu'a donné la lecture d'une série. */
-type SeriesOutcome =
-  | { status: 'saved'; saved: number; moved: number; known: number; rejected: number }
-  | { status: 'empty'; known: number }
-  | { status: 'skipped' }
-  | { status: 'failed' }
-
-/** Ce que la première page lue d'une langue apprend : ses blocs et, au Japon, les séries d'Asie. */
-interface Menu {
-  blocks: MenuBlock[]
-  asian: string[]
-}
-
-/**
- * Lit et enregistre une série ; la première page lue d'une langue (`firstPage`) donne aussi les
- * raretés de la langue, ses blocs et ses exclusivités d'Asie. Une série illisible est dite au
- * journal ici, dans son étape (`Step`).
- */
-async function readOne(
-  lang: CardLanguage,
-  code: string,
-  englishName: string | null,
-  firstPage: boolean,
-): Promise<{ outcome: SeriesOutcome; menu: Menu | null }> {
-  try {
-    const page = await readSeries(lang, code)
-    const menu = firstPage
-      ? { blocks: blocksOf(page, lang), asian: lang === 'ja' ? [...asiaExclusive(page)] : [] }
-      : null
-    if (menu) {
-      await saveRarities(lang, page)
-      if (menu.asian.includes(code)) return { outcome: { status: 'skipped' }, menu }
-    }
-    // Une page sans cartes : une série annoncée mais pas encore remplie, ou le site a changé (on
-    // garde alors celles d'avant). Rien n'est noté : elle est relue au passage suivant. Ses cartes
-    // d'avant sont comptées ici ; celles d'une page lue, par `saveSeries`.
-    if (!page.cartes?.length) {
-      const known = (await storedCards(lang, code).first<{ count: number }>())!.count
-      return { outcome: { status: 'empty', known }, menu }
-    }
-    const saved = await saveSeries(lang, code, page, new Date().toISOString(), englishName)
-    if (saved.rejected) {
-      taskJournal('warn', 'Cartes mal formées écartées', {
-        langue: lang,
-        série: code,
-        cartes: saved.rejected,
-      })
-    }
-    return { outcome: { status: 'saved', ...saved }, menu }
-  } catch (error) {
-    taskJournal('warn', 'Série illisible', { langue: lang, série: code, raison: reasonOf(error) })
-    return { outcome: { status: 'failed' }, menu: null }
-  }
-}
-
-export async function catalog(step: Step, refresh: boolean) {
-  // Les séries à relire de chaque langue, avant toute lecture : un plan du site illisible arrête la
-  // tâche avant qu'elle n'ait rien lu (et non après les japonaises, sans leurs réponses).
-  const due = await step('séries à relire', async () => {
-    const now = Date.now()
-    const due: [CardLanguage, string[]][] = []
-    const sitemap = await readSitemap()
-    for (const lang of LANGUAGES) {
-      const codes = seriesIn(sitemap, lang)
-      const toRead = await dueSeries(lang, codes, now, refresh)
-      due.push([lang, toRead])
-      taskJournal('info', `Séries ${LANGUAGE_NAMES[lang]} à relire`, {
-        relues: toRead.length,
-        sur: codes.length,
-      })
-    }
-    return due
-  })
-
-  const failed: string[] = []
-  /** Les retraits refusés (`saveBlocks`) : la tâche échoue, après avoir tout enregistré. */
+export async function catalog(step: Step) {
   const refusals: string[] = []
-  let knownRead = 0
-  let knownEmpty = 0
-  for (const [lang, codes] of due) {
-    // Le nom anglais de chaque série française : une page anglaise, d'une des premières à relire.
-    const english = new Map(
-      lang === 'fr' && codes.length ? await step('noms anglais', () => englishNames(codes)) : [],
-    )
-    let menu: Menu | null = null
-    let inARow = 0
-    let read = 0
-    let cards = 0
-    let renumbered = 0
-    for (const code of codes) {
-      if (menu?.asian.includes(code)) continue
-      const firstPage: boolean = menu === null
-      const result: { outcome: SeriesOutcome; menu: Menu | null } = await step(
-        `${lang} ${code}`,
-        () => readOne(lang, code, english.get(code) ?? null, firstPage),
-      )
-      menu ??= result.menu
-      const { outcome } = result
-      if (outcome.status === 'failed') {
-        failed.push(code)
-        if (++inARow >= MAX_FAILURES_IN_A_ROW) break
-        continue
-      }
-      inARow = 0
-      if (outcome.status === 'skipped') continue
-      if (outcome.known) knownRead++
-      if (outcome.status === 'empty') {
-        if (outcome.known) knownEmpty++
-        continue
-      }
-      read++
-      cards += outcome.saved
-      renumbered += outcome.moved
-    }
-    // Les blocs de chaque série, les nouvelles comprises ; les séries d'Asie retirées.
-    if (menu) {
-      const { blocks, asian } = menu
-      const refused = await step(`blocs ${lang}`, async () => {
-        const refused = await saveBlocks(lang, blocks, asian)
-        if (refused) taskJournal('warn', 'Retrait de séries refusé', { raison: refused })
-        return refused
-      })
-      if (refused) refusals.push(refused)
-    }
-    await step(`bilan ${lang}`, () => logTotals(lang, read, cards, renumbered))
-    // Le site a sans doute changé : l'autre langue n'est pas lue non plus.
-    if (inARow >= MAX_FAILURES_IN_A_ROW) break
+  for (const lang of LANGUAGES) {
+    const { refused } = await step(`catalogue ${lang}`, (alive) => saveLanguage(lang, alive))
+    if (refused) refusals.push(refused)
   }
-
-  await saveCatalog(step)
-  if (failed.length) {
-    const some = failed.slice(0, 10).join(', ')
-    throw new Error(`${plural(failed.length, 'série illisible', 'séries illisibles')} (${some})`)
-  }
-  // Plus de la moitié des séries déjà connues rendues sans cartes : le format des pages a changé
-  // (le champ des cartes renommé), pas les séries. Leurs cartes d'avant restent ; la tâche échoue,
-  // pour que la page Réglages et la surveillance le disent (sinon, un catalogue figé sans un mot).
-  if (knownEmpty > 0 && knownEmpty * 2 > knownRead) {
-    throw new Error(
-      `Séries déjà connues rendues sans cartes : ${knownEmpty} sur ${knownRead} (format des pages changé ?)`,
-    )
-  }
-  if (refusals.length) throw new Error(`${refusals.join(' ; ')} (menu changé ?)`)
+  // Levée hors des étapes : dans l'une d'elles, le Workflow la réessaierait, pour rien.
+  if (refusals.length) throw new Error(refusals.join(' ; '))
 }

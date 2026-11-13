@@ -1,9 +1,10 @@
 /**
- * L'historique en base (`cardmarket_history`, une ligne par carte et par année), tel que l'écrivent
- * les tâches `prices` (le prix du jour) et `history` (les jours repris de Pokécardex), qui peuvent
- * tourner en même temps sur les mêmes lignes : chacune lit l'année, la complète, et ne la réécrit
- * que si elle n'a pas changé entre-temps (`writeYears`, puis `unwritten`) ; sinon, elle la relit.
- * Sans cela, l'une effacerait ce que l'autre vient d'écrire (le prix du jour, irremplaçable).
+ * L'historique en base (`cardmarket_history`, une ligne par carte et par année), tel que l'écrit la
+ * tâche `prices` (le prix du jour). Deux essais d'une même étape peuvent écrire les mêmes lignes en
+ * même temps (un essai tenu pour échoué écrit encore pendant le suivant : `RETRIES`,
+ * `workflow.ts`) : chacun lit l'année, la complète, et ne la réécrit que si elle n'a pas changé
+ * entre-temps (`writeYears`, puis `unwritten`) ; sinon, il la relit. Sans cela, l'un effacerait ce
+ * que l'autre vient d'écrire (le prix du jour, irremplaçable).
  */
 
 import { env } from 'cloudflare:workers'
@@ -66,7 +67,7 @@ export function writeYears(rows: YearWrite[]) {
 
 /**
  * Les années que les requêtes de `writeYears` n'ont pas écrites, d'après leurs résultats
- * (`answers`) : celles qu'une autre tâche a changées entre-temps, à relire et refaire.
+ * (`answers`) : celles qu'un autre essai a changées entre-temps, à relire et refaire.
  */
 export function unwritten(rows: YearWrite[], answers: D1Result[]) {
   const written = new Set(

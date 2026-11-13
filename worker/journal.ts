@@ -9,7 +9,7 @@
  *   d'Internet (`limits.ts`) ;
  * - `serveur` : une erreur imprévue de l'API ;
  * - `tâches` : les tâches d'ingestion (`ingest/`, `taskJournal`) : un passage réussi ou en échec
- *   (sa cause), ce qu'il a lu et écrit, une page ou une image en erreur, une tâche déjà en cours.
+ *   (sa cause), ce qu'il a lu et écrit, une image en erreur, une tâche déjà en cours.
  * Pas les requêtes une à une : seulement ce qui se passe. Ce qu'un client peut provoquer à volonté
  * (un token refusé) : une ligne par minute au plus (`journalOnce`, pour chaque exemplaire du
  * Worker). Jamais un token. Sans couleurs : les journaux de Cloudflare les montreraient en codes.

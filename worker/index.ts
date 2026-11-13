@@ -8,14 +8,14 @@
  * - `SiteEntrypoint`, celle du site : sa liaison de service (`services` de son `wrangler.jsonc`),
  *   que rien d'autre ne peut joindre ; ni token ni limite.
  * Et les tâches d'ingestion (`ingest/`) : le Workflow `Ingest`, que le Cron (`scheduled`, chaque
- * heure) lance pour chaque tâche à rythme qui est due (`isDue`).
+ * heure) lance avec les tâches dues (`isDue`, ou une sortie absente de R2 : `missingOutputs`).
  */
 
 import { WorkerEntrypoint } from 'cloudflare:workers'
-import { INGEST_JOB_NAMES, INGEST_JOBS } from '@/config/jobs'
+import { INGEST_JOB_NAMES, INGEST_JOBS, type IngestJob } from '@/config/jobs'
 import { app } from './app'
 import { guard, sentInClear } from './auth'
-import { isDue } from './ingest/runs'
+import { isDue, missingOutputs } from './ingest/runs'
 import { limited, limitedHeavy } from './limits'
 
 export { Ingest } from './ingest/workflow'
@@ -62,13 +62,21 @@ export default {
     for (const [name, value] of Object.entries(API_HEADERS)) response.headers.set(name, value)
     return response
   },
+  // Les tâches dues, dans un seul passage, dans l'ordre d'`INGEST_JOBS` : le catalogue avant les
+  // prix, qui en lisent le miroir (la sortie de chaque série : la tendance pour une série récente) ;
+  // deux passages séparés pourraient finir dans l'autre ordre, et un prix faux resterait dans
+  // l'historique. Une tâche dont une sortie manque dans R2 est due aussi, sans rythme (`sprites`)
+  // ou avant son intervalle, au rythme des nouvelles tentatives après un échec (`isDue(job, 0)`).
   async scheduled(_controller, env) {
+    const missing = await missingOutputs()
+    const due: IngestJob[] = []
     for (const job of INGEST_JOB_NAMES) {
       const { every } = INGEST_JOBS[job]
-      if (every !== null && (await isDue(job, every))) {
-        await env.INGEST.create({ params: { jobs: [job] } })
+      if (missing.has(job) ? await isDue(job, 0) : every !== null && (await isDue(job, every))) {
+        due.push(job)
       }
     }
+    if (due.length) await env.INGEST.create({ params: { jobs: due } })
   },
 } satisfies ExportedHandler<Cloudflare.Env>
 

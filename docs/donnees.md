@@ -16,320 +16,154 @@ espèces à la fois, réessayées en cas de panne), par étapes de 100 espèces 
 ou d'un type inconnu (une nouvelle génération pas encore traduite), fait échouer la tâche : les
 espèces d'avant restent. Une nouvelle génération s'ajoute au contrat (`GenerationId`,
 `TotalSpecies`), le site d'abord, puis ici dans `GENERATIONS` et `TOTAL_SPECIES`
-(`config/pokedex.ts`), puis la tâche `species`, puis `cards` (catalogue et images, dont les sprites
-; l'ordre et pourquoi : `../pokedex/docs/deploiement.md`).
+(`config/pokedex.ts`), puis les tâches `species`, `sprites` et `catalog` (l'ordre et pourquoi :
+`../pokedex/docs/deploiement.md`).
 
-## Catalogue (`ingest/catalog.ts`, à la demande)
+## Catalogue (`ingest/catalog.ts`, chaque jour)
 
-Les cartes japonaises, puis les françaises, de Pokécardex, Pokémon, dresseurs et énergies
-(`ingest/pokecardex.ts`) : environ 450 séries japonaises de 1996 à aujourd'hui, decks, promos et
-anciennes séries compris, sans les exclusivités d'autres pays d'Asie (bloc « Asia Exclusive » de
-son menu japonais, `asiaExclusive`, testé : écartées, ni lues une fois le menu connu, ni gardées),
-et ses 249 séries françaises (sa zone française : section suivante) → tables `sets`, `cards`,
-`card_species`, `rarities`. Les ids des cartes et des raretés et les codes des séries se répètent
-d'une zone à l'autre (la carte 7091, la série SVP, la rareté 48) : chaque ligne a sa langue
-(`lang`, `ja` ou `fr`, dans les clés), chaque langue ses réponses.
+**D'après TCGdex, par l'importateur.** Depuis le 13 novembre 2026, le catalogue vient de
+[TCGdex](https://tcgdex.dev), que copie un Worker à part, l'importateur `pokecodex-importer` (dépôt
+`../pokecodex-api`, son `README.md` décrit sa base) : toutes les cartes françaises et japonaises de
+TCGdex dans sa base D1 `pokecodex-cards` (`series`, `sets`, `cards` ; le document de TCGdex de
+chaque carte dans `cards.metadata_json`), et leurs images dans le bucket R2 `pokedex-data`, sous
+`cards/…` (section suivante). Ce Worker les lit seulement (liaisons `CARDS` et `IMPORTS`) et ne
+fait aucune requête vers TCGdex. Le catalogue de Pokécardex, ses tables (`sets`, `cards`,
+`card_species`, `rarities`, `history_imports`) et ses images ont été retirés le même jour
+(décision du propriétaire, migration `0004` ; le bucket vidé de `images/` et `snapshots/` à la
+main) : ne jamais réintroduire de lecture de Pokécardex.
 
-- La liste des séries vient de son plan du site (`sitemap_fr.xml` : `/series/jp/<code>` au Japon,
-  `/series/<code>` en France ; seulement les codes de majuscules, chiffres, `_` et `-`, que
-  permettent les chemins des images : `seriesIn`, testé), lue pour les deux langues avant toute
-  série ; chaque série, de sa
-  page : son nom, sa sortie (au Japon ; en France pour une française), et ses cartes (id
-  Pokécardex, numéro imprimé « 001/165 », `sort`, noms français, anglais et allemand, Pokémon, id
-  Cardmarket, rareté, type, illustrateur, versions ; un tiret seul, « — », qu'il écrit pour
-  « inconnu », est gardé vide), les raretés de sa zone (nom, ordre ; les françaises ne sont pas
-  les japonaises sous les mêmes ids) et le menu des séries de sa langue (le bloc de chacune, son
-  rang, si c'est un deck ; le menu français n'a pas de decks : ses decks et kits sont des séries
-  du bloc « Kit du Dresseur »). En français, les cartes qui n'existent qu'en anglais
-  (`only_english`) sont écartées ; le type 17 (Double Colorless Energy, hors de `CARD_TYPES`) est
-  gardé tel quel, comme tout type (le site traite un type inconnu comme aucun).
-- Le nom de l'extension de chaque série chez Cardmarket (`sets.expansion_name`, pour la liste de
-  souhaits) : pour une japonaise, son nom (ceux de Pokécardex sont ceux de Cardmarket) ; pour une
-  française, son nom anglais, lu dans le menu d'**une seule page anglaise par passage**
-  (`/en/series/<code>` de la première série française à relire, sinon des suivantes, trois au
-  plus ; `readEnglishSeriesNames`), gardé seulement si les adresses Cardmarket de ses cartes
-  (`cardmarket_url`) commencent toutes par lui, écrit comme Cardmarket l'écrit (`expansionNameOf`,
-  `cardmarketSlug` : sans accents ni apostrophes, un tiret pour chaque suite de signes) ; sinon
-  aucun (`''` : pas de ligne). Sans nom anglais pour une série (aucune des trois pages ne donne les
-  noms, illisible ou son menu changé ; ou la série absente du menu), ou avec un nom que ses cartes
-  ne confirment pas (le menu anglais en donne un autre : testé) : elle garde le nom qu'un passage
-  d'avant a confirmé, tant que ses cartes le confirment encore (sinon aucun) ; le journal le dit
-  (pages anglaises illisibles), et la tâche n'échoue pas pour autant.
-- Pour chaque série aussi, dans les deux langues (la liste de souhaits les compare, section « Liste
-  de souhaits » ; testé) : `sets.cardmarket_slug`, l'extension commune des adresses Cardmarket de
-  ses cartes (le premier segment de `cardmarket_url`, `commonCardmarketSlug` : « Mega-Evolution »),
-  gardée même quand le nom n'est pas confirmé, `''` si ses cartes n'en ont pas ou en nomment
-  plusieurs ; et `sets.expansion_slug`, son nom d'extension écrit comme dans une adresse
-  (`cardmarketSlug(expansion_name)`, `''` sans nom), que la liste de souhaits ne saurait pas
-  calculer en SQL. Ajoutées le 8 novembre 2026 (migration `0003`), vides tant qu'une série n'a pas
-  été relue par la tâche `catalog` depuis : chaque série à son prochain passage (après une semaine,
-  un jour si elle est récente), toutes d'un coup avec `--refresh`.
-- Ses pages portent leurs données chiffrées (`__INITIAL_DATA_ENCRYPTED__`, AES-CBC) : déchiffrées
-  avec la clé que contient son JavaScript, relue quand l'adresse de son script change, jamais
-  recopiée dans le dépôt ; ce script seulement depuis le site lui-même (son adresse vient de la
-  page : une adresse d'ailleurs est une erreur, sans être lue ; testé). Les lectures des tâches
-  (`ingest/net.ts`, novembre 2026, testé) ne suivent aucune redirection (une réponse 3xx est une
-  erreur), et une réponse lue d'un coup (une page, un script, une image, un document de PokéAPI)
-  l'est jusqu'à 5 Mo, sa taille annoncée ou non (`readCapped`) ; le guide des prix et la liste des
-  produits, lus en flux, refusent un objet ou un en-tête de plus d'un million de caractères
-  (`streamArray`). Une page toutes les 3 s, User-Agent identifié : le premier passage prend
-  une vingtaine de minutes pour les japonaises, une douzaine pour les françaises ; ensuite, une
-  série est relue après une semaine, après un jour si elle est sortie depuis moins de 90 jours
-  (`read_at`), et `--refresh` les relit toutes.
-- Les gardes (testées) : une page en échec n'empêche pas les autres (la tâche échoue ensuite) ;
-  dix d'affilée arrêtent la lecture, celle de l'autre langue comprise (le site a changé) ; une
-  série qui donne moins de la moitié des cartes qu'elle avait est refusée ; une page sans cartes ne
-  retire rien (plus de la moitié des séries connues sans cartes : la tâche échoue) ; une carte
-  qu'une lecture de sa série ne voit plus est retirée ; une carte dont l'id ou le rang (de 1 à
-  9 999, comme dans le chemin de son image) ne sont pas des entiers positifs est écartée
-  (`wellFormed`, comptée au journal : « Cartes mal formées écartées »), et cette lecture ne retire
-  alors aucune carte de la série (déjà connue, la carte garde sa ligne d'avant) ; un id Cardmarket
-  mal formé compte pour aucun (la carte gardée, sans prix ni lien), en texte il est lu (comme dans
-  les pages des cartes). Un menu qui retirerait (« Asia Exclusive ») plus de 3 séries connues, ou
-  l'une de plus de 20 cartes, n'en retire aucune (`saveBlocks` ; seuils : décision de l'utilisateur,
-  novembre 2026) : le menu s'est sans doute trompé. Le reste du passage est lu et enregistré, les
-  réponses comprises, puis la tâche échoue, et le journal nomme ces séries (« Retrait de séries
-  refusé »). Tant que le menu les range ainsi, chaque passage le redit ; une vraie exclusivité de
-  cette taille se retire alors à la main (D1). Tant qu'aucune carte d'une langue n'a été lue, les
-  réponses de cette langue répondent 404.
-- Les réponses, recalculées en fin de tâche, chaque langue d'après ses seules lignes, une étape
-  chacune (`saveCatalog`, `saveLanguage`, testé : enregistrées dans R2, `snapshots/…`, seulement
-  celles qui ont changé, leur MD5 comparé à l'ETag de R2, `saveSnapshot`, testé : un passage
-  `cards` en recalcule environ 5 500, deux fois, presque toutes inchangées ; et celles
-  d'une série retirée retirées, dans sa langue seulement ; `snapshotName` : celles du japonais gardent leurs noms, `catalog/…`, celles du français, de même
-  forme, sont nommées `catalog/fr/…`, la sortie y étant celle en France ; l'API sert chacune à la
-  route de même nom, `/v1/catalog/…` et `/v1/catalog/fr/…`, mêmes paramètres, `worker/reference.ts`) :
+- **Ce qui entre au catalogue** : chaque carte d'une langue (`cards.language`, `ja` ou `fr`), sauf
+  celles que TCGdex ne liste plus (`removed_at`, que l'importateur note sans les effacer) et celles
+  des séries de Pokémon TCG Pocket (la série TCGdex `tcgp` : des cartes numériques, 15 extensions
+  françaises le 13 novembre 2026 ; `EXCLUDED_SERIES`, `config/catalog.ts`). Une extension sans
+  carte retenue n'a pas de réponse. Les ids des extensions et des cartes se répètent d'une langue à
+  l'autre (« P ») : chaque langue a ses réponses, et son miroir.
+- **Lu sans tout charger** (le Worker a 128 Mo) : les champs du détail de chaque carte sont
+  extraits par la base (`json_extract` : `dexId`, `types[0]`, `trainerType`, `energyType`,
+  `variants_detailed`, `variants`), par pages de 2 000 cartes dans l'ordre de l'index
+  `(language, tcgdex_id)` de l'importateur. Une carte dont l'importateur n'a pas encore lu le
+  détail (`metadata_json` vide : 13 000 japonaises sur 13 156 le 13 novembre 2026, lues dans la
+  nuit) est gardée dans sa série, son nom et son image seulement : ni Pokémon (absente de la
+  fenêtre d'ajout), ni type, ni rareté, ni versions, ni id Cardmarket (ni prix). Elle les a au
+  passage qui suit (chaque jour).
+- **Une carte** (`CatalogSetRow` du contrat ; testé, `worker/tests/catalog.test.ts`) :
+  - `number` : son `localId` (« 006 », « TG01 ») ; `printed` : `localId/nombre officiel`, le nombre
+    écrit avec autant de chiffres que le numéro (« 006/165 », « 001/073 », « 4/102 »), quand
+    l'extension a un nombre officiel de cartes (`official_cards` > 0) et que le numéro n'est fait
+    que de chiffres ; sinon le numéro seul (« TG01 », une promo) ;
+  - `name`, `illustrator` : ceux de TCGdex, dans la langue de la carte (en japonais pour une
+    japonaise) ;
+  - `dexIds` : ses numéros du Pokédex (`dexId`), de 1 à 1 025, chacun une fois ;
+  - `cardmarket` : l'id produit (`thirdParty.cardmarket`) de sa version normale sans tampon, sinon
+    d'une version normale, sinon de la première version qui en a un, sinon 0. Le tampon compte :
+    une version normale tamponnée (« Pokémon Center ») est souvent un autre produit (Carapuce
+    sv03.5-007 : 733 602, sa version tamponnée 721 198) ;
+  - `type` (`CardType` du contrat) : pour un Pokémon (`category` « Pokémon », « Pokemon » en
+    japonais), sa première énergie (`grass`… `colorless`) ; pour un dresseur, sa catégorie
+    (`trainerType` : `item`, `supporter`, `stadium`, `tool`, `technical-machine`, sinon `trainer`) ;
+    pour une énergie (`energyType`), `basic-energy`, `special-energy`, sinon `energy` ; '' sans
+    catégorie (détail pas lu) ou pour une énergie de Pokémon inconnue. TCGdex écrit ces champs en
+    français pour les cartes françaises (« Feu », « Objet », « De base »), en anglais pour les
+    japonaises : les tables de `config/catalog.ts` ont les deux ;
+  - `rarity` : la rareté telle que l'écrit TCGdex (« Double rare », « Common » ; vide si inconnue :
+    l'importateur écrit `NULL` pour le « None » des japonaises) ; chaque réponse donne, pour chaque
+    rareté de ses cartes, `[nom en français, rang]`, d'après la table ordonnée `RARITIES`, de la plus
+    commune à la plus rare : les noms français de TCGdex, les anglais des japonaises traduits
+    (« Common » : « Commune », « Art Rare » : « Illustration rare », « Special Art Rare » :
+    « Illustration spéciale rare »), et « Magnifique rare », que TCGdex donne aux rares secrètes
+    (576 de ses 602 cartes ont un numéro au-delà du nombre officiel), nommée « Rare secrète ». Une
+    rareté absente de la table garde son nom, au rang qui suit toutes les autres ;
+  - `versions` : les versions de TCGdex (`variants_detailed[].type`), en français (« Normale »,
+    « Reverse », « Holo », « Métal »…), chacune une fois, et « 1re édition » si l'une porte ce tampon ;
+    sans versions détaillées, d'après ses drapeaux (`variants`) ;
+  - `image` : son `ImageKey` (`fr/sv03.5/sv03.5-006`), tiré de sa clé R2 (`image_r2_key`) seulement
+    si l'importateur l'a copiée (`image_status` : `downloaded`, `recovered_from_cdn` ou
+    `already_present`), de la forme exacte de ses clés et de la langue de la carte ; sinon '' (la
+    carte de substitution du site).
+- **Une extension** : son id chez TCGdex (« SV2a », « sv03.5 », « SM1+ » ; seulement les ids que
+  servent les routes, `SET_ID` : une autre est écartée, le journal le dit), son nom, sa sortie
+  (`release_date`, en YYYY-MM-DD, '' sinon ; au Japon pour une japonaise, en France pour une
+  française), son logo (`ImageKey`, `fr/sv03.5`, seulement si l'importateur l'a copié :
+  `sets.logo_status` à `downloaded`, sa clé `sets.logo_r2_key` ; ces deux colonnes, ajoutées par
+  l'importateur en novembre 2026, sont nulles tant qu'il ne les a pas remplies, et les extensions
+  japonaises n'ont pas de logo chez TCGdex), et son bloc : sa série chez TCGdex (« Écarlate et
+  Violet » ; en japonais, son nom japonais).
+- **Les réponses**, recalculées à chaque passage, dans R2 (`snapshots/…`), seulement celles qui ont
+  changé (leur MD5 comparé à l'ETag de R2, `saveSnapshot`) ; celles du japonais nommées `catalog/…`,
+  celles du français `catalog/fr/…` (`snapshotName`), servies aux routes de même nom
+  (`worker/reference.ts`) :
   - `/v1/catalog/species/<n°>` : les cartes Pokémon d'un Pokémon (une réponse pour chacun des
-    1 025, même sans carte), des plus récentes aux plus anciennes : `[série, numéro (sans numéro
-    imprimé : sort), id Cardmarket (0 : aucun), nom français, numéro de son image (0 : aucune),
-    rareté (0 : inconnue), type (0 : inconnu), Pokémon s'ils sont plusieurs]` ; chaque série
-    `[nom, sortie, logo]` ; les raretés `[nom, rang]` ;
-  - `/v1/catalog/sets` : les séries, des plus récentes aux plus anciennes, `[code, nom, sortie,
-    logo, nombre de cartes, rang de son bloc (-1 : aucun), 1 pour un deck]`, et les blocs ;
-  - `/v1/catalog/sets/<code>` : toutes les cartes d'une série dans son ordre, `{ number, printed,
-    name, en, de, dexIds, cardmarket, image, rarity, type, illustrator, versions }`, et leurs
-    raretés.
-- Les types sont numérotés par Pokécardex sans être nommés (`CARD_TYPES`, `config/catalog.ts` ; le
-  site a leurs noms). Les raretés gardent les noms de Pokécardex (« C », « SAR »…, « Commune »,
-  « Holographique » pour les anciennes, « Sans rareté »).
+    1 025, même sans carte), des plus récentes aux plus anciennes, et dans une extension de la
+    dernière à la première : `[extension, numéro, id Cardmarket, nom, image, rareté, type, Pokémon
+    s'ils sont plusieurs]` ; chaque extension `[nom, sortie, logo]` ; les raretés ;
+  - `/v1/catalog/sets` : les extensions, des plus récentes aux plus anciennes (le même jour, dans
+    l'ordre de leur id), `[id, nom, sortie, logo, nombre de cartes, rang de son bloc (-1 : aucun)]`,
+    et les blocs, dans l'ordre de leur extension la plus récente ;
+  - `/v1/catalog/sets/<id>` : toutes les cartes d'une extension, dans son ordre (par le nombre en tête
+    de leur numéro, celles qui n'en ont pas ensuite, puis par le numéro, ses nombres comparés en
+    nombres : « BW9 » avant « BW10 »), et leurs raretés. Celles des extensions qui n'ont plus de
+    cartes sont retirées (dans leur langue seulement).
+- **Le miroir** (`catalog_cards`, D1) : chaque carte retenue, par langue, extension et numéro, avec
+  son id Cardmarket et la sortie de son extension dans sa langue ; ce que lit la tâche `prices`
+  (« Prix »). Réécrit d'un seul tenant à chaque passage, seulement les lignes qui changent ; une
+  carte qui n'est plus au catalogue en est retirée.
+- **Les gardes** (testées) : une langue sans aucune carte, ou avec moins de la moitié des cartes de
+  son miroir (la base de l'importateur vidée, son format changé), n'écrit rien, ni réponses ni
+  miroir ; l'autre langue est faite, puis la tâche échoue (la page Réglages et la surveillance le
+  disent : deux jours sans réussite, et `/v1/health` répond 503). Tant qu'aucune carte d'une langue
+  n'a été lue, ses réponses répondent 404. Une étape par langue (`catalogue ja`, `catalogue fr`),
+  qui redit son signe de vie à chaque page de cartes et à chaque réponse écrite. Le journal compte,
+  par langue, les extensions, les cartes, et celles sans détail, sans id Cardmarket ou sans image.
 
-## Images (`ingest/images.ts`, à la demande)
+## Images (`worker/images.ts`, `ingest/sprites.ts`)
 
-Copiées chez nous (R2, `images/…`), condition de Pokécardex, **toutes d'avance** par la tâche
-`images` ; servies à `/v1/images/…`, gardées un an par les clients (`immutable` : une image
-copiée ne change pas, sauf le scan d'une carte renumérotée, plus bas). Les chemins sont neutres
-(`cardScan`…, `lib/image-paths.ts`) ; leur adresse d'origine n'est que dans `UPSTREAMS`. Les codes des
-séries et les rangs se répètent d'une langue à l'autre (SVP, rang 1) : les chemins français ont un
-dossier `fr/` de plus, les japonais n'ont pas changé.
+Servies à `/v1/images/…` depuis R2, gardées un an par les clients (`immutable`) ; une image de
+repli (la grande image pour un scan `md` dont la petite n'est pas encore copiée, le PNG d'une
+illustration pas encore convertie en WebP), un jour seulement, pour que la bonne la remplace
+ensuite (testé). Sinon 404, sans rien télécharger (une réponse sans cache : l'image est servie dès
+qu'elle est copiée) ; le site
+montre alors la carte de substitution. Les chemins ne nomment aucune source (`lib/image-paths.ts`).
+Seulement un chemin de la forme exacte de son gabarit (`imagePathOf`, testé) : la langue `ja` ou
+`fr` ; chaque partie (extension, carte) faite de `A-Z a-z 0-9 . -` et de `_XX` (deux chiffres
+hexadécimaux majuscules), comme les clés de l'importateur, ni `.` ni `..` ; la taille `md` ou `hd`.
 
-| Chemin | Origine |
+| Chemin | Image (clé R2) |
 |---|---|
-| `/images/cards/<série>/<sort>-<md\|hd>.webp` | Le scan d'une carte japonaise (`md` pour les grilles, `hd` pour la fiche), Pokécardex (`sets_jp/`) |
-| `/images/cards/fr/<série>/<sort>-<md\|hd>.webp` | Le scan d'une carte française, Pokécardex (`sets/<série>/FR/`, jamais le dossier sans langue : section suivante) |
-| `/images/sets/<série>-<md\|hd>.webp`, `/images/sets/fr/<série>-<md\|hd>.webp` | Le logo d'une série, japonaise (`logos_jp`) ou française (`logos`) |
-| `/images/types/<n>.webp`, `/images/rarities/<n>.webp` | Les icônes des types et des raretés, communes aux deux langues : un même id de rareté a la même icône chez la source |
-| `/images/species/<n>.png`, `/images/species/artwork/<n>.webp` | Le sprite d'un Pokémon, PokéAPI ; son illustration officielle, en WebP sans perte, convertie hors du Worker depuis son PNG de PokéAPI (ci-dessous) |
-| `/images/species/artwork/<n>.png` | Le PNG de l'illustration, copié de PokéAPI par la tâche : la source de son WebP (encore servi pendant la transition, ci-dessous) |
+| `/images/cards/<langue>/<extension>/<carte>-hd.webp` | Le scan d'une carte, copié de TCGdex par l'importateur : `cards/<langue>/<extension>/<carte>.webp` (`IMPORTS`) |
+| `/images/cards/<langue>/<extension>/<carte>-md.webp` | Sa petite image, `….low.webp`, ou la grande tant que l'importateur ne l'a pas copiée |
+| `/images/sets/<langue>/<extension>.webp` | Le logo d'une extension : `cards/<langue>/<extension>/_logo.webp` (`IMPORTS`) |
+| `/images/species/<n>.png` | Le sprite d'un Pokémon, PokéAPI : `images/species/<n>.png` (`FILES`) |
+| `/images/species/artwork/<n>.webp` | Son illustration officielle, en WebP sans perte (`images/species/artwork/<n>.webp`), ou son PNG tant que le WebP n'est pas converti (ci-dessous) |
+| `/images/species/artwork/<n>.png` | Le PNG de l'illustration, copié de PokéAPI par la tâche `sprites` : la source de son WebP (encore servi pendant la transition) |
 
-- La tâche, deux téléchargements à la fois, seulement ce qui manque (environ 1,5 Go la première
-  fois pour les japonaises, 1 à 1,4 Go de plus pour les françaises) : les logos de chaque série du catalogue,
-  dans chaque langue, notés s'ils existent (`sets.logo`, par langue ; cherché de nouveau chaque
-  semaine), les icônes (les types ; les raretés qu'utilisent les cartes de l'une ou l'autre
-  langue, une icône par id), les sprites des 1 025 Pokémon et le PNG de leurs illustrations (la source de leur WebP : ci-dessous), puis le scan de
-  chaque carte, de chaque langue, en deux tailles, noté s'il existe (`cards.image` : le catalogue
-  le dit d'avance ; une carte sans scan est recherchée chaque semaine), par étapes de 50 séries,
-  100 Pokémon ou 50 cartes. Chaque requête et chaque note portent la langue : l'id 7091 de chaque
-  langue est une autre carte. Une image en erreur n'arrête pas les autres : rien n'est noté pour
-  elle, la tâche échoue à la fin (à la 20e erreur, elle s'arrête : la source est sans doute en
-  panne). En fin de tâche, même arrêtée, le catalogue est recalculé.
+- **Les images des cartes et des extensions** : copiées par l'importateur (`cards/…`), jamais par
+  ce Worker, qui les lit dans sa liaison `IMPORTS` (le même bucket que `FILES` en ligne ; une
+  liaison à part pour qu'en développement elle puisse viser les images de l'importateur sans que
+  les écritures des tâches, `FILES`, y aillent jamais). La langue est dans le chemin comme dans la
+  clé : un chemin français ne mène qu'à une image française (testé). Le scan `md` peut changer une
+  fois, de la grande image à la petite quand l'importateur la copie : la même carte, plus légère ;
+  l'importateur ne remplace jamais une image copiée. Le catalogue ne donne une image ou un logo
+  que s'ils sont copiés (« Catalogue »).
+- **Les images des Pokémon** (`FILES`), copiées **toutes d'avance** par la tâche `sprites`, à la
+  demande (`bun run ingest sprites`, et dans `setup`) : le sprite et le PNG de l'illustration de
+  chacun des 1 025 Pokémon, seulement ceux qui manquent, deux téléchargements à la fois, par
+  étapes de 100 Pokémon ; seulement un PNG de 5 Mo au plus (testé). Une image en erreur n'arrête
+  pas les autres : la tâche échoue à la fin, pour être relancée (à la 20e erreur, elle s'arrête : la
+  source est sans doute en panne). Leur adresse d'origine n'est que dans `UPSTREAMS`
+  (`ingest/sprites.ts`).
 - **Les illustrations des Pokémon, en WebP sans perte** (décision D-10, lot L19, novembre 2026) :
   les 1 025 PNG de PokéAPI (475 × 475, transparents, 100 avec un profil de couleur) faisaient
   132,7 Mo ; leurs WebP sans perte font 83,2 Mo (−37,3 %), chacun identique à son PNG au pixel
-  près (RGBA, couleurs sous les pixels transparents comprises), aux mêmes dimensions et au même
-  profil de couleur (octet pour octet). Le Worker ne sait pas encoder un WebP : la tâche `images`
-  copie le PNG (`artworkSource`, `images/species/artwork/<n>.png`, testé), et un script ponctuel,
-  hors du Worker et **hors des dépôts**, en fait le WebP (`images/species/artwork/<n>.webp`,
-  `image/webp`).
-  - **Le script** : `conversion-illustrations-webp.mjs`, dans le dossier qui contient les deux
-    dépôts (`../conversion-illustrations-webp.mjs` vu d'ici ; sur ce poste,
-    `C:\Users\a.segalat\Documents\pokedex\conversion-illustrations-webp.mjs`), lancé depuis ce
-    dépôt : par défaut, il ouvre le R2 **local** (`getPlatformProxy`, `.wrangler/state`) ; ses
-    sous-commandes de production (`telecharger`, `dossier`, `ecrire-production`,
-    `echantillon-production`, `verifier-site`) passent par des fichiers sur disque, et exigent
-    `--lecture-production` ou `--ecriture-production --je-confirme-A-09`
-    (`../procedure-A-09.md`). Il prend `sharp` dans les dépendances de Wrangler, sans rien ajouter
-    aux nôtres. Il n'est pas versionné (une conversion ponctuelle, D-10) : le garder à côté des
-    dépôts.
-  - **Ses contrôles** : chaque WebP doit être sans perte (un bloc `VP8L`, aucun `VP8 `), de mêmes
-    dimensions, d'un PNG de 8 bits par canal, au même profil de couleur et aux mêmes pixels RGBA ;
-    au moindre écart, rien n'est écrit, et sans gain de poids non plus. `--mesure` mesure sans
-    rien écrire ; sans lui, chaque WebP est vérifié puis écrit aussitôt (reprenable : un WebP déjà
-    là est relu et revérifié, réécrit seulement s'il diffère). Fait sur le R2 local, puis en ligne,
-    le 13 novembre 2026 (1 025 identiques dans les deux cas).
-  - **Un environnement neuf** (une D1 et un R2 vides), dans l'ordre :
-    1. `bun run dev`, puis `bun run ingest setup` : la tâche `images` copie, avec le reste, les
-       1 025 sprites et les 1 025 PNG des illustrations ;
-    2. le Worker local arrêté, `node ../conversion-illustrations-webp.mjs --mesure`, puis, si tout
-       passe, `node ../conversion-illustrations-webp.mjs` : les 1 025 WebP ;
-    3. alors seulement, les illustrations s'affichent sur le site (il demande le WebP ; tant
-       qu'il manque, l'API répond 404 et la page montre sa substitution).
-  - **Transition** (« élargir puis restreindre ») : l'API sert encore les deux chemins, le `.png`
-    pour le site d'avant L19 (un onglet resté ouvert) ; le PNG reste dans R2 (la source du WebP),
-    seul ce chemin servi sera retiré, dans un lot futur.
-  - **En ligne depuis le 13 novembre 2026** (action A-09, `../pokedex/docs/REVIEW-PLAN.md`) : les
-    1 025 WebP écrits dans le R2 de production et vérifiés (132 662 089 → 83 193 706 octets,
-    −37,3 %, pixels identiques), puis ce dépôt déployé (version `8d3aa672`), puis le site
-    (`d0b53a8d`). Les PNG y sont conservés.
-- **Une série renumérotée** (testé) : le chemin d'un scan suit le rang de la carte. Quand la
-  source change le rang ou la série d'une carte (une carte arrivée en tête de série décale les
-  suivantes), le catalogue la remet à chercher (`cards.image` nul), et le fichier de son nouveau
-  chemin est souvent le scan de la carte qui avait ce rang : la tâche recopie donc chaque scan
-  qu'elle cherche (une carte pas encore notée, une carte sans scan cherchée de nouveau chaque
-  semaine), même si son fichier existe (`mirror`, `force`), en le remplaçant d'un coup ; une carte
-  dont la source n'a pas ses deux scans n'en garde aucun (tous deux retirés de R2 : le fichier de
-  son rang, celui d'une autre carte, serait servi pour elle, et pris pour le sien la semaine
-  suivante). Elle note une carte seulement si elle est encore à la place copiée (sa série et son
-  rang : le catalogue, dans un autre Workflow, a pu la déplacer entre-temps ; elle reste alors à
-  chercher, à sa nouvelle place).
-  Les chemins ne changent pas (choix fait lors des corrections d'octobre 2026, aucun rang n'ayant
-  changé du 19 au 24 octobre) : un navigateur qui avait l'ancien scan d'un chemin le garde
-  jusqu'à ce que son cache se vide (`immutable`, un an). Un fichier déposé à la main pour une
-  carte à chercher est donc recopié aussi. **Le coût réel est dans la collection du site** : une carte enregistrée y garde le
-  chemin de son image (série et rang), non la carte. Après une renumérotation à la source, les
-  cartes enregistrées à un rang égal ou postérieur au point d'insertion montrent le scan de leur
-  nouvelle occupante, jusqu'à ce que leur image soit choisie de nouveau ; rien ne les corrige
-  d'elles-mêmes. Pour ne pas le découvrir par hasard, la tâche `catalog` écrit au journal, à la
-  fin de chaque langue, une ligne qui compte les cartes déjà copiées (`cards.image` noté) dont la
-  série ou le rang viennent de changer : « Série renumérotée par la source », avec la langue et le
-  nombre de cartes (`logTotals`, comptées par `saveSeries`, testé). Le nombre seulement : rien
-  d'autre ne change, et aucune ligne tant que rien n'a bougé.
-- **Sans leurs métadonnées** (décision de l'utilisateur, novembre 2026 ; testé, `webp.test.ts`) :
-  un WebP copié est écrit sans ses blocs `XMP ` et `EXIF` (`withoutMetadata`,
-  `ingest/webp.ts`), leurs drapeaux effacés du `VP8X`, la taille RIFF réécrite. Certains logos
-  de la source portaient 1,5 Mo de XMP pour quelques Ko d'image. L'image, sa transparence, son
-  profil de couleur (`ICCP`) et une animation restent octet pour octet ; un autre format, ou un
-  WebP mal formé, est copié tel quel. Une image déjà copiée n'est pas reprise (`mirror` sans
-  `force`) : les deux logos lourds, en leurs deux tailles, ont été recopiés à la main en ligne le
-  13 novembre 2026 (A-03 : les quatre clés `images/sets/fr/SVP-md.webp`, `SVP-hd.webp`,
-  `MEP-md.webp`, `MEP-hd.webp` supprimées de R2, `sets.logo` remis à `NULL` pour (fr, SVP) et
-  (fr, MEP), puis `bun run ingest images --remote` ; sans `--remote`, la commande vise le Worker
-  local) : de 1 534 592 à 1 546 174 octets, ils pèsent maintenant 5 384 à 16 966 octets, sans
-  XMP ni EXIF, leurs pixels identiques. Les autres gardent leurs métadonnées, légères.
-- **Aucune copie à la demande** (décision du propriétaire, octobre 2026) : le Worker
-  (`worker/images.ts`) sert l'image depuis R2 si elle y est (la tâche ne copie qu'un WebP, un PNG
-  ou un JPEG de 5 Mo au plus, testé), sinon 404 sans rien télécharger (une
-  réponse sans cache : l'image est servie dès que la tâche l'a copiée) ; le site montre alors la
-  carte de substitution. Seulement pour un chemin plausible (`IMAGE_PATHS` : une série du
-  catalogue **de sa langue** et un numéro jusqu'au plus grand des siens, le logo d'une série du
-  catalogue de sa langue, un type de `CARD_TYPES`, une rareté connue d'une langue ou de l'autre,
-  un Pokémon de 1 à 1 025). Le plus grand rang de chaque série lue et les raretés sont gardés
-  10 min dans la mémoire de chaque exemplaire du Worker (une page du catalogue demande des dizaines
-  d'images d'une même série : une requête D1 par série, plus une par image ; testé). Contrepartie
-  acceptée : une série ou une rareté nouvelle est servie au plus 10 min après la tâche, une série
-  retirée l'est encore jusqu'à 10 min ; un chemin inventé n'est jamais gardé. Une image est écrite
-  d'un coup dans R2 : l'API ne sert jamais une image à moitié écrite.
-
-## La zone française de Pokécardex (repérée le 22 octobre 2026)
-
-Accord du propriétaire pour les cartes françaises comme pour les japonaises : mêmes pages, même
-méthode. Repérage sur `/series/MEG` (récente) et `/series/BS` (ancienne), avec un script à part ;
-`ingest/pokecardex.ts` lit le plan du site, commun aux deux langues (`readSitemap`), une série et
-une carte dans une langue (`CardLanguage`, `ja` ou `fr` : `seriesIn`, `readSeries`, `readCard`,
-`menuBlocks`). Les tâches `catalog`, `images` et `history` lisent cette zone (sections Catalogue,
-Images et Historique repris). Ce qui suit est ce que le repérage a établi.
-
-- **Les pages** : `/series/<code>` (japonaises : `/series/jp/<code>`), chiffrées de la même façon,
-  avec le même script (`/react/sets/assets/index-….js`) et sa clé : la méthode de `keyOf` et de
-  `pageData` (`ingest/pokecardex.ts`) déchiffre ces pages sans changement. Le document a les mêmes
-  clés que celui d'une page japonaise (`currentSeries`, `seriesMenu`, `cartes`, `raretes`…) et les
-  cartes les mêmes champs (`id_card`, `num_card`, `sort`, `name_card_fr/en/de`, `id_pokedex_list`,
-  `id_cardmarket`, `cardmarket_url`, `id_rarete`, `id_type`, `nom_illustrateur`, `versions`,
-  `only_english`…). Différences : `currentSeries.fullName` est français (« Méga-Évolution », « Set de
-  base ») ; `currentSeries.releaseDateUS` est renseignée (`null` pour une série japonaise) ;
-  `currentSeries.commercialName` (« ME01 ») s'y ajoute sur certaines séries récentes.
-- **La liste des séries** : 249 séries françaises, les mêmes dans le menu (`seriesMenu.blocksByRegion.FR`)
-  et dans le plan du site (`sitemap_fr.xml` : `/series/<code>`, sans les pages d'index `/series/jp` et
-  `/series/chn`). Le menu est identique sur les trois pages lues (MEG, BS et la page japonaise SV2A) :
-  toute page déjà lue le donne.
-- **Le nom anglais d'une série (celui de l'extension chez Cardmarket) : aucun champ de la page
-  française ne le donne.** `currentSeries` (`id`, `shortName`, `fullName` français, `releaseDateFR`,
-  `releaseDateUS`, `totalCards`, `secretCards`, `checklistLink`, `checklistLinkV2`, `products`,
-  `commercialName`) et les entrées du menu (`id`, `shortName`, `fullName` français, `commercialName`,
-  `link`) n'en ont pas ; `nom_ext` et `nom_us` de chaque carte sont vides (`""` sur les 290 cartes
-  lues). Les approches essayées ou écartées :
-  - le premier segment de `cartes[].cardmarket_url` (« Mega-Evolution/Bulbasaur-V1-MEG001 ») : le
-    même sur toutes les cartes d'une série (« Mega-Evolution » sur les 188 de MEG, « Base-Set » sur les
-    102 de BS), le nom de l'extension avec des tirets à la place des espaces. Il perd les accents (page
-    japonaise SV2A : `fullName` « Pokémon Card 151 », segment « Pokemon-Card-151 »), sans doute les
-    signes comme « & », et les apostrophes (« Champion's Path » : « Champions-Path ») : il ne donne
-    pas le nom, mais **confirme** celui qu'on a (`cardmarketSlug` et `expansionNameOf`,
-    `ingest/pokecardex.ts`, testés) ;
-  - `nameUS` du bloc de la série dans le menu (« Mega Evolution ») : celui du **bloc**, donné à toutes
-    ses séries (les neuf du bloc « Méga-Évolution » : « Mega Evolution »), donc l'extension seulement
-    pour MEG, pas pour PFL, ASC… (dont l'extension a son nom) : écarté ;
-  - **la page anglaise de la série** (`/en/series/<code>`, annoncée par le `hreflang` de la page) :
-    même document, mais `currentSeries.fullName` y est le nom anglais. Lue une fois le 22 octobre
-    2026 : `/en/series/MEG` donne « Mega Evolution », avec 188 cartes dont l'adresse Cardmarket
-    commence par `Mega-Evolution` ; `expansionNameOf` accepte ce nom. Son menu donne aussi, **dans
-    la même page**, le `fullName` anglais des 249 séries françaises
-    (`seriesMenu.blocksByRegion.FR[].series[].fullName` : « Pitch Black », « Phantasmal Flames »,
-    « Black Bolt »… ; 91 sont identiques au français) et des `link` vers `/en/series/<code>` : la
-    tâche `catalog` lit donc une seule page anglaise par passage, au lieu de 249
-    (`readEnglishSeriesNames`, `ingest/pokecardex.ts`, retenu).
-- **Le scan d'une carte** : `https://pokecardex-scans.b-cdn.net/sets/<série>/FR/<sort>.jpg?class=<md|hd>`
-  (la fonction du script : dossier `sets/`, puis `nom_court` de la carte, c'est-à-dire le code de sa
-  série, puis `FR`, puis `sort` de la carte, **non** son numéro imprimé : le 188e de MEG, « 188/132 »,
-  est `188.jpg`). Pour une autre langue du site (`US`, `DE`), le script prend `US` ou `DE` à la place de
-  `FR` : on garde `FR`. La classe : `md` (grilles) et `hd` (fiche) comme pour les scans japonais ;
-  le script emploie aussi `sd` et `original`, non vérifiés. Sans version, ou avec la version 1
-  (« Standard »), aucun dossier de plus ; pour une version d'`id_version` de 2 à 246 (`versions[]`,
-  « Reverse » = 2), le script met son id avant le rang (`…/FR/<id_version>/<sort>.jpg`) et retombe sur
-  l'adresse sans version si elle manque. Le dossier sans langue (`sets/<série>/<sort>.jpg`) n'est
-  jamais construit par le site pour la zone française : BS y répond 200 (le fichier n'a pas la
-  taille de celui de `FR`), MEG y répond 404 ; ne pas l'employer. Le logo : `logos/<série>.png` dans
-  `https://pokecardex.b-cdn.net/assets/images/` (`logos_jp/` pour les japonaises). Ce sont les
-  adresses que copie la tâche `images` (`UPSTREAMS`, `ingest/images.ts`, testées dans
-  `worker/tests/images.test.ts`) : le scan sans version, pas ceux des versions
-  (`FR/<id_version>/…`).
-- **Le menu** (`seriesMenu.blocksByRegion`) : `{ FR: 19 blocs, JP: 19 blocs, CHN: 5 blocs }`. Un bloc
-  français : `{ id: "bloc-19-fr", name: "Méga-Évolution", nameUS: "Mega Evolution", series: [{ id,
-  shortName, fullName, commercialName?, link }] }` ; `link` est `https://www.pokecardex.com/series/<shortName>`.
-  Pas de `decks` (les blocs japonais en ont) : les decks et kits sont des séries du bloc « Kit du
-  Dresseur ». Les séries d'un bloc vont des plus récentes aux plus anciennes (les promos et énergies
-  de la même époque à la fin) ; `commercialName` (« ME05 », « EV10.5 », « EB12 », « SL11.5 », « XY12 »)
-  n'existe que de XY à Méga-Évolution (69 séries sur 249). Le `name` est en français, `nameUS` en
-  anglais (identique pour XY, HeartGold SoulSilver, EX, Wizards, Promos, Jumbos, World Championships,
-  McDonald's). Les blocs, dans l'ordre du menu (nombre de séries) : Méga-Évolution (9), Écarlate et
-  Violet (18), Épée et Bouclier (18), Soleil et Lune (16), XY (16), Noir et Blanc (13), Appel des
-  légendes (1), HeartGold SoulSilver (5), Platine (4), Diamant et Perle (8), EX (17), Wizards (16) ; puis
-  Promos (16), Ligue Pokémon (10), Jumbos (1), Kit du Dresseur (32), World Championships (20),
-  McDonald's (15), Divers (14). **Aucun bloc n'est d'un autre pays** (pas d'équivalent de « Asia
-  Exclusive » : la Chine et le Japon ont leur région). Ce qui n'est pas une série de cartes à jouer, à
-  trancher (rien n'est écarté ici) : dans « Divers » (`nameUS` « Others »), `TOPPS` (« Topps »), `LMN5` et
-  `LMN6` (« Lamincards »), `PWC98` et `PWC10` (« Pikachu World Collection »), `ARTAC` (« Art
-  Academy ») ; les séries McDonald's dont le code finit par `US` (`MC8US`, `MC9US` : « … - USA » ;
-  `MC10US`, `MC11US`) sont sans doute des promotions américaines (leurs cartes n'ont pas été lues :
-  en anglais ou non ?).
-- **Dans les cartes** : `sort` est unique, de 1 au nombre de cartes de la série, égal à
-  `ordre_affichage` ; `num_card` : « 001/132 » (secrètes : « 188/132 ») ou « 1 » (BS), dont le total imprimé (132) est
-  `total` de la carte, pas `currentSeries.totalCards` (188) ; `cardmarket_url` et `id_cardmarket`
-  sont renseignés sur toutes les cartes lues ; `only_english` est à 0 sur toutes les cartes lues,
-  mais vrai pour certaines **versions** (« Shadowless », « 4th print ») : leur scan français n'a pas
-  été cherché. `raretes` est la liste des 21 raretés françaises (la même sur MEG et BS), pas celle
-  de la série ; ses ids recoupent ceux des raretés japonaises (39 sur SV2A) sans s'y confondre :
-  onze y ont le même nom, l'id 48 s'appelle « Futuriste Rare » ici et « FUR » là, et neuf (32 à 36,
-  38 à 40, 43 : « Double Rare », « Illustration Rare »…) n'existent qu'ici. `id_type` : les mêmes
-  numéros que les japonaises (`CARD_TYPES`), sauf le 17 sur BS (Double Colorless Energy), qui n'y
-  est pas.
-- **Les requêtes du repérage** (6, 3,5 s d'écart, User-Agent des tâches) : `GET` du script
-  `/react/sets/assets/index-Ck3W_Plh.js` (200, 1,5 Mo) ; `HEAD` sur `sets/MEG/FR/1.jpg?class=md` (200,
-  `image/webp`), `sets/BS/FR/1.jpg?class=md` (200), `sets/MEG/FR/1.jpg?class=hd` (200),
-  `sets/MEG/FR/2/1.jpg?class=md` (200, d'une autre taille que `FR/1.jpg`), `sets/MEG/FR/188.jpg?class=md`
-  (200). Les pages `/series/MEG`, `/series/BS` et `/series/jp/SV2A`, et le plan du site, avaient été
-  enregistrés plus tôt le même jour par un premier relevé (avec trois `HEAD` : `sets/MEG/1.jpg` 404,
-  `sets/BS/1.jpg` 200, `logos/MEG.png` 200). La page anglaise `/en/series/MEG` (200, 377 Ko, même
-  script `index-Ck3W_Plh.js`, donc sans le redemander) : 1 requête de plus, le même jour (`download`
-  des tâches, son User-Agent).
+  près, aux mêmes dimensions et au même profil de couleur. Le Worker ne sait pas encoder un WebP :
+  la tâche `sprites` copie le PNG (`artworkSource`), et un script ponctuel, hors du Worker et
+  **hors des dépôts** (`../conversion-illustrations-webp.mjs`, `../procedure-A-09.md`), en fait le
+  WebP (`images/species/artwork/<n>.webp`). Tant que le WebP d'une illustration manque, l'API sert
+  son PNG au chemin du WebP (`image/png`, testé) : le bucket ayant été vidé le 13 novembre 2026, et
+  le script n'étant pas sur le poste de développement, les illustrations sont servies en PNG
+  jusqu'à la prochaine conversion. **Un environnement neuf** : `bun run ingest setup` (la tâche
+  `sprites` copie les 1 025 sprites et PNG), puis, le Worker local arrêté,
+  `node ../conversion-illustrations-webp.mjs --mesure`, puis sans `--mesure` (ses contrôles : sans
+  perte, mêmes dimensions, même profil, mêmes pixels RGBA ; au moindre écart, rien n'est écrit).
 
 ## Prix (`ingest/prices.ts`, toutes les 6 h)
 
@@ -337,194 +171,111 @@ Le guide des prix public de Cardmarket et sa liste des produits (`products_singl
 seulement les cartes à l'unité (catégorie 51) :
 
 - `cardmarket_products` : le nom de chaque produit, son extension (`idExpansion`) et sa carte
-  (`idMetacard`), pour la liste de souhaits ; vides pour un produit sorti de la liste.
+  (`idMetacard`) ; vides pour un produit sorti de la liste. Son nom est celui que rend
+  l'historique d'une carte.
 - `cardmarket_prices` : le prix du jour de chaque carte, son plus bas et son prix d'il y a 30 jours
   (`month_ago`, d'après l'historique, une semaine plus tôt au plus : `priceBefore`).
 - `cardmarket_history` (`ingest/years.ts`) : l'historique, irremplaçable (Cardmarket n'en garde
-  pas), une ligne par carte et par année, à partir de son premier jour avec un prix.
-- **Le prix suivi, partout le même** (décision de l'utilisateur, octobre 2026) : la règle de
-  Pokécardex (`guidePrice`, testée), la tendance Cardmarket pour une carte d'une série sortie depuis
-  moins de 31 jours (d'après le catalogue), sa moyenne sur 30 jours ensuite, à défaut sur 7 jours,
-  puis sur 1 jour (jamais la tendance d'une carte ancienne à sa place). Vérifié : pour une même
-  carte un même jour, la valeur de Pokécardex. Une valeur négative, nulle au centime, ou de
-  100 000 € ou plus n'est pas un prix (`plausiblePrice`, `src/lib/history.ts`, testé : la
-  moyenne suivante, ou aucun prix ; le plus bas, `null`) ; l'historique repris suit la même règle.
+  pas), une ligne par carte et par année, à partir de son premier jour avec un prix. Celui d'un
+  **produit Cardmarket** (par id produit) : une carte française qui partage son produit avec une
+  autre carte en a les prix dans la même ligne, ce qui est attendu. L'historique repris de
+  Pokécardex jusqu'au 13 novembre 2026 y reste, tel quel.
+- **Le prix suivi, partout le même** (décision de l'utilisateur, octobre 2026 : `guidePrice`,
+  testée) : la tendance Cardmarket pour une carte d'une série sortie depuis moins de 31 jours, sa
+  moyenne sur 30 jours ensuite, à défaut sur 7 jours, puis sur 1 jour (jamais la tendance d'une
+  carte ancienne à sa place). La série « récente » se juge dans la langue de la carte, d'après le
+  miroir du catalogue (`catalog_cards` : la sortie de TCGdex de son extension, dans sa langue ; une
+  carte japonaise et une française de même id d'extension ne se confondent pas, testé). Une valeur
+  négative, nulle au centime, ou de 100 000 € ou plus n'est pas un prix (`plausiblePrice`,
+  `src/lib/history.ts`, testé : la moyenne suivante, ou aucun prix ; le plus bas, `null`).
 - Les gardes : relancée le même jour, la tâche remplace le prix du jour ; moins de la moitié des
   prix d'avant (le format du guide a changé), rien n'est écrit et la tâche échoue. La liste des
-  produits, qui ne sert qu'à la liste de souhaits, n'arrête jamais les prix du jour (testé) :
-  illisible (téléchargement en échec, fichier renommé, format changé), tronquée (moins de la
-  moitié des produits qu'elle donnait : les autres perdraient leur extension, et leur ligne) ou
-  impossible à enregistrer, celle d'avant reste, le journal le dit, et elle est relue au guide
-  suivant. L'historique s'écrit par paquets de 200 cartes ; les prix du jour, mis de côté
+  produits n'arrête jamais les prix du jour (testé) : illisible (téléchargement en échec, fichier
+  renommé, format changé), tronquée (moins de la moitié des produits qu'elle donnait) ou impossible
+  à enregistrer, celle d'avant reste, le journal le dit, et elle est relue au guide suivant.
+  L'historique s'écrit par paquets de 200 cartes ; les prix du jour, mis de côté
   (`cardmarket_prices_next`), ne remplacent ceux de la veille, avec le passage noté, qu'une fois
   tous écrits, d'un seul tenant : arrêtée en route, la tâche n'a rien changé des prix (testé), et
-  relancée, elle refait l'historique du jour à l'identique. L'écriture, séparée du téléchargement
-  (`savePriceGuide`), est testée. Le guide et la liste (29 Mo) sont lus en flux (`json-stream.ts`,
-  testé : entiers, ils ne tiendraient pas dans la mémoire du Worker) ; un document coupé avant la
-  fin de son tableau est refusé, jamais lu comme complet (le refus est testé) : le guide, la tâche
-  échoue et repart au Cron suivant ; la liste, celle d'avant reste. Rien n'est retéléchargé tant que
-  le guide n'a pas changé (`sources` : son `Last-Modified`).
+  relancée, elle refait l'historique du jour à l'identique. Deux essais d'une même étape peuvent
+  écrire les mêmes années (un essai tenu pour échoué écrit encore pendant le suivant) : chacun ne
+  réécrit une année que si elle n'a pas changé depuis sa lecture, sinon il la relit (`writeYears`,
+  testé). Le guide et la liste (29 Mo) sont lus en flux (`json-stream.ts`, testé : entiers, ils ne
+  tiendraient pas dans la mémoire du Worker) ; un document coupé avant la fin de son tableau est
+  refusé, jamais lu comme complet. Rien n'est retéléchargé tant que le guide n'a pas changé
+  (`sources` : son `Last-Modified`).
 - Les réponses : `/v1/prices?ids=…` (`readPrices` : le jour, et une clé par carte demandée,
   `[prix, plus bas, prix d'il y a 30 jours]` ou `null` sans prix ; 404 tant que le guide n'a
   jamais été lu) ; `/v1/prices/<id>` (l'historique d'une carte) et `/v1/histories?ids=…` (ceux de
   plusieurs, une clé par id, `null` sans historique), assemblés en texte : les prix de chaque année
-  tels qu'en base (`json()` les rend compacts), un `null` par jour manquant entre deux années,
-  jamais relus ni réécrits (`joinYears`, testé : le même JSON, octet pour octet, que les années
-  relues puis réécrites ; 1 000 cartes sur un an prenaient environ 90 ms). Les ids : des entiers de 1 à 9 chiffres sans
-  zéro devant, 1 025 au plus (422 sinon). Leur ETag est tiré du passage de la tâche `prices` et de
-  l'avancée de la tâche `history` (`pricesAnswer`, lu avant la réponse : au pire des prix neufs
-  sous l'ancien ETag, jamais d'anciens sous le nouveau) : 304 tant que rien n'a changé.
+  tels qu'en base, un `null` par jour manquant entre deux années, jamais relus ni réécrits
+  (`joinYears`, testé). Les ids : des entiers de 1 à 9 chiffres sans zéro devant, 1 025 au plus
+  (422 sinon). Leur ETag est tiré du passage de la tâche `prices` (`pricesAnswer`, lu avant la
+  réponse : au pire des prix neufs sous l'ancien ETag, jamais d'anciens sous le nouveau) : 304 tant
+  que rien n'a changé.
 
-## Historique repris (`ingest/history.ts`, à la demande)
-
-Accord de Pokécardex, octobre 2026 : il relève le guide chaque jour, et la page de chacune de ses
-cartes, japonaise (`/carte/jp/<id>`) ou française (`/carte/<id>`, de la même forme :
-`carte.cardmarketPrices`, `carte.priceHistory.cardmarket`), porte ses prix des **180 derniers
-jours** au plus, presque jour par jour. Pour chaque carte du catalogue, dans les deux langues, avec
-un id Cardmarket (environ 28 000 japonaises et 25 000 françaises), une fois : la série de la carte
-elle-même (`mainHistory`, testé : son produit Cardmarket, celui du catalogue, sans variante
-« Reverse » ni version, au prix suivi « avg30 », la même règle que `prices`, pour une française
-comme pour une japonaise ; seulement les jours écrits AAAA-MM-JJ, une autre forme tomberait entre
-deux jours ; seulement des prix plausibles, `plausiblePrice`), et chaque jour avant le dernier
-relevé, et au plus 200 jours avant lui, prend son prix (`mergeHistory`, testé : celui-là et les
-suivants restent ceux du relevé ; un jour plus ancien est une erreur de la source, Pokécardex en
-montre 180, et il écrirait loin dans l'historique ; une carte dont aucun jour n'est dans ces bornes
-compte comme une carte sans historique : la garde du format, ci-dessous). La tâche `prices` peut
-écrire les mêmes lignes pendant que `history` tourne : l'année de la carte est lue avec le jour du
-dernier relevé, fusionnée, puis réécrite seulement si personne n'y a touché entre-temps
-(`writeYears`, testé ; l'`INSERT` ne reçoit que les années nouvelles, l'`UPDATE` que les autres),
-sinon relue et refaite (une année réécrite d'après une lecture d'avant
-effacerait le prix du jour) ; son prix d'il y a 30 jours suit, dans `cardmarket_prices` seulement.
-Écart accepté (décision de l'utilisateur, novembre 2026) : quand la reprise croise un relevé des
-prix, celui-ci remplace ensuite cette table par ses prix mis de côté (`cardmarket_prices_next`), et
-une carte reprise entre-temps peut perdre son prix d'il y a 30 jours, remplacé par celui que le
-relevé avait calculé avant la reprise (souvent `null`) ; il se corrige au relevé suivant (environ un
-jour). Une page toutes les 3 s : environ 23 h pour les japonaises la première fois, 21 h de plus
-pour les françaises ; les séries les plus récentes d'abord, toutes langues mêlées, par étapes de 50
-cartes ; chaque carte lue une fois (`history_imports`, une ligne par langue et par carte :
-`historyTodo`, testé, l'id 7091 japonais lu ne fait pas sauter le français), un passage suivant ne
-lit que les nouvelles. Les gardes (testées, `worker/tests/history-run.test.ts`) :
-
-- des cartes isolées en échec (page illisible) ne font pas échouer le passage : jamais notées dans
-  `history_imports`, elles sont relues au passage suivant, et le bilan du journal le dit (▲,
-  `enÉchec=<nombre>`). Depuis le 8 novembre 2026 : avant, elles faisaient échouer le passage, et
-  la tâche, à la demande, restait « en échec » (`/v1/status`) jusqu'au passage suivant lancé à la
-  main ;
-- 10 pages en échec d'affilée arrêtent la lecture et font échouer le passage (le site a changé) ;
-- le format des pages changé (un champ renommé : `mainHistory` ne trouverait plus rien, et chaque
-  carte serait notée lue avec 0 jour, jamais relue, ses 180 jours perdus) : une carte lue sans
-  historique (ou sans aucun jour dans les bornes de la reprise) n'est notée qu'en fin d'étape, et
-  pas du tout si, parmi les pages lues de l'étape, au moins 10 sont de cartes dont le guide des prix
-  donne un prix aujourd'hui **et** il y a 30 jours (`cardmarket_prices.month_ago`), et plus de la
-  moitié de celles-là sans historique ; le passage échoue alors (« format des pages changé ? », au
-  journal), et ces cartes sont relues au passage suivant. Pokécardex relève ce même guide chaque
-  jour et en garde 180 jours : une telle carte a forcément un historique chez lui. Les autres ne
-  comptent pas : une carte sans vente depuis un mois (ancienne, rare) ou sortie depuis peu (sans
-  prix il y a 30 jours, ou pas encore relevée par Pokécardex), souvent sans historique, ne déclenche
-  rien, même une étape entière de celles-là (une série nouvelle, que le catalogue vient d'ajouter).
-  Erreur levée hors de l'étape : dans l'étape, le Workflow la réessaierait, 50 pages relues pour
-  rien. Limite : les cartes dont le produit n'a pas de prix d'il y a 30 jours ne sont pas protégées
-  (pour une carte nouvelle, la tâche `prices` a de toute façon chacun de ses jours).
-
-L'avancée est notée à chaque étape (`sources` : `history`), que suit l'ETag des prix. Une carte
-reprise ne l'est plus : si son id Cardmarket change ensuite (le catalogue adopte celui que
-Pokécardex a corrigé), les 180 jours de son nouveau produit ne sont pas repris, seulement les
-relevés suivants (le corriger demanderait une migration : le produit repris dans
-`history_imports`).
-
-L'historique est celui d'un **produit Cardmarket** (`cardmarket_history`, par id produit) : une
-carte française qui partage son produit avec une autre carte (de toute langue) en reprend les prix
-dans la même ligne, ce qui est attendu. La série « récente » du prix suivi (`prices`) se juge dans
-la langue de la carte : sa série (`sets`, par langue et code), jamais celle du même code dans
-l'autre langue.
-
-## Liste de souhaits (`/v1/wants?ids=…`, `lib/wants.ts`)
+## Liste de souhaits (`/v1/wants?ids=…`)
 
 Pour chaque id Cardmarket demandé, sa ligne pour « Ajouter une deck list » de la liste de souhaits
 de Cardmarket, ou `null` quand aucune ne désignerait sûrement cette carte-là (une mauvaise version
-achèterait une autre carte ; règles pures `wantsLine` et `wantsVersion`, et le SQL qui en réunit
-les données : `worker/tests/wants.test.ts`). Le format, vérifié par l'utilisateur sur cardmarket.com
-(octobre 2026) : `1x <nom du produit, sans crochets, « | » devenu une espace> (V.<n>) (<extension>)`.
-Le produit 719621 donne `1x Charmander Blazing Destruction Steady Firebreathing (V.2) (Pokémon Card
-151)`, que Cardmarket ajoute comme « Salamèche (sv2a 168) ». Toujours `1x`.
+achèterait une autre carte). Le format, vérifié par l'utilisateur sur cardmarket.com (octobre
+2026) : `1x <nom du produit, sans crochets, « | » devenu une espace> (V.<n>) (<extension>)`, où
+l'extension est le nom anglais de l'extension Cardmarket de la carte.
 
-- La version : sans `(V.n)`, Cardmarket prend la V.1. Elle est écrite dès que le groupe du produit
-  (même extension et même carte : `expansion`, `metacard`) en compte deux ou plus. Cardmarket
-  numérote les versions dans l'ordre de leur **numéro imprimé**, pas de leur création ni de leurs
-  ids (vérifié : Toxtricity VMAX S2 037 est la V.1, S2 107 la V.2 ; sv2a 004 la V.1, sv2a 168 la
-  V.2). Ce numéro vient du catalogue ; la version n'est donnée que si chaque produit du groupe y a
-  exactement un numéro, fait de chiffres seulement, jamais deux fois le même. Sinon, pas de ligne.
-- L'extension : ses noms ne sont dans aucun fichier public de Cardmarket ; ceux des séries du
-  catalogue leur correspondent, **en anglais** (`sets.expansion_name`, voir « Catalogue » : pour une
-  japonaise, son nom ; pour une française, son nom anglais confirmé par les adresses Cardmarket de
-  ses cartes). Un seul nom d'extension parmi les séries du catalogue de l'extension (sans les
-  espaces des bords), porté par aucune autre extension ; sinon, pas de ligne (Cardmarket
-  ajouterait « toutes versions »).
-- Les cartes françaises : leur produit Cardmarket est celui de toutes les langues, et leur ligne
-  est celle d'une japonaise (`1x Bulbasaur Bind Down (Mega Evolution)`), jamais écrite en français
-  (le nom d'une série française, « Méga-Évolution », n'est pas celui de l'extension). Une série
-  française sans nom d'extension (`expansion_name` vide : nom anglais illisible ou non confirmé ;
-  134 séries le 8 novembre 2026, dont « Règne Delta », sortie le 6) ne donne pas de nom : si elle
-  est la seule de son extension, pas de ligne ; si une série japonaise de la même extension en a
-  un, c'est ce nom-là. La série d'une carte se joint par sa langue **et** son code (un code se
-  répète d'une langue à l'autre : la série « SVP » japonaise n'est pas la française). Le nombre
-  d'extensions qui portent un nom se compte sur les cartes des deux langues : un nom porté par deux
-  extensions, l'une par des cartes japonaises et l'autre par des françaises, n'a pas de ligne non
-  plus ; un produit que portent une carte japonaise et une française n'est qu'une extension (un
-  seul compte).
-- Un nom compte aussi les extensions des séries dont les adresses Cardmarket désignent l'extension
-  de ce nom (`cardmarket_slug` égal à son `expansion_slug`, section « Catalogue » ; testé) : une
-  série japonaise qui porte le nom anglais d'une extension internationale dont la série française
-  n'a pas (encore) de nom confirmé n'a pas de ligne, que Cardmarket lirait comme l'extension
-  internationale (« n'importe quelle version », peut-être la carte anglaise). **Cette protection ne
-  vaut qu'une fois les séries relues par la tâche `catalog`** depuis le 8 novembre 2026 (ses deux
-  colonnes sont vides avant : le compte est alors celui d'avant, par les noms seulement) ; pour
-  qu'elle vaille partout d'un coup, `bun run ingest catalog --refresh` (avec `--remote` pour le
-  Worker en ligne).
-- Pas de ligne non plus pour un produit inconnu, sans extension ou sans métacarte, ni pour une
-  parenthèse dans le nom ou l'extension. Ni la langue ni l'état ne tiennent dans une ligne.
-- Calculée à chaque demande (`Cache-Control: no-cache`), en trois requêtes d'un seul `batch`, quel
-  que soit le nombre d'ids (`readWants`, `worker/reference.ts`).
+**Décision du 13 novembre 2026 : chaque carte a `null`.** Le nom de l'extension Cardmarket venait
+de Pokécardex (le nom d'une série japonaise ; pour une française, son nom anglais, confirmé par les
+adresses Cardmarket de ses cartes). Aucune source convenue ne le donne désormais :
+
+- la liste des produits de Cardmarket (`cardmarket_products`) donne le nom du produit, l'id de son
+  extension et de sa carte, mais aucun nom d'extension (aucun fichier public de Cardmarket n'en a) ;
+- TCGdex (relu dans la base de l'importateur le 13 novembre 2026, `sets.metadata_json`) donne, pour
+  une extension japonaise, son nom japonais (« ポケモンカード151 ») ; pour une française, son nom
+  français, et sur 174 de 203 son code du jeu en ligne (`abbreviation.official`, `tcgOnline` :
+  « MEW », « DAA ») et un code localisé (« TEM ») ; aucun nom anglais, aucun nom ni id Cardmarket.
+
+La version (`V.n`, l'ordre des numéros imprimés des produits d'une même carte dans une extension)
+se calculerait encore (la liste des produits et le miroir du catalogue), mais une ligne sans le
+nom de l'extension, ou avec un nom deviné ou un code que Cardmarket n'a pas été vérifié lire, lui
+ferait ajouter « n'importe quelle version », peut-être une autre carte. La route garde sa forme
+(`WantsLines` du contrat, ses limites, 422 pour des ids mal écrits) et rend `null` pour chaque
+carte ; le site propose alors de l'ajouter depuis sa page Cardmarket (testé,
+`worker/tests/wants.test.ts`). Pour rendre des lignes de nouveau : une source du nom anglais de
+chaque extension Cardmarket, à convenir avec l'utilisateur (règle des sources, `CLAUDE.md`).
 
 ## État des tâches (`worker/status.ts`)
 
 `runs` note chaque passage (`ingest/runs.ts`, `ingest/workflow.ts`) : son début, sa fin, s'il a
 réussi, et la cause d'un échec (`message` : celui de l'erreur, ou « interrompue » pour un passage
 arrêté). Pendant qu'il tourne, il donne signe de vie à chacune de ses étapes (`alive_at`), et
-chaque minute des plus longues (`Alive`, `ingest/workflow.ts` : `history` à chaque carte, `prices`
-après chaque lecture et à chaque paquet) : une tâche n'est pas lancée deux fois à la fois (deux
-Workflows doubleraient le rythme des requêtes), ni `catalog` pendant `history` ou l'inverse
-(testé : toutes deux lisent les pages de Pokécardex, une toutes les 3 s en tout, rythme que chaque
-Workflow ne tient que pour lui ; une tâche de `cards` qui trouve l'autre en cours est alors
-passée, comme une tâche déjà en cours), mais un passage sans signe de vie depuis 5 min a été
-arrêté net (son Workflow terminé, ou en échec sans avoir pu noter sa fin) : il ne bloque plus sa
-tâche, et il est noté interrompu à son passage suivant (testé).
+chaque minute des plus longues (`Alive`, `ingest/workflow.ts` : `catalog` à chaque page de cartes
+et à chaque réponse, `prices` après chaque lecture et à chaque paquet) : une tâche n'est pas lancée
+deux fois à la fois, mais un passage sans signe de vie depuis 5 min a été arrêté net (son Workflow
+terminé, ou en échec sans avoir pu noter sa fin) : il ne bloque plus sa tâche, et il est noté
+interrompu à son passage suivant (testé).
 
 Écart connu, reporté (décision D-12 de la revue de novembre 2026) : si l'étape « début » d'un
 Workflow est rejouée après que `startRun` a écrit son passage (la réponse perdue), elle trouve ce
 passage en vie et saute la tâche (« Tâche déjà en cours ») ; le passage orphelin est noté
 interrompu 5 min plus tard. Une tâche à la demande reste « en échec » jusqu'à son prochain
-lancement ; `prices` est rattrapée par le Cron. La correction (une colonne `runs.instance`, et
-`startRun` qui rend d'abord le passage ouvert de la même instance) demande une migration : elle
-partira avec la prochaine migration des données.
+lancement ; `prices` et `catalog` sont rattrapées par le Cron. La correction (une colonne
+`runs.instance`, et `startRun` qui rend d'abord le passage ouvert de la même instance) demande une
+migration.
 
 Le Cron (toutes les heures, `worker/index.ts`) lance une tâche à rythme quand le début de son
 dernier passage terminé a plus que son intervalle (`INGEST_JOBS`) s'il a réussi ; après un échec,
 depuis sa fin (un essai coupé à 30 min ne la fait pas repartir aussitôt), 10 min, puis 20, 40…
 jusqu'à 6 h (`isDue`, testé : une panne qui dure ne fait pas solliciter la source à chaque fois).
 Chaque délai moins 10 min (`CRON_MARGIN`, testé) : une réussite se mesure depuis le début du
-passage (sa durée n'y change rien), qui commence un peu après le Cron qui l'a lancé ; sans la
-marge, `prices` commencée à 6 h 00 min 03 s ne serait pas due au Cron de midi, mais à celui de
-13 h (avant, mesuré depuis la fin, le rythme réel était de 7 h). Les rythmes réels : `prices`
-toutes les 6 h ; après 1 à 3 échecs d'affilée, au Cron suivant ; après 4, 2 h plus tard ; après 5,
-3 h ; ensuite toutes les 6 h.
-Seulement `species` et `prices` : jamais `catalog`, `images` ni `history`, à la demande (testé).
+passage (sa durée n'y change rien), qui commence un peu après le Cron qui l'a lancé. Les rythmes
+réels : `prices` toutes les 6 h, `catalog` chaque jour, `species` chaque mois ; après 1 à 3 échecs
+d'affilée, au Cron suivant ; après 4, 2 h plus tard ; après 5, 3 h ; ensuite toutes les 6 h.
+Seulement `species`, `catalog` et `prices` : jamais `sprites`, à la demande (testé).
 
 `/v1/status` rend seulement le nom, le libellé et l'état de chaque tâche, dans l'ordre
-d'`INGEST_JOBS`. Les détails de calcul restent internes à l'API. Un passage en cours ne compte pas
-encore : l'état reste celui du passage d'avant. Les états : `never` (tâche à la demande jamais
-passée), `failed` (le dernier passage, ou un passage arrêté net ; sa cause n'est pas rendue : elle
-est dans `runs.message` et dans le journal du Worker), `late` (deux intervalles sans réussite ;
-jamais pour une tâche à la demande), `frozen` (les prix : le guide inchangé depuis plus de deux
-jours, chaque jour perdu manque pour toujours à l'historique), `ok`. `/v1/health`, sans token :
-503 si une tâche à rythme est en retard ou les prix figés.
+d'`INGEST_JOBS` (`species`, `catalog`, `sprites`, `prices`). Les détails de calcul restent internes
+à l'API. Un passage en cours ne compte pas encore : l'état reste celui du passage d'avant. Les
+états : `never` (tâche à la demande jamais passée), `failed` (le dernier passage, ou un passage
+arrêté net ; sa cause n'est pas rendue : elle est dans `runs.message` et dans le journal du
+Worker), `late` (deux intervalles sans réussite, ou jamais réussie ; jamais pour une tâche à la
+demande), `frozen` (les prix : le guide inchangé depuis plus de deux jours, chaque jour perdu
+manque pour toujours à l'historique), `ok`. `/v1/health`, sans token : 503 si une tâche à rythme
+est en retard (le catalogue après deux jours sans réussite) ou les prix figés (testé).

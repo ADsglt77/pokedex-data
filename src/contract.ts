@@ -65,7 +65,7 @@ export interface SpeciesDetailsFile {
   details: PokemonSpeciesDetails[]
 }
 
-/* Le catalogue (Pokécardex) : `/v1/catalog/…` */
+/* Le catalogue (TCGdex, copié par l'importateur `pokecodex-importer`) : `/v1/catalog/…` */
 
 /**
  * La langue des cartes : japonaises (`ja`) ou françaises (`fr`). Chaque réponse du catalogue est
@@ -75,27 +75,47 @@ export interface SpeciesDetailsFile {
 export type CardLanguage = 'ja' | 'fr'
 
 /**
- * Une carte du catalogue : [série, numéro (sans numéro imprimé : son rang), id Cardmarket (0 :
- * aucun), nom français, numéro de son image chez Pokécardex (0 : aucune), sa rareté (0 : inconnue),
- * son type (`CARD_TYPES` ; 0 : inconnu), ses Pokémon s'ils sont plusieurs].
+ * Le chemin d'une image chez nous, sans son préfixe ni sa taille : `<langue>/<série>/<carte>` pour
+ * le scan d'une carte (`CardScanPath`), `<langue>/<série>` pour le logo d'une série
+ * (`SetLogoPath`) ; ses parties encodées comme les clés de l'importateur (seuls `A-Z a-z 0-9 . -`
+ * restent tels quels, tout autre octet devient `_XX`). '' : aucune image.
  */
-export type CatalogRow = [string, string, number, string, number, number, number, number[]?]
+export type ImageKey = string
+
+/**
+ * Le type d'une carte, le même dans les deux langues : l'énergie d'un Pokémon (`grass`, `fire`,
+ * `water`, `lightning`, `psychic`, `fighting`, `darkness`, `metal`, `fairy`, `dragon`,
+ * `colorless`), la catégorie d'un dresseur (`item`, `supporter`, `stadium`, `tool`,
+ * `technical-machine`, `trainer` sans précision) ou d'une énergie (`basic-energy`,
+ * `special-energy`, `energy` sans précision). '' : inconnu. Le site les nomme
+ * (`CARD_TYPES` de `../pokedex/src/config/catalog.ts`).
+ */
+export type CardType = string
+
+/**
+ * Une carte du catalogue : [série, numéro, id Cardmarket (0 : aucun), nom (tel que TCGdex le donne
+ * dans la langue de la carte), image (`ImageKey`, '' : aucune), rareté (clé de `rarities`, '' :
+ * inconnue), type (`CardType`), ses Pokémon s'ils sont plusieurs].
+ */
+export type CatalogRow = [string, string, number, string, ImageKey, string, CardType, number[]?]
 
 /**
  * `/v1/catalog/species/<n°>` (`/v1/catalog/fr/species/<n°>` pour les françaises) : les cartes
- * Pokémon d'un Pokémon chez Pokécardex dans sa langue, avec leurs séries et leurs raretés (tâche
- * `catalog`, `worker/ingest/catalog.ts`) : la fenêtre d'ajout.
+ * Pokémon d'un Pokémon dans sa langue, avec leurs séries et leurs raretés (tâche `catalog`,
+ * `worker/ingest/catalog.ts`) : la fenêtre d'ajout.
  */
 export interface CatalogFile {
   /**
-   * Clé : le code de la série chez Pokécardex (« SV2A ») ; [nom, date de sortie (au Japon, en
-   * France pour une série française), 1 si son logo est chez nous ou pas encore cherché, 0 si
-   * Pokécardex n'en a pas].
+   * Clé : l'id de la série chez TCGdex (« SV2a », « sv03.5 ») ; [nom, date de sortie (au Japon, en
+   * France pour une série française ; YYYY-MM-DD, '' si inconnue), logo (`ImageKey`)].
    */
-  sets: Record<string, [name: string, released: string, logo: 0 | 1]>
+  sets: Record<string, [name: string, released: string, logo: ImageKey]>
   /** Clé : numéro du Pokémon ; ses cartes, des plus récentes aux plus anciennes. */
   cards: Partial<Record<string, CatalogRow[]>>
-  /** Clé : le numéro d'une rareté de ces cartes ; [son nom chez Pokécardex, son rang]. */
+  /**
+   * Clé : une rareté de ces cartes, telle que TCGdex l'écrit (« Double rare ») ; [son nom en
+   * français, son rang, de la plus commune à la plus rare].
+   */
   rarities: Record<string, [name: string, rank: number]>
 }
 
@@ -104,53 +124,41 @@ export interface CatalogFile {
  * langue, pour la page Catalogue (tâche `catalog`).
  */
 export interface CatalogSetsFile {
-  /** Les blocs du menu de Pokécardex (« Scarlet & Violet »), des plus récents aux plus anciens. */
+  /** Les blocs (les « séries » de TCGdex : « Écarlate et Violet »), des plus récents aux plus anciens. */
   blocks: string[]
   /**
-   * Des plus récentes aux plus anciennes : [code (« SV2A »), nom, sortie (au Japon, en France pour
-   * une série française ; YYYY-MM-DD, '' si inconnue), logo (comme `CatalogFile`), nombre de
-   * cartes, rang de son bloc dans `blocks` (-1 : aucun), 1 pour un deck].
+   * Des plus récentes aux plus anciennes : [id (« SV2a »), nom, sortie (comme `CatalogFile`), logo
+   * (`ImageKey`), nombre de cartes, rang de son bloc dans `blocks` (-1 : aucun)].
    */
-  sets: [
-    id: string,
-    name: string,
-    released: string,
-    logo: 0 | 1,
-    cards: number,
-    block: number,
-    deck: 0 | 1,
-  ][]
+  sets: [id: string, name: string, released: string, logo: ImageKey, cards: number, block: number][]
 }
 
-/** Une carte d'une série, telle que la donne `/v1/catalog/sets/<code>`. */
+/** Une carte d'une série, telle que la donne `/v1/catalog/sets/<id>`. */
 export interface CatalogSetRow {
-  /** Le numéro de sa référence (« 006 » ; sans numéro imprimé : son rang), unique dans la série. */
+  /** Le numéro de sa référence (`localId` de TCGdex : « 006 »), unique dans la série. */
   number: string
-  /** Le numéro tel qu'imprimé : « 006/165 », « R/RGB » ; '' sans numéro. */
+  /** Le numéro tel qu'imprimé : « 006/165 » ; son numéro seul sans nombre officiel de cartes. */
   printed: string
-  /** Son nom français ; '' si Pokécardex ne le donne pas. */
+  /** Son nom, tel que TCGdex le donne dans la langue de la carte. */
   name: string
-  /** Ses noms anglais et allemand ; '' si inconnus. */
-  en: string
-  de: string
   /** Ses Pokémon ; aucun pour un dresseur ou une énergie. */
   dexIds: number[]
   /** 0 : aucun. */
   cardmarket: number
-  /** Le numéro de son image chez Pokécardex ; 0 : aucune. */
-  image: number
-  /** 0 : inconnue. */
-  rarity: number
-  /** `CARD_TYPES` ; 0 : inconnu. */
-  type: number
+  /** `ImageKey` ; '' : aucune. */
+  image: ImageKey
+  /** Clé de `rarities` ; '' : inconnue. */
+  rarity: string
+  /** `CardType`. */
+  type: CardType
   /** '' : inconnu. */
   illustrator: string
-  /** « Standard », « Reverse »… */
+  /** Ses versions, en français : « Normale », « Reverse », « Holo »… */
   versions: string[]
 }
 
 /**
- * `/v1/catalog/sets/<code>` (`/v1/catalog/fr/sets/<code>` pour les françaises) : toutes les cartes
+ * `/v1/catalog/sets/<id>` (`/v1/catalog/fr/sets/<id>` pour les françaises) : toutes les cartes
  * d'une série, dans son ordre, et leurs raretés.
  */
 export interface CatalogSetFile {
@@ -161,20 +169,15 @@ export interface CatalogSetFile {
 /*
  * Les chemins des images (`/v1/images/…`, que le site sert sous `/images/…` ;
  * `lib/image-paths.ts`), sans nom de source. Celui du scan d'une carte est gardé tel quel dans les
- * collections des comptes (un gabarit changé, et chaque carte enregistrée montrerait la carte de
- * substitution) ; les autres se recalculent à l'affichage. Le dossier d'une langue : aucun pour le
- * japonais, `fr/` pour le français.
+ * collections des comptes ; les autres se recalculent à l'affichage.
  */
 
-/** La taille d'un scan ou d'un logo : `md` pour les grilles et les listes, `hd` en grand. */
+/** La taille d'un scan : `md` pour les grilles et les listes, `hd` en grand. */
 export type ImageSize = 'md' | 'hd'
-/** Le scan d'une carte : le code de sa série, son rang (celui du catalogue), sa taille. */
-export type CardScanPath = `/images/cards/${'' | 'fr/'}${string}/${number}-${ImageSize}.webp`
-/** Le logo d'une série. */
-export type SetLogoPath = `/images/sets/${'' | 'fr/'}${string}-${ImageSize}.webp`
-/** L'icône d'un type de carte, d'une rareté. */
-export type TypeIconPath = `/images/types/${number}.webp`
-export type RarityIconPath = `/images/rarities/${number}.webp`
+/** Le scan d'une carte : son `ImageKey` (`<langue>/<série>/<carte>`), sa taille. */
+export type CardScanPath = `/images/cards/${string}-${ImageSize}.webp`
+/** Le logo d'une série : son `ImageKey` (`<langue>/<série>`). */
+export type SetLogoPath = `/images/sets/${string}.webp`
 /**
  * Le sprite et l'illustration officielle d'un Pokémon ; l'illustration en WebP sans perte,
  * convertie une fois hors du Worker (novembre 2026, `docs/donnees.md`).
@@ -200,7 +203,7 @@ export interface ServerStatus {
   jobs: { job: string; label: string; state: JobState }[]
 }
 
-/* Les prix : `/v1/prices/…`, `/v1/histories`, `/v1/wants` (tâches `prices` et `history`) */
+/* Les prix : `/v1/prices/…`, `/v1/histories`, `/v1/wants` (tâche `prices`) */
 
 /** Le prix du jour d'une carte, en court : prix du marché, plus bas, prix d'il y a 30 jours. */
 export type CardPriceRow = [price: number, low: number | null, monthAgo: number | null]

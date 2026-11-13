@@ -1,13 +1,13 @@
 /**
  * Les tâches d'ingestion, dans un Workflow (`ingest`, `Ingest`) : il passe celles qu'on lui donne
  * (`jobs`), l'une après l'autre ; une en échec n'empêche pas les suivantes. Le Cron lance celles à
- * rythme (`prices`, `species`) quand elles sont dues (`index.ts`) ; `bun run ingest` lance les
- * autres à la demande (`cards` : `catalog`, `images`, `history`). Chaque tâche avance par étapes
+ * rythme (`prices`, `catalog`, `species`) quand elles sont dues (`index.ts`) ; `bun run ingest`
+ * lance une tâche tout de suite, et `sprites`, à la demande. Chaque tâche avance par étapes
  * (`Step`) : le Workflow garde le résultat de chacune, et une étape en échec (une panne) est
  * reprise seule, sans refaire les précédentes. Chaque passage est noté (`runs.ts`, lu par
  * `/v1/status`), avec la cause d'un échec (`message`, aussi au journal) et un signe de vie au
- * début de chaque étape, puis chaque minute d'une étape longue (`Alive`) ; une tâche déjà en cours,
- * ou une tâche qui lit les mêmes pages de Pokécardex, n'est pas lancée une seconde fois.
+ * début de chaque étape, puis chaque minute d'une étape longue (`Alive`) ; une tâche déjà en cours
+ * n'est pas lancée une seconde fois.
  */
 
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloudflare:workers'
@@ -15,23 +15,20 @@ import { INGEST_JOBS, type IngestJob } from '@/config/jobs'
 import { MINUTE } from '@/lib/time'
 import { reasonOf, taskJournal } from '../journal'
 import { catalog } from './catalog'
-import { history } from './history'
-import { images } from './images'
 import { prices } from './prices'
 import { beat, finishRun, startRun } from './runs'
 import { species } from './species'
+import { sprites } from './sprites'
 
 export interface IngestParams {
   jobs: IngestJob[]
-  /** `catalog` : relire toutes les séries, même celles lues récemment. */
-  refresh?: boolean
 }
 
 /**
- * Le signe de vie d'une étape longue, que la tâche redonne en route (`history` à chaque carte,
- * `prices` après ses lectures et à chaque paquet) : noté au plus une fois par minute, l'étape en
- * donnant déjà un en commençant. Sans signe de vie depuis 5 min, le passage est tenu pour arrêté
- * (`runs.ts`).
+ * Le signe de vie d'une étape longue, que la tâche redonne en route (`catalog` à chaque page de
+ * cartes et à chaque réponse, `prices` après ses lectures et à chaque paquet) : noté au plus une
+ * fois par minute, l'étape en donnant déjà un en commençant. Sans signe de vie depuis 5 min, le
+ * passage est tenu pour arrêté (`runs.ts`).
  */
 export type Alive = () => Promise<void>
 
@@ -50,8 +47,8 @@ export type Step = <T extends Rpc.Serializable<T>>(
  * Une étape réessaie une panne (la base, R2) deux fois, une puis deux minutes plus tard ; au-delà,
  * la tâche échoue. Chaque essai a 30 min (10 sans `timeout` : la plus longue étape, le relevé des
  * prix, pourrait les dépasser, et un essai tenu pour échoué peut écrire encore pendant le
- * suivant) ; au-delà, il compte comme une panne. Les pages et les images en erreur ne lèvent rien :
- * leur étape les compte.
+ * suivant) ; au-delà, il compte comme une panne. Les images en erreur ne lèvent rien : leur étape
+ * les compte.
  */
 const RETRIES = {
   retries: { limit: 2, delay: '1 minute', backoff: 'exponential' },
@@ -60,18 +57,13 @@ const RETRIES = {
 
 export class Ingest extends WorkflowEntrypoint<Cloudflare.Env, IngestParams> {
   async run(event: WorkflowEvent<IngestParams>, step: WorkflowStep) {
-    const { jobs, refresh = false } = event.payload
+    const { jobs } = event.payload
     for (const [index, job] of jobs.entries()) {
       const prefix = `${index + 1}. ${job}`
       // Le journal dans les étapes, comme dans les tâches (`Step`).
       const id = await step.do(`${prefix} : début`, async () => {
         const id = await startRun(job)
-        if (id === null) {
-          taskJournal('warn', 'Tâche déjà en cours', {
-            tâche: job,
-            raison: 'elle-même, ou une tâche qui lit les mêmes pages',
-          })
-        }
+        if (id === null) taskJournal('warn', 'Tâche déjà en cours', { tâche: job })
         return id
       })
       if (id === null) continue
@@ -88,9 +80,8 @@ export class Ingest extends WorkflowEntrypoint<Cloudflare.Env, IngestParams> {
           })
         })
       try {
-        if (job === 'catalog') await catalog(jobStep, refresh)
-        else if (job === 'images') await images(jobStep)
-        else if (job === 'history') await history(jobStep)
+        if (job === 'catalog') await catalog(jobStep)
+        else if (job === 'sprites') await sprites(jobStep)
         else if (job === 'species') await species(jobStep)
         else await jobStep('guide des prix', prices)
         await step.do(`${prefix} : fin`, async () => {

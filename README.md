@@ -2,20 +2,20 @@
 
 L'API privée des données du Pokédex de cartes Pokémon japonaises et françaises (PokéCodex, en ligne
 à https://pokecodex.fr) : les espèces (PokéAPI), le catalogue des cartes japonaises et françaises et
-leurs images (Pokécardex), les prix Cardmarket du jour et leur historique. Un Worker Cloudflare
-(Hono, D1, R2) les relit à leur rythme (ses tâches d'ingestion : un Cron, des Workflows), les range
-dans D1 et R2, et les rend au site, et aux clients qui ont un token, à https://api.pokecodex.fr :
-sans token, aucune donnée.
+leurs images (TCGdex, copiés par l'importateur `pokecodex-importer`, dépôt `../pokecodex-api`), les
+prix Cardmarket du jour et leur historique. Un Worker Cloudflare (Hono, D1, R2) les relit à leur
+rythme (ses tâches d'ingestion : un Cron, des Workflows), les range dans D1 et R2, et les rend au
+site, et aux clients qui ont un token, à https://api.pokecodex.fr : sans token, aucune donnée.
 
 ```sh
 bun install
 bun run dev            # le Worker, sur http://127.0.0.1:8787 (sa D1 et son R2 locaux, .wrangler/)
 bun run ingest <tâche> # un passage d'une tâche, tout de suite, dans ce Worker (plus bas)
-bun run ingest cards   # les nouvelles cartes : catalogue, puis leurs images et leur historique
-bun run ingest setup   # première installation : espèces, catalogue, prix, images, historique
+bun run ingest cards   # le catalogue, tout de suite (sans attendre le Cron)
+bun run ingest setup   # première installation : espèces, catalogue, images des Pokémon, prix
 bun run test           # tests, dans le moteur de Cloudflare (accès, état, prix et historique,
-                       # catalogue des deux langues, lecture de Pokécardex, images, liste de
-                       # souhaits, passages des tâches, migrations)
+                       # catalogue des deux langues d'après TCGdex, images, liste de souhaits,
+                       # passages des tâches, migrations)
 bun run db:generate    # après une modification de worker/schema.ts : sa migration (puis
                        # `bun run format`, pour ses `meta/*.json`, que `bun run ci` vérifie)
 bun run typecheck      # TypeScript
@@ -55,50 +55,52 @@ sont `public, immutable`, il les rendrait sans token.
 |---|---|
 | `GET /v1/species`, `/v1/species/details` | Les 1 025 espèces ; ce qu'en montre leur fiche |
 | `GET /v1/catalog/species/:id` | Les cartes japonaises d'un Pokémon |
-| `GET /v1/catalog/sets`, `/v1/catalog/sets/:code` | Les séries ; toutes les cartes d'une série |
-| `GET /v1/catalog/fr/species/:id`, `/v1/catalog/fr/sets`, `/v1/catalog/fr/sets/:code` | Les mêmes, pour les cartes françaises (leur sortie : celle en France) |
+| `GET /v1/catalog/sets`, `/v1/catalog/sets/:id` | Les séries ; toutes les cartes d'une série (son id chez TCGdex : `SV2a`, `SM1+`, encodé `SM1%2B`) |
+| `GET /v1/catalog/fr/species/:id`, `/v1/catalog/fr/sets`, `/v1/catalog/fr/sets/:id` | Les mêmes, pour les cartes françaises (leur sortie : celle en France) |
 | `GET /v1/prices?ids=…` | Les prix du jour des cartes demandées (ids Cardmarket) |
 | `GET /v1/prices/:id`, `/v1/histories?ids=…` | L'historique d'une carte ; de plusieurs |
-| `GET /v1/wants?ids=…` | La ligne de chaque carte pour la liste de souhaits Cardmarket |
+| `GET /v1/wants?ids=…` | La ligne de chaque carte pour la liste de souhaits Cardmarket : aujourd'hui toujours `null` (`docs/donnees.md`) |
 | `GET /v1/status` | Chaque tâche : son identifiant, son libellé et son état |
-| `GET /v1/images/…` | Une image copiée (404 tant que la tâche `images` ne l'a pas copiée : rien n'est copié à la demande) |
-| `GET /v1/health` | **Sans token** : 200, ou 503 si une tâche à rythme est en retard ou les prix figés |
+| `GET /v1/images/…` | Une image (404 tant qu'elle n'est pas copiée : rien n'est copié à la demande) |
+| `GET /v1/health` | **Sans token** : 200, ou 503 si une tâche à rythme est en retard (le catalogue compris) ou les prix figés |
 
 La forme de chaque réponse : `src/contract.ts`, dont le site garde une copie, vérifiée par `bun run
 lint` quand le site est à côté ; une forme qui change suit la règle « élargir puis restreindre »
 (`../pokedex/docs/deploiement.md`). Les réponses portent un ETag (304 tant qu'elles n'ont pas
 changé). Où vit chaque donnée : la base (D1, `worker/schema.ts`) pour ce qui se lit ligne à ligne
-(prix, historiques, produits, état des tâches) ; R2 pour les images (`images/…`) et les grosses
-réponses calculées par les tâches (`snapshots/…` : espèces, catalogue).
+(prix, historiques, produits, miroir du catalogue, état des tâches) ; R2 pour les images et les
+grosses réponses calculées par les tâches (`snapshots/…` : espèces, catalogue). Le catalogue est
+lu dans la base de l'importateur (`pokecodex-cards`, liaison `CARDS`, lue seulement), et les images
+des cartes dans ce qu'il copie dans le même bucket R2 (`cards/…`, liaison `IMPORTS`, lue seulement).
 
-Les chemins des images ne nomment aucune source : `/v1/images/cards/<série>/<n>-<md|hd>.webp`,
-`/v1/images/sets/<série>-<md|hd>.webp` (celles des cartes japonaises ; les françaises, avec `fr/`
-avant la série : `/v1/images/cards/fr/<série>/…`, `/v1/images/sets/fr/<série>-…`),
-`/v1/images/types/<n>.webp`, `/v1/images/rarities/<n>.webp`, `/v1/images/species/<n>.png`. Seule
-la tâche `images` connaît leur adresse d'origine.
+Les chemins des images ne nomment aucune source : `/v1/images/cards/<langue>/<série>/<carte>-<md|hd>.webp`
+(le scan d'une carte, `ja` ou `fr` ; ses parties encodées comme les clés de l'importateur :
+`cards/<langue>/<série>/<carte>.webp`), `/v1/images/sets/<langue>/<série>.webp` (le logo d'une
+série), `/v1/images/species/<n>.png` et `/v1/images/species/artwork/<n>.webp` (le sprite et
+l'illustration d'un Pokémon). Le catalogue donne le chemin de chaque image (`ImageKey` du contrat).
 
 ## Les tâches d'ingestion
 
 | Tâche | Rythme | Ce qu'elle fait |
 |---|---|---|
 | `species` | chaque mois | Les espèces, d'après PokéAPI |
-| `catalog` | à la demande | Le catalogue des cartes japonaises, puis des françaises, d'après Pokécardex (une page par série, toutes les 3 s : environ 20 minutes la première fois pour les japonaises, 13 de plus pour les françaises, 250 séries ; `--refresh` relit toutes les séries) |
-| `images` | à la demande | Les images qui manquent, toutes d'avance : logos, icônes, Pokémon, scans des cartes japonaises et françaises (environ 1,5 Go la première fois pour les japonaises, 1 à 1,4 Go de plus pour les françaises) |
+| `catalog` | chaque jour | Le catalogue des cartes japonaises, puis des françaises, d'après la base de l'importateur (TCGdex, sans les séries de Pokémon TCG Pocket) : ses réponses dans R2, et son miroir (`catalog_cards`) que lisent les prix. Aucune requête vers TCGdex |
+| `sprites` | à la demande | Le sprite et le PNG de l'illustration des 1 025 Pokémon, d'après PokéAPI (seulement ceux qui manquent) |
 | `prices` | toutes les 6 h | Le guide des prix public de Cardmarket, et l'historique du jour |
-| `history` | à la demande | Les 180 derniers jours de prix de chaque carte, une fois par carte, d'après Pokécardex (environ 23 h la première fois pour les japonaises, 21 h de plus pour les françaises) |
 
 Elles tournent dans le Worker (`worker/ingest/`). Chaque passage est un **Workflow** (`ingest`),
-par étapes (une série, 50 cartes, 100 Pokémon…) : une étape en échec (une panne) est réessayée
+par étapes (une langue du catalogue, 100 Pokémon…) : une étape en échec (une panne) est réessayée
 seule, deux fois, et un passage arrêté reprend où il en était. Le **Cron** (toutes les heures,
 `worker/index.ts`) lance les tâches à rythme quand leur intervalle est écoulé depuis le début de
-leur dernier passage, à 10 min près : `prices` toutes les 6 h ; après un échec, au Cron suivant,
-puis de plus en plus tard, jusqu'à 6 h (`docs/donnees.md`). Les autres, à la demande : quand de
-nouvelles cartes sortent, `bun run ingest cards` enchaîne le catalogue, puis les images et
-l'historique (seulement ce qui manque : les nouvelles cartes). Chaque tâche reste lançable seule
-(`bun run ingest prices`, `bun run ingest catalog --refresh`…). Une tâche ne tourne qu'une fois à la
-fois, et `catalog` jamais en même temps que `history` (elles lisent les mêmes pages : deux à la fois
-doubleraient leur rythme). Un passage arrêté net (son Workflow terminé, le Worker de `bun run dev`
+leur dernier passage, à 10 min près : `prices` toutes les 6 h, `catalog` chaque jour ; après un
+échec, au Cron suivant, puis de plus en plus tard, jusqu'à 6 h (`docs/donnees.md`). Chaque tâche
+reste lançable seule (`bun run ingest prices`, `bun run ingest catalog`…). Une tâche ne tourne
+qu'une fois à la fois. Un passage arrêté net (son Workflow terminé, le Worker de `bun run dev`
 arrêté) est noté interrompu quand sa tâche repart.
+
+Les images des cartes et les logos des séries ne sont pas copiés par ce Worker : l'importateur
+`pokecodex-importer` les copie de TCGdex dans R2 (`cards/<langue>/<série>/<carte>.webp`, la petite
+image `….low.webp`, le logo `_logo.webp`), et ce Worker les sert tels quels.
 
 ## En développement
 
@@ -110,11 +112,16 @@ passage se suit dans le journal du terminal ; en ligne, dans le tableau de bord 
 `ingest`) ou par `npx wrangler tail pokedex-data`. La page Réglages du site ne montre que les
 tâches en retard ou en échec.
 
-La première fois, `bun run ingest setup` remplit tout : les espèces, le catalogue, les prix (après
-le catalogue : le prix d'une carte d'une série récente en dépend), les images et l'historique
-(environ deux jours, cartes françaises comprises, dont 44 h d'historique ; relancé après un arrêt,
-il reprend où il en était). Les images doivent toutes être copiées : l'API n'en copie aucune
-elle-même, une image qui manque répond 404.
+En local, `CARDS` (la base de l'importateur) et `IMPORTS` (ses images) sont vides tant qu'on ne les
+remplit pas, ou qu'on ne les fait pas viser les données en ligne de l'importateur (en lecture : une
+liaison `remote`) ; `FILES` (nos images et nos réponses) reste local, et une tâche lancée en local
+n'écrit jamais dans le bucket en ligne. Sans cartes, la tâche `catalog` échoue (« base de
+l'importateur vide ») et les réponses du catalogue répondent 404.
+
+La première fois, `bun run ingest setup` remplit tout : les espèces, le catalogue, les images des
+Pokémon, puis les prix (après le catalogue : le prix d'une carte d'une série récente en dépend).
+Les illustrations des Pokémon sont servies en PNG tant que leur WebP n'est pas converti
+(`docs/donnees.md`).
 
 Pour essayer l'entrée d'Internet (http://127.0.0.1:8787/v1/…, en http, sans redirection : le
 Worker y voit son adresse locale, pas celle de `routes`), un `.env` (ignoré par git), sur le
@@ -134,8 +141,12 @@ Le Worker `pokedex-data`, à https://api.pokecodex.fr (un domaine personnalisé,
 `wrangler.jsonc`, sans adresse `workers.dev`) ; le site le joint par sa liaison de service.
 **Workers Builds** (Cloudflare relié au dépôt GitHub) le déploie à chaque push sur `main` :
 `bun run ci` (format, typecheck, lint, test ; un échec arrête là), puis `bun run deploy` (les
-migrations de la D1 en ligne, puis le Worker). Le guide complet, pour les deux Workers :
-`../pokedex/docs/deploiement.md` (le dépôt du site).
+migrations de la D1 en ligne, puis le Worker ; jamais celles de la base de l'importateur, qui sont
+les siennes). Le guide complet, pour les deux Workers : `../pokedex/docs/deploiement.md` (le dépôt
+du site).
+
+La tâche `catalog` lit les colonnes des logos que l'importateur ajoute à sa base (`sets.logo_status`,
+`sets.logo_r2_key`, novembre 2026) : sa migration doit être passée en ligne avant ce Worker.
 
 Les tokens des autres clients (`API_TOKENS`, `nom:token,…`, plus haut) sont un secret du Worker,
 posé une fois, puis de nouveau à chaque client ajouté ou retiré :
@@ -151,26 +162,26 @@ lecture seule (405 pour tout autre verbe que `GET` et `HEAD`), et les en-têtes 
 `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'` et
 `X-Robots-Tag: noindex, nofollow`.
 
-Les tâches à la demande se lancent dans le Worker en ligne avec `--remote` (la première fois,
-`setup` : plus haut) :
+Une tâche se lance dans le Worker en ligne avec `--remote` (la première fois, `setup` : plus haut) :
 
 ```sh
 bun run ingest cards --remote
-bun run ingest catalog --refresh --remote
+bun run ingest sprites --remote
 ```
 
 **La surveillance** : `/v1/health` (par le site : `https://pokecodex.fr/api/health`) répond 200
-quand chaque tâche à rythme a réussi récemment (deux intervalles au plus : les prix en 12 h, les
-espèces en 60 jours) et que le guide des prix n'est pas figé, 503 sinon, avec les tâches en
-retard. Un trou dans l'historique des prix ne se rattrape jamais (Cardmarket n'en garde pas).
+quand chaque tâche à rythme a réussi récemment (deux intervalles au plus : les prix en 12 h, le
+catalogue en 2 jours, les espèces en 60 jours) et que le guide des prix n'est pas figé, 503 sinon,
+avec les tâches en retard. Un trou dans l'historique des prix ne se rattrape jamais (Cardmarket
+n'en garde pas).
 
 ## Sauvegardes : aucune
 
 Aucune sauvegarde (octobre 2026, décision de l'utilisateur) : ni copie de la base, ni procédure de
 restauration. Seul reste l'historique de la base D1 que Cloudflare garde de lui-même, 30 jours
 (Time Travel). Une base abîmée ou effacée, vue plus de 30 jours après, perd pour toujours
-l'historique des prix (Cardmarket n'en garde pas) ; les espèces, le catalogue et les images se
-relisent (`setup`, environ deux jours), l'historique de Pokécardex sur 180 jours seulement.
+l'historique des prix (Cardmarket n'en garde pas) ; les espèces, le catalogue et les images des
+Pokémon se relisent (`setup`).
 
 Les copies de l'ancien système de sauvegarde, envoyées sur un stockage distant, y restent jusqu'à
 ce qu'on les supprime (`rclone purge distant:pokedex-data-sauvegardes`).

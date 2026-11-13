@@ -6,7 +6,6 @@
 export const MINUTE = 60_000
 export const HOUR = 60 * MINUTE
 export const DAY = 24 * HOUR
-export const WEEK = 7 * DAY
 
 /** Le jour `days` jours après `date` : `addDays('2026-12-31', 1)` → `2027-01-01`. */
 export const addDays = (date: string, days: number) =>

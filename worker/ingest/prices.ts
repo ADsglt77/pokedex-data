@@ -3,9 +3,9 @@
  * Cron, `index.ts`), d'après son guide des prix public (prix du jour de chaque carte, par id
  * produit) et sa liste des produits (leur nom, leur extension et leur métacarte :
  * `cardmarket_products`, d'où leur ligne pour une liste de souhaits, `/v1/wants`). Lus en flux
- * (`streamArray`) : entiers, ils ne tiendraient pas en mémoire. Le prix du jour suit la règle de
- * Pokécardex (`guidePrice`), dont l'historique est repris (`history.ts`) : les courbes sont d'un
- * seul tenant. Il remplace celui de la veille (`cardmarket_prices`, avec le prix d'il y a 30 jours,
+ * (`streamArray`) : entiers, ils ne tiendraient pas en mémoire. Le prix du jour suit la règle du
+ * prix suivi (`guidePrice`), la même depuis octobre 2026 : les courbes sont d'un seul tenant. Il
+ * remplace celui de la veille (`cardmarket_prices`, avec le prix d'il y a 30 jours,
  * d'après l'historique) et s'ajoute à l'historique de la carte (`cardmarket_history`) ; relancée le
  * même jour, la tâche remplace le prix du jour. Le guide et la liste ne sont retéléchargés que si
  * le guide a changé depuis le dernier passage (`sources`, qui donne aussi leur ETag aux réponses
@@ -82,7 +82,7 @@ async function saveProducts({ products }: ProductList) {
 }
 
 /**
- * Le prix d'une carte d'après le guide du jour, la règle de Pokécardex (testé) : une carte d'une
+ * Le prix d'une carte d'après le guide du jour, la règle du prix suivi (testé) : une carte d'une
  * série sortie depuis moins de 31 jours (`recent`), la tendance Cardmarket ; sinon, sa moyenne sur
  * 30 jours, à défaut sur 7 jours, puis sur 1 jour. Une valeur qui n'est pas un prix plausible
  * (`plausiblePrice` : nulle, négative, de 100 000 € ou plus) passe à la suivante. `null` : pas de
@@ -123,6 +123,12 @@ async function readProducts(): Promise<ProductList> {
 }
 
 export async function prices(alive: Alive) {
+  // Sans le miroir du catalogue (jamais rempli : la tâche `catalog` jamais réussie), aucune carte
+  // ne serait « récente » : leur prix serait leur moyenne au lieu de leur tendance, et resterait
+  // faux dans l'historique. Rien n'est lu ni écrit : la tâche échoue, et repart après le catalogue.
+  if (!(await env.DB.prepare('SELECT 1 FROM catalog_cards LIMIT 1').first())) {
+    throw new Error('Miroir du catalogue vide : prix pas relevés avant un passage de « catalog »')
+  }
   const head = await download(PRICE_GUIDE_URL, { method: 'HEAD' })
   const stamp = head.headers.get('last-modified') ?? ''
   if (stamp && stamp === (await readSource('cardmarket'))?.stamp) {
@@ -158,7 +164,7 @@ const CARDS_PER_CHUNK = 200
  * Enregistre le guide des prix du jour et la liste des produits : les prix du jour remplacent ceux
  * de la veille, chacun s'ajoute à l'historique de sa carte (relancée le même jour, le prix du jour
  * remplacé), et `sources` note le passage (`stamp`). Les cartes à l'unité seulement, leur prix
- * selon la règle de Pokécardex (`guidePrice` ; `0` : pas de prix), avec le prix d'il y a 30 jours
+ * selon la règle du prix suivi (`guidePrice` ; `0` : pas de prix), avec le prix d'il y a 30 jours
  * (`monthAgo`). Moins de la moitié des prix d'avant : rien n'est écrit, une erreur (le format a
  * changé). La liste des produits, elle, n'arrête jamais les prix (testé) : illisible (`null`),
  * tronquée (moins de la moitié des produits qu'elle donnait : sinon tous les autres perdraient leur
@@ -177,13 +183,13 @@ export async function savePriceGuide(
 ) {
   const date = guide.createdAt.slice(0, 10)
 
-  // Les cartes des séries sorties depuis moins de 31 jours, d'après le catalogue : leur prix est la
-  // tendance (`guidePrice`). Le nombre de prix d'avant, et de produits de la liste d'avant.
+  // Les cartes des séries sorties depuis moins de 31 jours dans leur langue, d'après le miroir du
+  // catalogue (`catalog_cards`, la sortie de TCGdex) : leur prix est la tendance (`guidePrice`).
+  // Le nombre de prix d'avant, et de produits de la liste d'avant.
   const [recentRows, before, listed] = await env.DB.batch([
     env.DB.prepare(
-      `SELECT DISTINCT cards.cardmarket AS id
-       FROM cards JOIN sets ON sets.lang = cards.lang AND sets.id = cards.set_id
-       WHERE cards.cardmarket != 0 AND sets.released > ?`,
+      `SELECT DISTINCT cardmarket AS id FROM catalog_cards
+       WHERE released > ? AND cardmarket != 0`,
     ).bind(addDays(date, -31)),
     env.DB.prepare('SELECT COUNT(*) AS count FROM cardmarket_prices'),
     env.DB.prepare('SELECT COUNT(*) AS count FROM cardmarket_products WHERE expansion IS NOT NULL'),
@@ -237,8 +243,9 @@ export async function savePriceGuide(
 
 /**
  * Le prix du jour de ces cartes ajouté à leur année (`withPrice`), leur prix et celui d'il y a
- * 30 jours mis de côté ; celles dont l'année a changé entre sa lecture et son écriture (la tâche
- * `history` y reprenait des jours) sont relues et refaites. Rend le nombre d'années réécrites.
+ * 30 jours mis de côté ; celles dont l'année a changé entre sa lecture et son écriture (un autre
+ * essai de l'étape, tenu pour échoué, y écrivait encore : `RETRIES`, `workflow.ts`) sont relues et
+ * refaites. Rend le nombre d'années réécrites.
  */
 async function saveChunk(
   cards: [id: number, price: number, low: number | null][],

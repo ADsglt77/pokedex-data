@@ -8,9 +8,10 @@
  * qui a fui, occuper l'API. L'entrée du site (sa liaison de service) : ni token ni limite. Et
  * l'état des tâches (`status.ts`), que montre la page Réglages du site : une tâche à la demande
  * n'est jamais en retard, un passage arrêté net est un échec, et la surveillance ne compte que
- * celles à rythme. Et les routes du catalogue : chaque langue rend ses réponses (`/v1/catalog/…`
- * les japonaises, `/v1/catalog/fr/…` les françaises), sans jamais mêler les unes aux autres ; une
- * réponse inchangée, 304.
+ * celles à rythme, le catalogue compris. Et les routes du catalogue : chaque langue rend ses
+ * réponses (`/v1/catalog/…` les japonaises, `/v1/catalog/fr/…` les françaises), sans jamais mêler
+ * les unes aux autres, une série par son id chez TCGdex (« sv03.5 », « SM1+ ») ; une réponse
+ * inchangée, 304.
  */
 
 import { createExecutionContext } from 'cloudflare:test'
@@ -36,8 +37,22 @@ const get = (path: string, token: string | null = TOKEN, address = '203.0.113.1'
     }),
   )
 
-/** Les passages des tâches : aucun, puis ceux que pose chaque test. */
+/**
+ * Ce que les tâches écrivent dans R2 et dont l'état vérifie la présence (`missingOutputs`) : les
+ * réponses des espèces et du catalogue, le dernier sprite et la dernière illustration.
+ */
+const OUTPUTS = [
+  'snapshots/species.json',
+  'snapshots/species-details.json',
+  'snapshots/catalog/sets.json',
+  'snapshots/catalog/fr/sets.json',
+  'images/species/1025.png',
+  'images/species/artwork/1025.png',
+]
+
+/** Les passages des tâches : aucun, puis ceux que pose chaque test ; leurs sorties, présentes. */
 async function runs(...rows: [job: string, ok: 0 | 1, ago: number][]) {
+  await Promise.all(OUTPUTS.map((key) => env.FILES.put(key, '{}')))
   const write = env.DB.prepare(
     'INSERT INTO runs (job, started_at, finished_at, ok) VALUES (?, ?, ?, ?)',
   )
@@ -253,21 +268,9 @@ describe('l’état des tâches', () => {
     current.jobs.find((row) => row.job === job)!.state
 
   test('chaque tâche et son état, sans les détails internes', async () => {
-    await runs(
-      ['prices', 1, HOUR],
-      ['species', 1, 61 * DAY],
-      ['catalog', 1, 90 * DAY],
-      ['history', 0, HOUR],
-    )
+    await runs(['prices', 1, HOUR], ['species', 1, 61 * DAY], ['catalog', 1, HOUR])
     const current = await status()
-    expect(current.jobs.map(({ job }) => job)).toEqual([
-      'species',
-      'catalog',
-      'images',
-      'prices',
-      'history',
-    ])
-    // À la demande : jamais en retard, même passée il y a longtemps.
+    expect(current.jobs.map(({ job }) => job)).toEqual(['species', 'catalog', 'sprites', 'prices'])
     expect(current.jobs.find((row) => row.job === 'catalog')).toEqual({
       job: 'catalog',
       label: 'Catalogue',
@@ -275,31 +278,36 @@ describe('l’état des tâches', () => {
     })
     expect(stateOf(current, 'prices')).toBe('ok')
     expect(stateOf(current, 'species')).toBe('late')
-    expect(stateOf(current, 'images')).toBe('never')
-    expect(stateOf(current, 'history')).toBe('failed')
+    expect(stateOf(current, 'sprites')).toBe('never')
+    // À la demande : jamais en retard, même passée il y a longtemps ; son échec se voit.
+    await runs(['sprites', 1, 90 * DAY], ['catalog', 1, 3 * DAY])
+    expect(stateOf(await status(), 'sprites')).toBe('ok')
+    expect(stateOf(await status(), 'catalog')).toBe('late')
+    await runs(['sprites', 0, HOUR])
+    expect(stateOf(await status(), 'sprites')).toBe('failed')
   })
 
   test('une tâche planifiée jamais passée est en retard', async () => {
     await runs(['prices', 1, HOUR])
     const current = await status()
-    expect(stateOf(current, 'catalog')).toBe('never')
-    expect(stateOf(current, 'images')).toBe('never')
+    expect(stateOf(current, 'catalog')).toBe('late')
+    expect(stateOf(current, 'sprites')).toBe('never')
     expect(stateOf(current, 'species')).toBe('late')
   })
 
   test('un passage arrêté net (sans signe de vie depuis 5 min) : en échec ; un en cours : l’état d’avant', async () => {
-    await runs(['catalog', 1, DAY])
+    await runs(['catalog', 1, HOUR], ['prices', 1, HOUR])
     const open = env.DB.prepare('INSERT INTO runs (job, started_at, alive_at) VALUES (?, ?, ?)')
     const ago = (ms: number) => new Date(Date.now() - ms).toISOString()
     await env.DB.batch([
-      open.bind('history', ago(DAY), ago(10 * MINUTE)),
+      open.bind('prices', ago(DAY), ago(10 * MINUTE)),
       open.bind('catalog', ago(HOUR), ago(MINUTE)),
-      open.bind('images', ago(HOUR), ago(MINUTE)),
+      open.bind('sprites', ago(HOUR), ago(MINUTE)),
     ])
     const current = await status()
-    expect(stateOf(current, 'history')).toBe('failed')
+    expect(stateOf(current, 'prices')).toBe('failed')
     expect(stateOf(current, 'catalog')).toBe('ok')
-    expect(stateOf(current, 'images')).toBe('never')
+    expect(stateOf(current, 'sprites')).toBe('never')
   })
 
   test('des prix figés : la tâche réussit, mais le guide a plus de deux jours', async () => {
@@ -310,13 +318,37 @@ describe('l’état des tâches', () => {
     expect(stateOf(await status(), 'prices')).toBe('frozen')
   })
 
-  test('la surveillance : 503 pour une tâche à rythme en retard, jamais pour une à la demande', async () => {
-    await runs(['species', 1, HOUR], ['prices', 1, HOUR])
+  test('la surveillance : 503 pour une tâche à rythme en retard, le catalogue compris, jamais pour une à la demande', async () => {
+    await runs(['species', 1, HOUR], ['catalog', 1, HOUR], ['prices', 1, HOUR])
     expect((await get('/v1/health', null)).status).toBe(200)
-    await runs(['species', 1, HOUR], ['prices', 1, 13 * HOUR])
+    await runs(['species', 1, HOUR], ['catalog', 1, HOUR], ['prices', 1, 13 * HOUR])
     const late = await get('/v1/health', null)
     expect(late.status).toBe(503)
     expect(await late.json()).toEqual({ ok: false, late: ['prices'] })
+    // Le catalogue : deux jours sans réussite, ou jamais passé.
+    await runs(['species', 1, HOUR], ['catalog', 1, 49 * HOUR], ['prices', 1, HOUR])
+    expect(await (await get('/v1/health', null)).json()).toEqual({ ok: false, late: ['catalog'] })
+    await runs(['species', 1, HOUR], ['prices', 1, HOUR])
+    expect(await (await get('/v1/health', null)).json()).toEqual({ ok: false, late: ['catalog'] })
+  })
+
+  test('une sortie effacée de R2 : sa tâche en retard, même à jour ou à la demande, et la surveillance le dit', async () => {
+    await runs(
+      ['species', 1, HOUR],
+      ['catalog', 1, HOUR],
+      ['sprites', 1, HOUR],
+      ['prices', 1, HOUR],
+    )
+    await env.FILES.delete(['snapshots/species-details.json', 'snapshots/catalog/fr/sets.json'])
+    await env.FILES.delete('images/species/artwork/1025.png')
+    const current = await status()
+    expect(stateOf(current, 'species')).toBe('late')
+    expect(stateOf(current, 'catalog')).toBe('late')
+    expect(stateOf(current, 'sprites')).toBe('late')
+    expect(stateOf(current, 'prices')).toBe('ok')
+    const health = await get('/v1/health', null)
+    expect(health.status).toBe(503)
+    expect(await health.json()).toEqual({ ok: false, late: ['species', 'catalog', 'sprites'] })
   })
 })
 
@@ -333,25 +365,29 @@ describe('le catalogue de chaque langue', () => {
   test('les routes françaises servent les réponses françaises, les japonaises restent', async () => {
     await snapshot('catalog/sets', { langue: 'ja', route: 'sets' })
     await snapshot('catalog/fr/sets', { langue: 'fr', route: 'sets' })
-    await snapshot('catalog/sets/SV2A', { langue: 'ja', route: 'set' })
-    await snapshot('catalog/fr/sets/MEG', { langue: 'fr', route: 'set' })
+    await snapshot('catalog/sets/SV2a', { langue: 'ja', route: 'set' })
+    await snapshot('catalog/fr/sets/sv03.5', { langue: 'fr', route: 'set' })
+    await snapshot('catalog/sets/SM1+', { langue: 'ja', route: 'SM1+' })
     await snapshot('catalog/species/25', { langue: 'ja', route: 'species' })
     await snapshot('catalog/fr/species/25', { langue: 'fr', route: 'species' })
     expect(await answer('/v1/catalog/sets')).toEqual({ langue: 'ja', route: 'sets' })
     expect(await answer('/v1/catalog/fr/sets')).toEqual({ langue: 'fr', route: 'sets' })
-    expect(await answer('/v1/catalog/sets/SV2A')).toEqual({ langue: 'ja', route: 'set' })
-    expect(await answer('/v1/catalog/fr/sets/MEG')).toEqual({ langue: 'fr', route: 'set' })
+    expect(await answer('/v1/catalog/sets/SV2a')).toEqual({ langue: 'ja', route: 'set' })
+    expect(await answer('/v1/catalog/fr/sets/sv03.5')).toEqual({ langue: 'fr', route: 'set' })
+    // Encodé (« + » en `%2B`) ou non : la même série.
+    expect(await answer('/v1/catalog/sets/SM1%2B')).toEqual({ langue: 'ja', route: 'SM1+' })
+    expect(await answer('/v1/catalog/sets/SM1+')).toEqual({ langue: 'ja', route: 'SM1+' })
     expect(await answer('/v1/catalog/species/25')).toEqual({ langue: 'ja', route: 'species' })
     expect(await answer('/v1/catalog/fr/species/25')).toEqual({ langue: 'fr', route: 'species' })
   })
 
   test('une réponse absente de sa langue : 404 sans corps, jamais celle de l’autre', async () => {
-    await snapshot('catalog/sets/SV2A', { langue: 'ja' })
-    await snapshot('catalog/fr/sets/MEG', { langue: 'fr' })
+    await snapshot('catalog/sets/SV2a', { langue: 'ja' })
+    await snapshot('catalog/fr/sets/sv03.5', { langue: 'fr' })
     for (const path of [
       '/v1/catalog/fr/sets/INCONNU',
-      '/v1/catalog/fr/sets/SV2A',
-      '/v1/catalog/sets/MEG',
+      '/v1/catalog/fr/sets/SV2a',
+      '/v1/catalog/sets/sv03.5',
       '/v1/catalog/fr/species/1',
     ]) {
       const response = await get(path)
@@ -384,6 +420,7 @@ describe('le catalogue de chaque langue', () => {
     for (const [name, path] of [
       ['catalog/sets/a b', '/v1/catalog/sets/a%20b'],
       ['catalog/fr/sets/a b', '/v1/catalog/fr/sets/a%20b'],
+      ['catalog/sets/a/b', '/v1/catalog/sets/a%2Fb'],
       ['catalog/species/1026', '/v1/catalog/species/1026'],
       ['catalog/fr/species/1026', '/v1/catalog/fr/species/1026'],
       ['catalog/fr/species/0', '/v1/catalog/fr/species/0'],

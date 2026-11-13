@@ -16,8 +16,8 @@ import { env } from 'cloudflare:workers'
  * un client ne garde jamais une réponse d'une ancienne forme. Les espèces et le catalogue, gardés
  * dans R2 tels qu'écrits, n'en dépendent pas : leur changement de forme se fait en trois temps
  * (`../pokedex/docs/deploiement.md`). 2 : les prix rendent une clé par carte
- * demandée, `null` sans prix (octobre 2026). 3 : le prix d'une carte suit la règle de Pokécardex,
- * et son troisième nombre est son prix d'il y a 30 jours (octobre 2026).
+ * demandée, `null` sans prix (octobre 2026). 3 : le prix d'une carte suit la règle du prix suivi
+ * (`guidePrice`), et son troisième nombre est son prix d'il y a 30 jours (octobre 2026).
  */
 const FORMAT = 3
 
@@ -64,7 +64,7 @@ export async function serveTagged(
 }
 
 /** La clé R2 d'une réponse calculée. */
-const snapshotKey = (name: string) => `snapshots/${name}.json`
+export const snapshotKey = (name: string) => `snapshots/${name}.json`
 
 /**
  * Une réponse calculée en fin de tâche (`name` : `species`, `catalog/sets/SV2A`…), son ETag celui
@@ -89,8 +89,8 @@ export async function serveSnapshot(name: string, request: Request) {
 /**
  * Enregistre une réponse calculée par une tâche (`name` : `species`, `catalog/sets/SV2A`…),
  * seulement si elle a changé : son MD5 comparé à l'ETag de R2 (celui d'un objet écrit d'un coup).
- * Un passage `cards` en recalcule environ 5 500, deux fois, presque toutes inchangées : une
- * lecture de leur en-tête plutôt qu'une écriture.
+ * Un passage `catalog` en recalcule environ 2 500, presque toutes inchangées : une lecture de
+ * leur en-tête plutôt qu'une écriture.
  */
 export async function saveSnapshot(name: string, data: unknown) {
   const text = new TextEncoder().encode(JSON.stringify(data))

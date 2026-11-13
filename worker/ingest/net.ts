@@ -33,9 +33,9 @@ export async function politeFetch(url: string, init?: RequestInit) {
 }
 
 /**
- * Au-delà, une réponse lue d'un coup n'est pas celle attendue (une page ou un script de
- * Pokécardex, une image, un document de PokéAPI : quelques centaines de Ko) : une erreur, plutôt
- * que la mémoire du Worker épuisée, ou une « image » de dizaines de Mo gardée dans R2 et servie.
+ * Au-delà, une réponse lue d'un coup n'est pas celle attendue (une image, un document de PokéAPI :
+ * quelques centaines de Ko) : une erreur, plutôt que la mémoire du Worker épuisée, ou une « image »
+ * de dizaines de Mo gardée dans R2 et servie.
  * Le guide des prix et la liste des produits, plus gros, sont lus en flux (`json-stream.ts`).
  */
 const MAX_READ = 5_000_000

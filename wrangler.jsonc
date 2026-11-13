@@ -24,9 +24,25 @@
       "preview_database_id": "DB",
       "migrations_dir": "worker/migrations",
     },
+    // Le catalogue de TCGdex, tel que le copie l'importateur `pokecodex-importer` (dépôt
+    // `../pokecodex-api`) : lu seulement, par la tâche `catalog`. Son schéma est celui de
+    // l'importateur (pas de `migrations_dir` : ses migrations sont les siennes).
+    {
+      "binding": "CARDS",
+      "database_name": "pokecodex-cards",
+      "database_id": "7a534301-31ff-4d62-b42c-f5d1e3800e51",
+      "preview_database_id": "CARDS",
+    },
   ],
-  // Les images (`images/…`) et les réponses volumineuses calculées par les tâches (`snapshots/…`).
-  "r2_buckets": [{ "binding": "FILES", "bucket_name": "pokedex-data" }],
+  // `FILES` : les images des Pokémon (`images/species/…`) et les réponses volumineuses calculées
+  // par les tâches (`snapshots/…`). `IMPORTS`, le même bucket en ligne : les images des cartes et
+  // les logos des séries que copie l'importateur (`cards/…`), lus seulement (`worker/images.ts`) ;
+  // une liaison à part, pour qu'en développement elle puisse viser les images de l'importateur
+  // sans que les écritures des tâches (`FILES`, local) y aillent jamais.
+  "r2_buckets": [
+    { "binding": "FILES", "bucket_name": "pokedex-data" },
+    { "binding": "IMPORTS", "bucket_name": "pokedex-data" },
+  ],
   // Les limites de l'entrée d'Internet (`worker/limits.ts`) : toutes les demandes, par réseau ; les
   // routes coûteuses, et les lignes de la liste de souhaits, par client.
   // Leurs `namespace_id` sont partagés par tout le compte : ceux du site sont 2001 à 2006.
@@ -36,7 +52,7 @@
     { "name": "WANTS_LIMIT", "namespace_id": "1003", "simple": { "limit": 5, "period": 10 } },
   ],
   // Les tâches d'ingestion (`worker/ingest/workflow.ts`), et le Cron qui lance chaque heure celles
-  // à rythme qui sont dues (les prix, les espèces : `worker/index.ts`).
+  // à rythme qui sont dues (les prix, le catalogue, les espèces : `worker/index.ts`).
   "workflows": [{ "name": "ingest", "binding": "INGEST", "class_name": "Ingest" }],
   "triggers": { "crons": ["0 * * * *"] },
   // Les clients et leur token (`API_TOKENS`) sont un secret du Worker, jamais dans ce fichier.

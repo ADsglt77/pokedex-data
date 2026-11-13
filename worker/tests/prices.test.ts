@@ -5,10 +5,12 @@
  * carte (`/v1/prices/:id`, `/v1/histories`) : ses années dans l'ordre, mises bout à bout, avec son
  * nom ; jamais celui d'une autre carte. Puis leur écriture quotidienne par la tâche `prices`, et
  * celle de l'historique (irremplaçable : Cardmarket n'en garde pas) ; la série « récente » d'une
- * carte (sa tendance) se juge dans sa langue ; une liste des produits illisible, tronquée ou
- * impossible à enregistrer n'arrête jamais les prix du jour, et ne remplace pas celle d'avant ; un
- * passage arrêté en route ne laisse rien de ses prix ; une année que la tâche `history` change
- * entre sa lecture et son écriture est relue et refaite, son prix d'il y a 30 jours avec elle ;
+ * carte (sa tendance) se juge dans sa langue, d'après le miroir du catalogue ; une liste des
+ * produits illisible, tronquée ou impossible à enregistrer n'arrête jamais les prix du jour, et ne
+ * remplace pas celle d'avant ; sans le miroir du catalogue (jamais rempli), la tâche échoue avant
+ * de rien lire ni écrire (un prix sans sa règle resterait faux dans l'historique) ; un passage arrêté en route ne laisse rien de ses prix ; une année
+ * qu'un autre essai de l'étape change entre sa lecture et son écriture est relue et refaite, son
+ * prix d'il y a 30 jours avec elle ;
  * chaque paquet de cartes redit le signe de vie de l'étape ; en janvier, le prix d'il y a 30 jours
  * se lit dans l'année d'avant ; une valeur négative, nulle ou de 100 000 € ou plus n'est pas un
  * prix. Le guide et la liste, lus en flux : un document coupé avant la fin de son tableau est
@@ -25,25 +27,24 @@ import type { PriceGuide, ProductList } from '../ingest/prices'
 import { readSource, writeSource } from '../ingest/sources'
 import { alive, run } from './helpers'
 
-// `readYears` épié, pour y faire écrire la tâche `history` entre la lecture d'une année et son
-// écriture ; `prices.ts`, déjà chargé par l'entrée du Worker, rechargé pour le prendre.
+// `readYears` épié, pour y faire écrire un autre essai de l'étape entre la lecture d'une année et
+// son écriture ; `prices.ts`, déjà chargé par l'entrée du Worker, rechargé pour le prendre.
 const readYears = vi.hoisted(() => vi.fn<typeof import('../ingest/years').readYears>())
 vi.mock(import('../ingest/years'), async (original) => {
   const years = await original()
   return { ...years, readYears: readYears.mockImplementation(years.readYears) }
 })
 vi.resetModules()
-const { savePriceGuide } = await import('../ingest/prices')
+const { prices, savePriceGuide } = await import('../ingest/prices')
 
-/** Aucun prix lu, aucun historique, aucun produit, aucune série ni carte du catalogue. */
+/** Aucun prix lu, aucun historique, aucun produit, aucune carte dans le miroir du catalogue. */
 const reset = () =>
   run(
     "DELETE FROM sources WHERE name = 'cardmarket'",
     'DELETE FROM cardmarket_prices',
     'DELETE FROM cardmarket_history',
     'DELETE FROM cardmarket_products',
-    'DELETE FROM cards',
-    'DELETE FROM sets',
+    'DELETE FROM catalog_cards',
   )
 
 /** Le passage de la tâche `prices` (`stamp`) et le jour de son guide. */
@@ -292,13 +293,14 @@ describe('savePriceGuide : les prix du jour et l’historique', () => {
     expect(await priceRow(2)).toBeNull()
   })
 
-  test('la règle de Pokécardex : moyenne sur 30 jours, à défaut 7 puis 1 jour ; la tendance pour une série récente', async () => {
+  test('le prix suivi : moyenne sur 30 jours, à défaut 7 puis 1 jour ; la tendance pour une série récente', async () => {
     await reset()
-    // Une série sortie 11 jours avant le guide, et sa carte : la tendance ; ensuite, la moyenne.
+    // Une série sortie 11 jours avant le guide, et sa carte : la tendance ; ensuite, la moyenne. Une
+    // carte sans id Cardmarket (0) ne compte pas.
     await run(
-      "INSERT INTO sets (lang, id, name, released, read_at) VALUES ('ja', 'ESSAI-RECENT', 'Récente', '2026-10-01', '2026-10-01')",
-      `INSERT INTO cards (lang, id, set_id, number, sort, name, cardmarket, seen)
-       VALUES ('ja', 990001, 'ESSAI-RECENT', '1', 1, 'Récente', 5, '2026-10-01')`,
+      `INSERT INTO catalog_cards (lang, set_id, number, cardmarket, released) VALUES
+         ('ja', 'essai-recent', '1', 5, '2026-10-01'),
+         ('ja', 'essai-recent', '2', 0, '2026-10-01')`,
     )
     const day = guide(
       '2026-10-12',
@@ -350,21 +352,24 @@ describe('savePriceGuide : les prix du jour et l’historique', () => {
 
   test('une série récente se juge dans la langue de la carte : le même code dans l’autre langue n’y change rien', async () => {
     await reset()
-    // Le même code, récent au Japon, ancien en France : la carte française n'a pas la tendance.
+    // Le même id, récent au Japon, ancien en France : la carte française (son produit) n'a pas la
+    // tendance ; la japonaise du même numéro, d'un autre produit, l'a.
     await run(
-      `INSERT INTO sets (lang, id, name, released, read_at) VALUES
-         ('ja', 'ESSAI-LANGUE', 'Récente', '2026-10-01', '2026-10-01'),
-         ('fr', 'ESSAI-LANGUE', 'Ancienne', '2020-01-01', '2026-10-01')`,
-      `INSERT INTO cards (lang, id, set_id, number, sort, name, cardmarket, seen)
-       VALUES ('fr', 990002, 'ESSAI-LANGUE', '1', 1, 'Ancienne', 5, '2026-10-01')`,
+      `INSERT INTO catalog_cards (lang, set_id, number, cardmarket, released) VALUES
+         ('ja', 'essai-langue', '1', 6, '2026-10-01'),
+         ('fr', 'essai-langue', '1', 5, '2020-01-01')`,
     )
     await savePriceGuide(
-      guide('2026-10-12', [[5, { trend: 9, avg30: 4.2 }]]),
-      products([5]),
+      guide('2026-10-12', [
+        [5, { trend: 9, avg30: 4.2 }],
+        [6, { trend: 9, avg30: 4.2 }],
+      ]),
+      products([5, 6]),
       'a',
       alive,
     )
     expect(await priceRow(5)).toMatchObject({ price: 4.2 })
+    expect(await priceRow(6)).toMatchObject({ price: 9 })
   })
 
   test('le prix d’il y a 30 jours, d’après l’historique (ce jour-là sans prix : la semaine avant)', async () => {
@@ -410,9 +415,9 @@ describe('savePriceGuide : les prix du jour et l’historique', () => {
     expect(await priceRow(2)).toEqual({ price: 6, low: null, monthAgo: 4 })
   })
 
-  test('une année que la tâche `history` change entre sa lecture et son écriture : relue et refaite, avec son prix d’il y a 30 jours', async () => {
+  test('une année qu’un autre essai de l’étape change entre sa lecture et son écriture : relue et refaite, avec son prix d’il y a 30 jours', async () => {
     await reset()
-    // La carte lue sans historique ; aussitôt après, la tâche `history` y écrit son 12 septembre.
+    // La carte lue sans historique ; aussitôt après, un autre essai y écrit son 12 septembre.
     readYears.mockImplementationOnce(async () => {
       await run(
         "INSERT INTO cardmarket_history (id, year, first, prices) VALUES (1, 2026, 254, '[5]')",
@@ -420,7 +425,8 @@ describe('savePriceGuide : les prix du jour et l’historique', () => {
       return []
     })
     await savePriceGuide(guide('2026-10-12', [[1, { avg30: 6 }]]), products([1]), 'a', alive)
-    // Le jour repris et le prix du jour ; celui d'il y a 30 jours, d'après l'année relue.
+    // Le jour écrit par l'autre essai et le prix du jour ; celui d'il y a 30 jours, d'après l'année
+    // relue.
     expect(await history(1)).toEqual({
       name: 'Carte 1',
       from: '2026-09-12',
@@ -522,6 +528,20 @@ describe('savePriceGuide : les prix du jour et l’historique', () => {
       'SELECT name, expansion, metacard FROM cardmarket_products WHERE id = 2',
     ).first()
     expect(kept).toEqual({ name: 'Carte 2', expansion: null, metacard: null })
+  })
+})
+
+describe('la tâche prices sans le miroir du catalogue', () => {
+  test('miroir vide (le catalogue jamais passé) : rien n’est lu ni écrit, la tâche échoue', async () => {
+    await reset()
+    const fetched = vi.spyOn(globalThis, 'fetch')
+    try {
+      await expect(prices(alive)).rejects.toThrow(/Miroir du catalogue vide/)
+      expect(fetched).not.toHaveBeenCalled()
+      expect(await readSource('cardmarket')).toBeNull()
+    } finally {
+      fetched.mockRestore()
+    }
   })
 })
 
